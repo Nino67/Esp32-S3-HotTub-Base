@@ -1,0 +1,130 @@
+:root {
+  color-scheme: dark;
+  --bg: #09111c;
+  --panel: rgba(11, 18, 30, 0.82);
+  --panel-border: rgba(119, 166, 255, 0.18);
+  --text: #e6edf7;
+  --muted: #97a7c2;
+  --accent: #7ad7ff;
+  --accent-2: #9bffcd;
+  --warn: #ffd36e;
+  --bad: #ff8c8c;
+}
+
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  min-height: 100vh;
+  font-family: Inter, system-ui, sans-serif;
+  color: var(--text);
+  background:
+    radial-gradient(circle at top left, rgba(122, 215, 255, 0.14), transparent 30%),
+    radial-gradient(circle at bottom right, rgba(155, 255, 205, 0.11), transparent 28%),
+    var(--bg);
+}
+
+.shell {
+  width: min(960px, calc(100vw - 32px));
+  margin: 0 auto;
+  padding: 40px 0 56px;
+  display: grid;
+  gap: 20px;
+}
+
+.hero, .panel {
+  background: var(--panel);
+  border: 1px solid var(--panel-border);
+  border-radius: 24px;
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.35);
+  backdrop-filter: blur(18px);
+}
+
+.hero {
+  padding: 28px;
+}
+
+.eyebrow {
+  margin: 0 0 8px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--accent);
+  font-size: 0.75rem;
+}
+
+h1, h2 {
+  margin: 0;
+  line-height: 1.05;
+}
+
+h1 {
+  max-width: 12ch;
+  font-size: clamp(2.2rem, 5vw, 4.4rem);
+}
+
+.lede {
+  margin: 14px 0 0;
+  max-width: 58ch;
+  color: var(--muted);
+}
+
+.panel {
+  padding: 22px;
+}
+
+.panel header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 7px 12px;
+  border-radius: 999px;
+  background: rgba(122, 215, 255, 0.12);
+  color: var(--accent);
+  font-size: 0.9rem;
+}
+
+.badge[data-status="warn"] { color: var(--warn); background: rgba(255, 211, 110, 0.12); }
+.badge[data-status="bad"] { color: var(--bad); background: rgba(255, 140, 140, 0.12); }
+
+pre, textarea {
+  width: 100%;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(3, 8, 16, 0.8);
+  color: var(--text);
+  border-radius: 16px;
+  padding: 16px;
+  font: inherit;
+}
+
+pre {
+  min-height: 140px;
+  margin: 0;
+  overflow: auto;
+}
+
+textarea {
+  min-height: 110px;
+  resize: vertical;
+}
+
+button {
+  margin-top: 12px;
+  border: 0;
+  border-radius: 999px;
+  padding: 12px 18px;
+  background: linear-gradient(135deg, var(--accent), var(--accent-2));
+  color: #07111a;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+@media (max-width: 640px) {
+  .shell { width: min(100vw - 20px, 960px); padding-top: 18px; }
+  .hero, .panel { border-radius: 18px; }
+}

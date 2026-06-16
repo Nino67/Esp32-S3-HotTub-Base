@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Hot Tub Controller</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <section class="hero">
+        <p class="eyebrow">Hot Tub Controller</p>
+        <h1>Local control panel for Wi-Fi, BLE, and OTA.</h1>
+        <p class="lede">Connect over the device AP, then use the websocket console to exchange JSON with the controller.</p>
+      </section>
+
+      <section class="panel">
+        <header>
+          <h2>Status</h2>
+          <span id="connBadge" class="badge">connecting</span>
+        </header>
+        <pre id="stateView">waiting for state...</pre>
+      </section>
+
+      <section class="panel">
+        <header>
+          <h2>Send JSON</h2>
+        </header>
+        <textarea id="commandInput" spellcheck="false">{"command":"ping"}</textarea>
+        <button id="sendBtn">Send</button>
+      </section>
+    </main>
+
+    <script src="/app.js"></script>
+  </body>
+</html>

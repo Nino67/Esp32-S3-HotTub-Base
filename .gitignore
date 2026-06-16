@@ -1,0 +1,49 @@
+# Ignore sensitive environment files and credentials
+wifi_credentials.env
+wifi_credentials.h
+.env
+*.env
+
+# ESP-IDF and build artifacts
+build/
+**/build/
+CMakeFiles/
+**/CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+compile_commands.json
+project_description.json
+sdkconfig.old
+sdkconfig.cmake
+
+# SDK config management
+# Track sdkconfig in repo to preserve build settings.
+# Use sdkconfig.defaults for template defaults, not build output.
+# Do not ignore sdkconfig if it contains project-specific configuration.
+
+# Generated binaries and temporary build output
+*.bin
+*.elf
+*.map
+*.log
+*.tmp
+*.temp
+*.zip
+*.img
+
+# IDE and editor files
+.vscode/
+*.swp
+*.swo
+*.DS_Store
+__pycache__/
+*.pyc
+
+# Keep source, webserver, and ESP32 C/C++ files tracked
+!main/
+!components/
+!littlefs/
+!web_server/
+!*.c
+!*.cpp
+!*.h
