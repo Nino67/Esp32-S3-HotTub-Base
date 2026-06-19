@@ -116,8 +116,27 @@ static void track_client(int fd)
     }
 }
 
+static void untrack_client(int fd)
+{
+    for (size_t i = 0; i < sizeof(s_ws_clients) / sizeof(s_ws_clients[0]); ++i)
+    {
+        if (s_ws_clients[i] == fd)
+        {
+            s_ws_clients[i] = 0;
+            return;
+        }
+    }
+}
+
 static esp_err_t ws_handler(httpd_req_t *req)
 {
+    // The first call is the HTTP GET upgrade handshake, not a WS data frame.
+    if (req->method == HTTP_GET)
+    {
+        track_client(httpd_req_to_sockfd(req));
+        return ESP_OK;
+    }
+
     int sockfd = httpd_req_to_sockfd(req);
     track_client(sockfd);
 
@@ -130,7 +149,24 @@ static esp_err_t ws_handler(httpd_req_t *req)
     esp_err_t err = httpd_ws_recv_frame(req, &frame, 0);
     if (err != ESP_OK)
     {
+        untrack_client(sockfd);
         return err;
+    }
+
+    if (frame.type == HTTPD_WS_TYPE_CLOSE)
+    {
+        untrack_client(sockfd);
+        return ESP_OK;
+    }
+
+    if (frame.type != HTTPD_WS_TYPE_TEXT)
+    {
+        return ESP_OK;
+    }
+
+    if (frame.len == 0)
+    {
+        return ESP_OK;
     }
 
     char *payload = calloc(1, frame.len + 1);
@@ -153,8 +189,12 @@ static esp_err_t ws_handler(httpd_req_t *req)
                 .payload = (uint8_t *)response,
                 .len = strlen(response),
             };
-            httpd_ws_send_frame(req, &out);
+            err = httpd_ws_send_frame(req, &out);
         }
+    }
+    else
+    {
+        untrack_client(sockfd);
     }
 
     free(payload);
@@ -172,6 +212,7 @@ esp_err_t hot_tub_web_server_start(void)
 
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
     config.stack_size = 8192;
+    config.core_id = 0;
     config.lru_purge_enable = true;
     config.max_uri_handlers = 12;
 

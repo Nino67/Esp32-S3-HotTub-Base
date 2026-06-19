@@ -10,6 +10,23 @@ function setBadge(text, status) {
   badge.dataset.status = status;
 }
 
+function hardwareInit() {
+  setBadge('initializing', 'warn');
+
+  // add event listener for button 'sendBtn' to send command to the server
+  sendBtn.addEventListener('click', () => {
+    if (socket && socket.readyState === WebSocket.OPEN) {
+      console.log('Sending:', commandInput.value);
+      socket.send(commandInput.value);
+    }
+  });
+
+  // connect to the server
+  connect();
+
+}  
+
+
 function connect() {
   const proto = window.location.protocol === 'https:' ? 'wss' : 'ws';
   socket = new WebSocket(`${proto}://${window.location.host}/ws`);
@@ -26,6 +43,7 @@ function connect() {
 
   socket.addEventListener('message', (event) => {
     stateView.textContent = event.data;
+    console.log('Received:', event.data);
   });
 
   socket.addEventListener('error', () => {
@@ -33,10 +51,4 @@ function connect() {
   });
 }
 
-sendBtn.addEventListener('click', () => {
-  if (socket && socket.readyState === WebSocket.OPEN) {
-    socket.send(commandInput.value);
-  }
-});
-
-connect();
+hardwareInit();
