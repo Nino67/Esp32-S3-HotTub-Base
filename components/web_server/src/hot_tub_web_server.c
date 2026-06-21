@@ -8,6 +8,8 @@
 #include "esp_http_server.h"
 #include "esp_littlefs.h"
 #include "esp_log.h"
+#include "esp_crc.h"
+
 
 #include "hot_tub_device_state.h"
 
@@ -18,6 +20,15 @@ static const char *LFS_INDEX = "/littlefs/www/index.html";
 static httpd_handle_t s_server;
 static int s_ws_clients[4];
 
+
+
+
+
+
+/**
+ * @brief Mount the LittleFS filesystem, 
+ * which contains the web assets. 
+ */
 static esp_err_t mount_littlefs(void)
 {
     esp_vfs_littlefs_conf_t conf = {
@@ -33,8 +44,16 @@ static esp_err_t mount_littlefs(void)
         return ESP_OK;
     }
     return err;
-}
+} // End of mount_littlefs
+//-----------------------------------------------------------------------------
 
+
+/**
+ * @brief Determine the content type based on the file extension.
+ * 
+ * @param path The file path to determine the content type for.
+ * @return The content type string corresponding to the file extension.
+ */
 static const char *content_type_for_path(const char *path)
 {
     const char *ext = strrchr(path, '.');
@@ -55,8 +74,18 @@ static const char *content_type_for_path(const char *path)
         return "application/javascript";
     }
     return "text/plain";
-}
+} // End of content_type_for_path
+//-----------------------------------------------------------------------------
 
+
+
+/**
+ * @brief Send a file as the HTTP response.
+ * 
+ * @param req The HTTP request object.
+ * @param path The file path to send.
+ * @return ESP_OK on success, or an error code on failure.
+ */
 static esp_err_t send_file(httpd_req_t *req, const char *path)
 {
     FILE *file = fopen(path, "r");
@@ -82,13 +111,30 @@ static esp_err_t send_file(httpd_req_t *req, const char *path)
     fclose(file);
     httpd_resp_sendstr_chunk(req, NULL);
     return ESP_OK;
-}
+} // End of send_file
+//-----------------------------------------------------------------------------
 
+
+
+/**
+ * @brief Handle requests for the index page.
+ * 
+ * @param req The HTTP request object.
+ * @return ESP_OK on success, or an error code on failure.
+ */
 static esp_err_t index_handler(httpd_req_t *req)
 {
     return send_file(req, LFS_INDEX);
-}
+} // End of index_handler
+//-----------------------------------------------------------------------------
 
+
+/**
+ * @brief Handle requests for static assets (CSS, JS).
+ * 
+ * @param req The HTTP request object.
+ * @return ESP_OK on success, or an error code on failure.
+ */
 static esp_err_t asset_handler(httpd_req_t *req)
 {
     char path[640];
@@ -100,6 +146,13 @@ static esp_err_t asset_handler(httpd_req_t *req)
     return send_file(req, path);
 }
 
+
+/**
+ * @brief Handle WebSocket connections and messages.
+ * 
+ * @param req The HTTP request object representing the WebSocket connection.
+ * @return ESP_OK on success, or an error code on failure.
+ */
 static void track_client(int fd)
 {
     for (size_t i = 0; i < sizeof(s_ws_clients) / sizeof(s_ws_clients[0]); ++i)
@@ -114,8 +167,16 @@ static void track_client(int fd)
             return;
         }
     }
-}
+} // End of track_client
+//-----------------------------------------------------------------------------
 
+
+
+/**
+ * @brief Remove a WebSocket client from the tracking list.
+ * 
+ * @param fd The file descriptor of the WebSocket client to untrack.
+ */
 static void untrack_client(int fd)
 {
     for (size_t i = 0; i < sizeof(s_ws_clients) / sizeof(s_ws_clients[0]); ++i)
@@ -126,8 +187,17 @@ static void untrack_client(int fd)
             return;
         }
     }
-}
+} // End of untrack_client
+//-----------------------------------------------------------------------------
 
+
+
+/**
+ * @brief Handle WebSocket connections and messages.
+ * 
+ * @param req The HTTP request object representing the WebSocket connection.
+ * @return ESP_OK on success, or an error code on failure.
+ */
 static esp_err_t ws_handler(httpd_req_t *req)
 {
     // The first call is the HTTP GET upgrade handshake, not a WS data frame.
@@ -197,10 +267,20 @@ static esp_err_t ws_handler(httpd_req_t *req)
         untrack_client(sockfd);
     }
 
+    ESP_LOGI(TAG, "Received WS message: %s", frame.payload);
+
     free(payload);
     return err;
-}
+} // End of ws_handler
+//-----------------------------------------------------------------------------
 
+
+
+/**
+ * @brief Start the HTTP server and register URI handlers.
+ * 
+ * @return ESP_OK on success, or an error code on failure.
+ */
 esp_err_t hot_tub_web_server_start(void)
 {
     if (s_server)
@@ -246,8 +326,17 @@ esp_err_t hot_tub_web_server_start(void)
     ESP_RETURN_ON_ERROR(httpd_register_uri_handler(s_server, &ws_uri), TAG, "ws handler failed");
 
     return ESP_OK;
-}
+} // End of hot_tub_web_server_start
+//-----------------------------------------------------------------------------
 
+
+
+/**
+ * @brief Broadcast a JSON message to all connected WebSocket clients.
+ * 
+ * @param json The JSON string to broadcast.
+ * @return ESP_OK on success, or an error code on failure.
+ */
 esp_err_t hot_tub_web_server_broadcast_json(const char *json)
 {
     if (!s_server || !json)
@@ -276,4 +365,41 @@ esp_err_t hot_tub_web_server_broadcast_json(const char *json)
     }
 
     return result;
-}
+} // End of hot_tub_web_server_broadcast_json
+//-----------------------------------------------------------------------------
+
+// static void send_status_heartbeat(void)
+// {
+//     char json[256];
+
+    
+    
+//     if (hot_tub_device_state_format_json(json, sizeof(json)) == ESP_OK)
+//     {
+//         hot_tub_web_server_broadcast_json(json);
+//     }
+// } // End of send_status_heartbeat
+
+
+
+
+
+// /**
+//  * @brief Disconnect all connected WebSocket clients.
+//  */
+// static void disconnect_all_clients(void)
+// {
+//     for (size_t i = 0; i < sizeof(s_ws_clients) / sizeof(s_ws_clients[0]); ++i)
+//     {
+//         if (s_ws_clients[i] != 0)
+//         {
+//             httpd_ws_frame_t close_frame = {
+//                 .type = HTTPD_WS_TYPE_CLOSE,
+//                 .payload = NULL,
+//                 .len = 0,
+//             };
+//             httpd_ws_send_frame_async(s_server, s_ws_clients[i], &close_frame);
+//             s_ws_clients[i] = 0;
+//         }
+//     }
+// } // End of disconnect_all_clients

@@ -1,3 +1,5 @@
+
+
 const badge = document.getElementById('connBadge');
 const stateView = document.getElementById('stateView');
 const commandInput = document.getElementById('commandInput');
@@ -16,8 +18,9 @@ function hardwareInit() {
   // add event listener for button 'sendBtn' to send command to the server
   sendBtn.addEventListener('click', () => {
     if (socket && socket.readyState === WebSocket.OPEN) {
-      console.log('Sending:', commandInput.value);
+      // crc32_json_wrapper(JSON.parse(commandInput.value), commandInput.value, 1024, null); 
       socket.send(commandInput.value);
+      console.log('Sending:', commandInput.value);
     }
   });
 
