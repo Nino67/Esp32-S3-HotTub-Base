@@ -5,6 +5,8 @@
 #include "led_strip.h"
 #include "esp_system.h"
 #include "hot_tub_web_server.h"
+#include "cJSON.h"
+#include "json_service.h"
 
 #include "hot_tub_app.h"
 
@@ -13,10 +15,9 @@ static const char *TAG = "app_main";
 #define LED_PIN 48 
 #define NUM_LEDS 1
 #define LED_MODEL LED_MODEL_WS2812
-#define LED_STRIP_INTENSITY 5
- 
+#define LED_STRIP_INTENSITY 1
+#define HEARTBEAT_INTERVAL_MS 1000
 
-// PROTOTYPE DECLARATIONS
 static esp_err_t init_rgb_led(gpio_num_t gpio_num);
 static void hot_tub_app_task(void *arg);
 void app_main(void);
@@ -109,28 +110,75 @@ void app_main(void)
 
 
     // Heartbeat loop    
+    char json_output[256];
+    size_t json_output_len;
+
     for(;;) 
         {
             // Set the LED color to red
             ESP_ERROR_CHECK(led_strip_set_pixel(led_strip, 0, LED_STRIP_INTENSITY, 0, 0)); // Set the first LED to red
             ESP_ERROR_CHECK(led_strip_refresh(led_strip)); // Refresh the strip to apply changes
-            hot_tub_web_server_broadcast_json("{\"status\":\"red\"}");
-            vTaskDelay(pdMS_TO_TICKS(1000)); // Wait for 1 second
+            {
+                cJSON *json_obj = cJSON_CreateObject();
+                if (json_obj != NULL) {
+                    cJSON_AddStringToObject(json_obj, "status", "red");
+                    if (crc32_json_wrapper(json_obj, json_output, sizeof(json_output), &json_output_len)) {
+                        hot_tub_web_server_broadcast_json(json_output);
+                    }
+                    cJSON_Delete(json_obj);
+                }
+            }
+            vTaskDelay(pdMS_TO_TICKS(HEARTBEAT_INTERVAL_MS)); // Wait for 1 second
+
 
             // Set the LED color to green
             ESP_ERROR_CHECK(led_strip_set_pixel(led_strip, 0, 0, LED_STRIP_INTENSITY, 0)); // Set the first LED to green
             ESP_ERROR_CHECK(led_strip_refresh(led_strip)); // Refresh the strip to apply changes
-            hot_tub_web_server_broadcast_json("{\"status\":\"green\"}");    
-            vTaskDelay(pdMS_TO_TICKS(1000)); // Wait for 1 second
+            {
+                cJSON *json_obj = cJSON_CreateObject();
+                if (json_obj != NULL) {
+                    cJSON_AddStringToObject(json_obj, "status", "green");
+                    if (crc32_json_wrapper(json_obj, json_output, sizeof(json_output), &json_output_len)) {
+                        hot_tub_web_server_broadcast_json(json_output);
+                    }
+                    cJSON_Delete(json_obj);
+                }
+            }
+            vTaskDelay(pdMS_TO_TICKS(HEARTBEAT_INTERVAL_MS)); // Wait for 1 second
 
             // Set the LED color to blue
             ESP_ERROR_CHECK(led_strip_set_pixel(led_strip, 0, 0, 0, LED_STRIP_INTENSITY)); // Set the first LED to blue
             ESP_ERROR_CHECK(led_strip_refresh(led_strip)); // Refresh the strip to apply changes
-            hot_tub_web_server_broadcast_json("{\"status\":\"blue\"}"); 
-            vTaskDelay(pdMS_TO_TICKS(1000)); // Wait for 1 second
+            {
+                cJSON *json_obj = cJSON_CreateObject();
+                if (json_obj != NULL) {
+                    cJSON_AddStringToObject(json_obj, "status", "blue");
+                    if (crc32_json_wrapper(json_obj, json_output, sizeof(json_output), &json_output_len)) {
+                        hot_tub_web_server_broadcast_json(json_output);
+                    }
+                    cJSON_Delete(json_obj);
+                }
+            }
+            vTaskDelay(pdMS_TO_TICKS(HEARTBEAT_INTERVAL_MS)); // Wait for 1 second
         }   
 
 } // End of app_main
 //-----------------------------------------------------------------------------
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 

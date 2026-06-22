@@ -28,9 +28,17 @@
         </header>
         <textarea id="commandInput" spellcheck="false">{"command":"ping"}</textarea>
         <button id="sendBtn">Send</button>
+        <div class="debug-row">
+          <strong>Wrapped send payload</strong>
+          <pre id="sendView">waiting to send...</pre>
+        </div>
+        <div class="debug-row">
+          <strong>Last received payload</strong>
+          <pre id="receiveView">waiting for response...</pre>
+        </div>
       </section>
     </main>
 
-    <script src="/app.js"></script>
+    <script type="module" src="/app.js"></script>
   </body>
 </html>

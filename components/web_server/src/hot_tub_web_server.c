@@ -308,6 +308,11 @@ esp_err_t hot_tub_web_server_start(void)
         .method = HTTP_GET,
         .handler = asset_handler,
     };
+    httpd_uri_t crc_wrapper_uri = {
+        .uri = "/crc32_wrapper.js",
+        .method = HTTP_GET,
+        .handler = asset_handler,
+    };
     httpd_uri_t styles_uri = {
         .uri = "/styles.css",
         .method = HTTP_GET,
@@ -322,6 +327,7 @@ esp_err_t hot_tub_web_server_start(void)
 
     ESP_RETURN_ON_ERROR(httpd_register_uri_handler(s_server, &index_uri), TAG, "index handler failed");
     ESP_RETURN_ON_ERROR(httpd_register_uri_handler(s_server, &app_js_uri), TAG, "js handler failed");
+    ESP_RETURN_ON_ERROR(httpd_register_uri_handler(s_server, &crc_wrapper_uri), TAG, "crc wrapper handler failed");
     ESP_RETURN_ON_ERROR(httpd_register_uri_handler(s_server, &styles_uri), TAG, "css handler failed");
     ESP_RETURN_ON_ERROR(httpd_register_uri_handler(s_server, &ws_uri), TAG, "ws handler failed");
 
@@ -368,17 +374,17 @@ esp_err_t hot_tub_web_server_broadcast_json(const char *json)
 } // End of hot_tub_web_server_broadcast_json
 //-----------------------------------------------------------------------------
 
-// static void send_status_heartbeat(void)
-// {
-//     char json[256];
 
-    
-    
-//     if (hot_tub_device_state_format_json(json, sizeof(json)) == ESP_OK)
-//     {
-//         hot_tub_web_server_broadcast_json(json);
-//     }
-// } // End of send_status_heartbeat
+
+
+
+
+
+
+
+
+
+
 
 
 

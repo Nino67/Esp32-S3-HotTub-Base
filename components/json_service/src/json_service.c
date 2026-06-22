@@ -28,7 +28,7 @@ bool crc32_json_wrapper(const cJSON *json_obj,
                         size_t output_size,
                         size_t *output_len)
 {
-  ESP_LOGI("json_service", "Building CRC32 enveloped JSON message");
+  // ESP_LOGI("json_service", "Building CRC32 enveloped JSON message");
 
   if (json_obj == NULL || output == NULL || output_len == NULL)
   {
@@ -51,7 +51,7 @@ bool crc32_json_wrapper(const cJSON *json_obj,
   size_t base_prefix_len = complete_len - 1;
   uint32_t crc = esp_crc32_le(0, (const uint8_t *)base_complete, base_prefix_len);
 
-  ESP_LOGI("json_service", "CRC32 value: %" PRIu32, crc);
+  // ESP_LOGI("json_service", "CRC32 value: %" PRIu32, crc);
 
   int written = snprintf(output,
                          output_size,
@@ -67,11 +67,14 @@ bool crc32_json_wrapper(const cJSON *json_obj,
     return false;
   }
 
-  ESP_LOGI("json_service", "Built CRC32 enveloped JSON message: %s", output);
+  // ESP_LOGI("json_service", "Built CRC32 enveloped JSON message: %s", output);
   *output_len = (size_t)written;
   return true;
 } // end of crc32_json_wrapper()
 /*=================================================================================*/
+
+
+
 
 // /**
 //  * @brief  Validate a received JSON string with CRC32 envelope and reconstruct the original JSON if valid

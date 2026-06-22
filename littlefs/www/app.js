@@ -1,7 +1,11 @@
 
 
+import { createCrc32JsonWrapper, parseAndVerifyCrc32Wrapper } from '/crc32_wrapper.js';
+
 const badge = document.getElementById('connBadge');
 const stateView = document.getElementById('stateView');
+const receiveView = document.getElementById('receiveView');
+const sendView = document.getElementById('sendView');
 const commandInput = document.getElementById('commandInput');
 const sendBtn = document.getElementById('sendBtn');
 
@@ -14,13 +18,23 @@ function setBadge(text, status) {
 
 function hardwareInit() {
   setBadge('initializing', 'warn');
+  sendBtn.disabled = true;
 
   // add event listener for button 'sendBtn' to send command to the server
   sendBtn.addEventListener('click', () => {
-    if (socket && socket.readyState === WebSocket.OPEN) {
-      // crc32_json_wrapper(JSON.parse(commandInput.value), commandInput.value, 1024, null); 
-      socket.send(commandInput.value);
-      console.log('Sending:', commandInput.value);
+    if (!socket || socket.readyState !== WebSocket.OPEN) {
+      sendView.textContent = 'Socket is not open. Waiting for connection...';
+      return;
+    }
+
+    try {
+      const wrapped = createCrc32JsonWrapper(commandInput.value);
+      socket.send(wrapped);
+      sendView.textContent = wrapped;
+      console.log('Sending:', wrapped);
+    } catch (err) {
+      sendView.textContent = `Invalid JSON: ${err.message}`;
+      console.error('Failed to wrap JSON:', err);
     }
   });
 
@@ -36,21 +50,36 @@ function connect() {
 
   socket.addEventListener('open', () => {
     setBadge('connected', 'ok');
+    sendBtn.disabled = false;
+    sendView.textContent = 'Connected. Ready to send.';
     socket.send(JSON.stringify({ command: 'get_state' }));
   });
 
   socket.addEventListener('close', () => {
     setBadge('reconnecting', 'warn');
+    sendBtn.disabled = true;
+    sendView.textContent = 'Connection closed. Reconnecting...';
     window.setTimeout(connect, 1500);
   });
 
   socket.addEventListener('message', (event) => {
-    stateView.textContent = event.data;
-    console.log('Received:', event.data);
+    const result = parseAndVerifyCrc32Wrapper(event.data);
+    if (result.valid) {
+      const text = JSON.stringify(result.payload, null, 2);
+      stateView.textContent = text;
+      receiveView.textContent = event.data;
+      console.log('Received verified payload:', result.payload);
+    } else {
+      stateView.textContent = `CRC invalid: ${result.reason || `${result.computed} != ${result.expected}`}`;
+      receiveView.textContent = event.data;
+      console.warn('Invalid CRC32 payload:', event.data, result);
+    }
   });
 
   socket.addEventListener('error', () => {
     setBadge('error', 'bad');
+    sendBtn.disabled = true;
+    sendView.textContent = 'WebSocket error. Check console.';
   });
 }
 
