@@ -1,3 +1,29 @@
+/**
+ * @file app_main.c
+ * @author Gaetano (Nino) Ricca (gricca1967@gmail.com)
+ * @brief   Main application for ESP32-S3 
+ *
+ * @details This file contains the main application logic for 
+ * the ESP32-S3-based hot tub controller. It initializes the 
+ * RGB LED starts the main application task, and implements 
+ * a heartbeat loop that updates the LED color and broadcasts 
+ * status updates over WebSocket. The application is designed to 
+ * run on an ESP32-S3 microcontroller and is part of a larger 
+ * project that includes web server functionality and JSON-based 
+ * communication.
+ *
+ * @note Matching hardware:
+ * - model: ESP32-S3-DevKitC-1.         SKU: ESP32-S3-DevKitC-1-N8R8
+ * - mfg: RS Engineering.               date: 2026-06-22
+
+ * @version 0.1
+ * @date 2026-06-22
+ *
+ * @copyright Copyright (c) 2026
+ *
+ */
+
+
 #include "esp_err.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
@@ -7,23 +33,25 @@
 #include "hot_tub_web_server.h"
 #include "cJSON.h"
 #include "json_service.h"
-
+#include "rgb_led.h"
 #include "hot_tub_app.h"
 
-static const char *TAG = "app_main";
 
 #define LED_PIN 48 
-#define NUM_LEDS 1
-#define LED_MODEL LED_MODEL_WS2812
-#define LED_STRIP_INTENSITY 1
+// #define NUM_LEDS 1
+// #define LED_MODEL LED_MODEL_WS2812
+// #define LED_STRIP_INTENSITY 1
 #define HEARTBEAT_INTERVAL_MS 1000
 
-static esp_err_t init_rgb_led(gpio_num_t gpio_num);
+// esp_err_t init_ws2812_led(gpio_num_t gpio_num);
 static void hot_tub_app_task(void *arg);
 void app_main(void);
 
-// Global handle for the RGB LED strip (WS2812)
-led_strip_handle_t led_strip = NULL;
+
+static const char *TAG = "app_main";
+
+static int _heartbeat_time_interval_ms_ = HEARTBEAT_INTERVAL_MS;
+
 
 
 /**
@@ -43,45 +71,31 @@ static void hot_tub_app_task(void *arg)
 //----------------------------------------------------------------------------- 
 
 
-
-/**
- * @brief Initialize the RGB LED using the led_strip component.
- *
- * @param gpio_num The GPIO number connected to the LED strip's data line.
- * @return ESP_OK on success, or an error code on failure.  
- */
-static esp_err_t init_rgb_led(gpio_num_t gpio_num)
+static void heartbeat_loop_task(void *arg)
 {
-    led_strip_config_t strip_config = {
-        .strip_gpio_num = gpio_num,  // The GPIO that connected to the LED strip's data line
-        .max_leds = NUM_LEDS,       // The number of LEDs in the strip,
-        .led_model = LED_MODEL,     // LED strip model, it determines the bit timing
-        .color_component_format = LED_STRIP_COLOR_COMPONENT_FMT_GRB, // The color component format is G-R-B
-        .flags = {
-        .invert_out = false, // don't invert the output signal
-        }
-    };
-
-    /// RMT backend specific configuration
-    led_strip_rmt_config_t rmt_config = {
-        .clk_src = RMT_CLK_SRC_DEFAULT,    // different clock source can lead to different power consumption
-        .resolution_hz = 10 * 1000 * 1000, // RMT counter clock frequency: 10MHz
-        .mem_block_symbols = 64,           // the memory size of each RMT channel, in words (4 bytes)
-        .flags = {
-            .with_dma = false, // DMA feature is available on chips like ESP32-S3/P4
-        }
-    };
-
-    /// Create the LED strip object
-    esp_err_t err = led_strip_new_rmt_device(&strip_config, &rmt_config, &led_strip);
-    if (err != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to initialize LED strip: %s", esp_err_to_name(err));
-        return err;
-    }
- 
-    return ESP_OK;
-} // End of init_rgb_led
+    
+    for(;;) 
+    {
+        cycle_rgb_led_colors();    
+        vTaskDelay(pdMS_TO_TICKS(_heartbeat_time_interval_ms_)); // Wait for 100 ms
+    }   
+    vTaskDelete(NULL);
+    ESP_LOGI(TAG, "Heartbeat loop task deleted");
+} // End of heartbeat_loop
 //-----------------------------------------------------------------------------
+
+
+esp_err_t set_heartbeat_interval(int interval_ms)
+{
+    if (interval_ms <= 0) {
+        ESP_LOGE(TAG, "Invalid heartbeat interval: %d ms", interval_ms);
+        return ESP_ERR_INVALID_ARG;
+    }
+    _heartbeat_time_interval_ms_ = interval_ms;
+    ESP_LOGI(TAG, "Heartbeat interval set to %d ms", _heartbeat_time_interval_ms_);
+    return ESP_OK;
+} // End of set_heartbeat_interval
+//----------------------------------------------------------------------------- 
 
 
 
@@ -103,64 +117,18 @@ void app_main(void)
 
     
     // Initialize the RGB LED strip
-    ESP_ERROR_CHECK(init_rgb_led(LED_PIN));
+    // ESP_ERROR_CHECK(init_rgb_led(LED_PIN));
+    ESP_ERROR_CHECK(init_rgb_led());
                              
-    // Clear the LED strip (turn off all LEDs)
-    ESP_ERROR_CHECK(led_strip_clear(led_strip));
 
+    xTaskCreatePinnedToCore(heartbeat_loop_task,
+                            "heartbeat_loop",
+                            2048,
+                            NULL,
+                            5,
+                            NULL,
+                            0);
 
-    // Heartbeat loop    
-    char json_output[256];
-    size_t json_output_len;
-
-    for(;;) 
-        {
-            // Set the LED color to red
-            ESP_ERROR_CHECK(led_strip_set_pixel(led_strip, 0, LED_STRIP_INTENSITY, 0, 0)); // Set the first LED to red
-            ESP_ERROR_CHECK(led_strip_refresh(led_strip)); // Refresh the strip to apply changes
-            {
-                cJSON *json_obj = cJSON_CreateObject();
-                if (json_obj != NULL) {
-                    cJSON_AddStringToObject(json_obj, "status", "red");
-                    if (crc32_json_wrapper(json_obj, json_output, sizeof(json_output), &json_output_len)) {
-                        hot_tub_web_server_broadcast_json(json_output);
-                    }
-                    cJSON_Delete(json_obj);
-                }
-            }
-            vTaskDelay(pdMS_TO_TICKS(HEARTBEAT_INTERVAL_MS)); // Wait for 1 second
-
-
-            // Set the LED color to green
-            ESP_ERROR_CHECK(led_strip_set_pixel(led_strip, 0, 0, LED_STRIP_INTENSITY, 0)); // Set the first LED to green
-            ESP_ERROR_CHECK(led_strip_refresh(led_strip)); // Refresh the strip to apply changes
-            {
-                cJSON *json_obj = cJSON_CreateObject();
-                if (json_obj != NULL) {
-                    cJSON_AddStringToObject(json_obj, "status", "green");
-                    if (crc32_json_wrapper(json_obj, json_output, sizeof(json_output), &json_output_len)) {
-                        hot_tub_web_server_broadcast_json(json_output);
-                    }
-                    cJSON_Delete(json_obj);
-                }
-            }
-            vTaskDelay(pdMS_TO_TICKS(HEARTBEAT_INTERVAL_MS)); // Wait for 1 second
-
-            // Set the LED color to blue
-            ESP_ERROR_CHECK(led_strip_set_pixel(led_strip, 0, 0, 0, LED_STRIP_INTENSITY)); // Set the first LED to blue
-            ESP_ERROR_CHECK(led_strip_refresh(led_strip)); // Refresh the strip to apply changes
-            {
-                cJSON *json_obj = cJSON_CreateObject();
-                if (json_obj != NULL) {
-                    cJSON_AddStringToObject(json_obj, "status", "blue");
-                    if (crc32_json_wrapper(json_obj, json_output, sizeof(json_output), &json_output_len)) {
-                        hot_tub_web_server_broadcast_json(json_output);
-                    }
-                    cJSON_Delete(json_obj);
-                }
-            }
-            vTaskDelay(pdMS_TO_TICKS(HEARTBEAT_INTERVAL_MS)); // Wait for 1 second
-        }   
 
 } // End of app_main
 //-----------------------------------------------------------------------------
