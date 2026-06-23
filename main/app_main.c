@@ -33,15 +33,15 @@
 #include "hot_tub_web_server.h"
 #include "cJSON.h"
 #include "json_service.h"
-#include "rgb_led.h"
+// #include "rgb_led.h"
 #include "hot_tub_app.h"
 
 
-#define LED_PIN 48 
+// #define LED_PIN 48 
 // #define NUM_LEDS 1
 // #define LED_MODEL LED_MODEL_WS2812
 // #define LED_STRIP_INTENSITY 1
-#define HEARTBEAT_INTERVAL_MS 1000
+// #define HEARTBEAT_INTERVAL_MS 1000
 
 // esp_err_t init_ws2812_led(gpio_num_t gpio_num);
 static void hot_tub_app_task(void *arg);
@@ -50,7 +50,6 @@ void app_main(void);
 
 static const char *TAG = "app_main";
 
-static int _heartbeat_time_interval_ms_ = HEARTBEAT_INTERVAL_MS;
 
 
 
@@ -71,32 +70,6 @@ static void hot_tub_app_task(void *arg)
 //----------------------------------------------------------------------------- 
 
 
-static void heartbeat_loop_task(void *arg)
-{
-    
-    for(;;) 
-    {
-        cycle_rgb_led_colors();    
-        vTaskDelay(pdMS_TO_TICKS(_heartbeat_time_interval_ms_)); // Wait for 100 ms
-    }   
-    vTaskDelete(NULL);
-    ESP_LOGI(TAG, "Heartbeat loop task deleted");
-} // End of heartbeat_loop
-//-----------------------------------------------------------------------------
-
-
-esp_err_t set_heartbeat_interval(int interval_ms)
-{
-    if (interval_ms <= 0) {
-        ESP_LOGE(TAG, "Invalid heartbeat interval: %d ms", interval_ms);
-        return ESP_ERR_INVALID_ARG;
-    }
-    _heartbeat_time_interval_ms_ = interval_ms;
-    ESP_LOGI(TAG, "Heartbeat interval set to %d ms", _heartbeat_time_interval_ms_);
-    return ESP_OK;
-} // End of set_heartbeat_interval
-//----------------------------------------------------------------------------- 
-
 
 
 /**
@@ -116,18 +89,7 @@ void app_main(void)
 
 
     
-    // Initialize the RGB LED strip
-    // ESP_ERROR_CHECK(init_rgb_led(LED_PIN));
-    ESP_ERROR_CHECK(init_rgb_led());
-                             
-
-    xTaskCreatePinnedToCore(heartbeat_loop_task,
-                            "heartbeat_loop",
-                            2048,
-                            NULL,
-                            5,
-                            NULL,
-                            0);
+ 
 
 
 } // End of app_main

@@ -9,4 +9,5 @@ idf_component_register(SRCS "src/hot_tub_app.c"
                                 ble_service
                                 device_state
                                 esp_common
+                                rgb_led
                                 json_service)

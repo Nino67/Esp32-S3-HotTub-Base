@@ -46,11 +46,16 @@
 #define LED_STRIP_INTENSITY 1
 #endif
 
+#ifndef HEARTBEAT_INTERVAL_MS
+#define HEARTBEAT_INTERVAL_MS 1000
+#endif
+
 
 // GLOBAL STATIC VARIABLES
 static const char *TAG = "rgb_led"; // tag for logging
 static led_strip_handle_t led_strip = NULL; // handle for the RGB LED (WS2812)
 
+static int _heartbeat_time_interval_ms_ = HEARTBEAT_INTERVAL_MS;
 
 
 /**
@@ -87,9 +92,9 @@ static esp_err_t init_ws2812_led(gpio_num_t gpio_num)
         ESP_LOGE(TAG, "Failed to initialize LED strip: %s", esp_err_to_name(err));
         return err;
     }
+    ESP_ERROR_CHECK(clear_rgb_led()); // Clear the LED strip (turn off all LEDs)
  
-    return clear_rgb_led(); // Clear the LED strip (turn off all LEDs)
-
+    return ESP_OK;
 } // End of init_ws2812_led
 //-----------------------------------------------------------------------------
 
@@ -119,6 +124,7 @@ esp_err_t init_rgb_led(void)
     return init_ws2812_led(LED_PIN);
 } // End of init_rgb_led
 //----------------------------------------------------------------------------- 
+
 
 
 /**
@@ -227,4 +233,65 @@ esp_err_t cycle_rgb_led_colors(void)
 
     return ESP_OK;
 } // End of cycle_rgb_led_colors
+//----------------------------------------------------------------------------- 
+
+
+
+/**
+ * @brief Heartbeat loop task for cycling RGB LED colors.
+ *
+ * @param arg Pointer to task arguments (not used).
+ */
+static void heartbeat_loop_task(void *arg)
+{
+    for (;;) 
+    {
+        ESP_ERROR_CHECK(cycle_rgb_led_colors());
+        vTaskDelay(pdMS_TO_TICKS(_heartbeat_time_interval_ms_));
+    }
+    vTaskDelete(NULL);
+    ESP_LOGI(TAG, "Heartbeat loop task deleted");
+} // End of heartbeat_loop
+//-----------------------------------------------------------------------------
+
+
+
+/**
+ * @brief Set the heartbeat interval for the RGB LED color cycling.
+ *
+ * @param interval_ms The interval in milliseconds for the heartbeat.
+ * @return ESP_OK on success, or an error code on failure.
+ */
+esp_err_t set_heartbeat_interval(int interval_ms)
+{
+    if (interval_ms <= 0) {
+        ESP_LOGE(TAG, "Invalid heartbeat interval: %d ms", interval_ms);
+        return ESP_ERR_INVALID_ARG;
+    }
+    _heartbeat_time_interval_ms_ = interval_ms;
+    ESP_LOGI(TAG, "Heartbeat interval set to %d ms", _heartbeat_time_interval_ms_);
+    return ESP_OK;
+} // End of set_heartbeat_interval
+//----------------------------------------------------------------------------- 
+
+
+
+esp_err_t rgb_led_heartbeat(void)
+{
+    ESP_ERROR_CHECK(init_rgb_led()); // Initialize the RGB LED once before starting the task
+    BaseType_t result = xTaskCreatePinnedToCore(
+                            heartbeat_loop_task,
+                            "heartbeat_loop",
+                            4096,
+                            NULL,
+                            5,
+                            NULL,
+                            0);
+    if (result != pdPASS) {
+        ESP_LOGE(TAG, "Failed to create heartbeat task");
+        return ESP_ERR_NO_MEM;
+    }
+
+    return ESP_OK;
+} // End of rgb_led_heartbeat
 //----------------------------------------------------------------------------- 

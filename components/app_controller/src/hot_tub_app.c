@@ -12,6 +12,7 @@
 #include "hot_tub_web_server.h"
 #include "hot_tub_wifi_manager.h"
 #include "wifi_credentials.h"
+#include "rgb_led.h"
 
 static const char *TAG = "hot_tub_app";
 
@@ -31,8 +32,8 @@ esp_err_t hot_tub_app_start(void)
     ESP_RETURN_ON_ERROR(hot_tub_wifi_manager_start(&credentials), TAG, "wifi start failed");
     ESP_RETURN_ON_ERROR(hot_tub_web_server_start(), TAG, "web server start failed");
     ESP_RETURN_ON_ERROR(hot_tub_ble_service_init(), TAG, "ble start failed");
-
     ESP_RETURN_ON_ERROR(hot_tub_ota_manager_mark_app_ready(), TAG, "ota validation failed");
+    ESP_RETURN_ON_ERROR(rgb_led_heartbeat(), TAG, "rgb led heartbeat start failed");
 
     ESP_LOGI(TAG, "Hot Tub Controller started successfully");
     return ESP_OK;
