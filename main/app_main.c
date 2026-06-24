@@ -33,6 +33,7 @@
 #include "hot_tub_web_server.h"
 #include "cJSON.h"
 #include "json_service.h"
+#include "app_watchdog.h"
 // #include "rgb_led.h"
 #include "hot_tub_app.h"
 
@@ -65,6 +66,12 @@ static void hot_tub_app_task(void *arg)
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "hot_tub_app_start failed: %s", esp_err_to_name(err));
     }
+
+    esp_err_t unregister_err = app_watchdog_unregister_current_task();
+    if (unregister_err != ESP_OK && unregister_err != ESP_ERR_NOT_FOUND) {
+        ESP_LOGW(TAG, "Failed to unregister hot_tub_app from watchdog: %s", esp_err_to_name(unregister_err));
+    }
+
     vTaskDelete(NULL);
 } // End of hot_tub_app_task
 //----------------------------------------------------------------------------- 

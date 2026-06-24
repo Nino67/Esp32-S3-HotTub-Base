@@ -1,17 +1,46 @@
+/**
+ * @file hot_tub_web_server.c
+ * @author Gaetano (Nino) Ricca (gricca1967@gmail.com)
+ * @brief   Hot Tub Web Server for ESP32-S3 
+ *
+ * @details This file contains the functions to control the web server for the ESP32-S3-DevKitC-1 based hot tub controller. It initializes 
+ * the web server and provides functions to handle HTTP requests and serve web assets. The web server is used to provide a user interface
+ * for monitoring and controlling the hot tub.
+ *
+ * @note Matching hardware:
+ * - model: ESP32-S3-DevKitC-1.         SKU: ESP32-S3-DevKitC-1-N8R8
+ * - mfg: RS Engineering.               date: 2026-06-22
+
+ * @version 0.1
+ * @date 2026-06-22
+ *
+ * @copyright Copyright (c) 2026
+ *
+ */
+
+
+// INCLUDE FILES
+ #include "json_service.h"
+
 #include "cJSON.h"
 #include "esp_log.h"
 #include "esp_crc.h"
+
 #include <stdbool.h>
 #include <inttypes.h>
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
+//------------------------------------------------------------------------------
 
-#include "json_service.h"
 
-// #ifndef JSON_CRC32
-// #endif
+// DEFINES
+#ifndef JSON_CRC32
 #define JSON_CRC32 "crc32"
+#endif
+//------------------------------------------------------------------------------
+
+
 
 /**
  * @brief  Build a JSON string with a CRC32 envelope for integrity verification
@@ -71,87 +100,19 @@ bool crc32_json_wrapper(const cJSON *json_obj,
   *output_len = (size_t)written;
   return true;
 } // end of crc32_json_wrapper()
-/*=================================================================================*/
+//------------------------------------------------------------------------------
 
 
 
-
-// /**
-//  * @brief  Validate a received JSON string with CRC32 envelope and reconstruct the original JSON if valid
-//  *
-//  * @param input The input JSON string with CRC32 envelope
-//  * @param output Buffer to write the reconstructed original JSON string (without CRC32 envelope)
-//  * @param output_size Size of the output buffer
-//  * @param expected_crc Pointer to uint32_t to receive the expected CRC32 value from the input
-//  * @param computed_crc Pointer to uint32_t to receive the computed CRC32 value from the input
-//  *
-//  * @return true if the input is valid and the original JSON was successfully reconstructed, false otherwise
-//  */
-// static bool validate_root_crc_and_reconstruct_json(const char *input,
-//                                                    char *output,
-//                                                    size_t output_size,
-//                                                    uint32_t *expected_crc,
-//                                                    uint32_t *computed_crc)
-// {
-//   if (input == NULL || output == NULL || expected_crc == NULL || computed_crc == NULL)
-//   {
-//     return false;
-//   }
-
-//   size_t input_len = trim_trailing_whitespace(input, strlen(input));
-//   if (input_len < 4)
-//   {
-//     return false;
-//   }
-
-//   static const char marker[] = ",\"" JSON_CRC32 "\":";
-//   const char *search = input;
-//   const char *marker_pos = NULL;
-
-//   while (search < (input + input_len))
-//   {
-//     const char *candidate = strstr(search, marker);
-//     if (candidate == NULL || candidate >= (input + input_len))
-//     {
-//       break;
-//     }
-
-//     marker_pos = candidate;
-//     search = candidate + 1;
-//   }
-
-//   if (marker_pos == NULL)
-//   {
-//     return false;
-//   }
-
-//   const char *num_start = marker_pos + strlen(marker);
-//   char *num_end = NULL;
-//   unsigned long parsed = strtoul(num_start, &num_end, 10);
-
-//   if (num_end == num_start)
-//   {
-//     return false;
-//   }
-
-//   if (num_end != (input + input_len - 1) || *num_end != '}')
-//   {
-//     return false;
-//   }
-
-//   size_t base_prefix_len = (size_t)(marker_pos - input);
-//   if (base_prefix_len + 2 > output_size)
-//   {
-//     return false;
-//   }
-
-//   memcpy(output, input, base_prefix_len);
-//   output[base_prefix_len] = '}';
-//   output[base_prefix_len + 1] = '\0';
-
-//   *expected_crc = (uint32_t)parsed;
-//   *computed_crc = esp_crc32_le(0, (const uint8_t *)input, base_prefix_len);
-
-//   return true;
-// } // end of validate_root_crc_and_reconstruct_json()
-// /*=================================================================================*/
+/**
+ * @brief  Validate a received JSON string with CRC32 envelope and reconstruct the original JSON if valid
+ *
+ * @param input The input JSON string with CRC32 envelope
+ * @param output Buffer to write the reconstructed original JSON string (without CRC32 envelope)
+ * @param output_size Size of the output buffer
+ * @param expected_crc Pointer to uint32_t to receive the expected CRC32 value from the input
+ * @param computed_crc Pointer to uint32_t to receive the computed CRC32 value from the input
+ *
+ * @return true if the input is valid and the original JSON was successfully reconstructed, false otherwise
+ */
+//------------------------------------------------------------------------------

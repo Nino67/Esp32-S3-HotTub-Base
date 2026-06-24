@@ -1,5 +1,37 @@
+/**
+ * @file crc32_wrapper.js 
+ * @author Gaetano (Nino) Ricca (gricca1967@gmail.com)
+ * @brief   CRC32 wrapper for JSON objects
+ *
+ * @details This file contains the functions to create and verify CRC32-wrapped
+ * JSON objects. It provides functions to compute CRC32 checksums, normalize
+ * JSON objects, and create CRC32-wrapped JSON strings.
+ *
+ * @note Matching hardware:
+ * - model: ESP32-S3-DevKitC-1.         SKU: ESP32-S3-DevKitC-1-N8R8
+ * - mfg: RS Engineering.               date: 2026-06-22
+
+ * @version 0.1
+ * @date 2026-06-22
+ *
+ * @note Matching hardware:
+ * - model: ESP32-S3-DevKitC-1.         SKU: ESP32-S3-DevKitC-1-N8R8
+ * - mfg: RS Engineering.               date: 2026-06-22
+
+ * @version 0.1
+ * @date 2026-06-22
+ *
+ * @copyright Copyright (c) 2026
+ *
+ */
+
 const JSON_CRC32 = 'crc32';
 
+/**
+ * CRC32 implementation in JavaScript.
+ * This implementation is based on the polynomial 0xEDB88320.
+ * It uses a precomputed table for efficiency.
+ */
 const CRC32_TABLE = new Uint32Array(256);
 for (let i = 0; i < 256; i += 1) {
   let crc = i;
@@ -7,8 +39,17 @@ for (let i = 0; i < 256; i += 1) {
     crc = (crc & 1) ? 0xedb88320 ^ (crc >>> 1) : crc >>> 1;
   }
   CRC32_TABLE[i] = crc >>> 0;
-}
+} // End of CRC32_TABLE initialization
+//------------------------------------------------------------------
 
+
+
+/**
+ * Computes the CRC32 checksum of a given Uint8Array.
+ * @param {Uint8Array} data - The input data to compute the checksum for.
+ * @param {number} [initial=0] - The initial CRC value (default is 0).
+ * @returns {number} - The computed CRC32 checksum.
+ */
 function crc32(data, initial = 0) {
   if (!(data instanceof Uint8Array)) {
     throw new TypeError('crc32 expects a Uint8Array');
@@ -18,8 +59,17 @@ function crc32(data, initial = 0) {
     crc = CRC32_TABLE[(crc ^ data[i]) & 0xff] ^ (crc >>> 8);
   }
   return (crc ^ 0xffffffff) >>> 0;
-}
+} // End of crc32 function
+//----------------------------------------------------------------
 
+
+
+/**
+ * Normalizes a JSON object or JSON string.
+ * @param {Object|string} json - The JSON object or JSON string to normalize.
+ * @returns {Object} - The normalized JSON object.
+ * @throws {TypeError} - If the input is not a valid JSON object or JSON string.
+ */
 function normalizeJsonObject(json) {
   let obj = json;
   if (typeof obj === 'string') {
@@ -29,8 +79,16 @@ function normalizeJsonObject(json) {
     throw new TypeError('Input must be a JSON object or JSON object string');
   }
   return obj;
-}
+}// End of normalizeJsonObject function
+//------------------------------------------------------------------
 
+
+/**
+ * Creates a CRC32-wrapped JSON string from a given JSON object or string.
+ * @param {Object|string} json - The JSON object or JSON string to wrap.
+ * @returns {string} - The CRC32-wrapped JSON string.
+ * @throws {Error} - If the serialized JSON does not produce an object.
+ */
 export function createCrc32JsonWrapper(json) {
   const obj = normalizeJsonObject(json);
   const wrapper = {};
@@ -50,8 +108,16 @@ export function createCrc32JsonWrapper(json) {
   const bytes = new TextEncoder().encode(prefixNoClose);
   const checksum = crc32(bytes);
   return `${prefixNoClose},"${JSON_CRC32}":${checksum}}`;
-}
+} // End of createCrc32JsonWrapper function
+//------------------------------------------------------------------
 
+
+
+/**
+ * Parses and verifies a CRC32-wrapped JSON string.
+ * @param {string} raw - The CRC32-wrapped JSON string to parse and verify.
+ * @returns {Object} - An object containing the validity, payload, expected, and computed CRC32 values.
+ */
 export function parseAndVerifyCrc32Wrapper(raw) {
   if (typeof raw !== 'string') {
     throw new TypeError('Input must be a raw JSON string');
@@ -75,4 +141,5 @@ export function parseAndVerifyCrc32Wrapper(raw) {
   } catch (err) {
     return { valid: false, reason: 'invalid JSON payload' };
   }
-}
+}// End of parseAndVerifyCrc32Wrapper function
+//------------------------------------------------------------------

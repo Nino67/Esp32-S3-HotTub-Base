@@ -1,3 +1,25 @@
+/**
+ * @file hot_tub_web_server.c
+ * @author Gaetano (Nino) Ricca (gricca1967@gmail.com)
+ * @brief   Hot Tub Web Server for ESP32-S3 
+ *
+ * @details This file contains the functions to control the web server for the ESP32-S3-DevKitC-1 based hot tub controller. It initializes 
+ * the web server and provides functions to handle HTTP requests and serve web assets. The web server is used to provide a user interface
+ * for monitoring and controlling the hot tub.
+ *
+ * @note Matching hardware:
+ * - model: ESP32-S3-DevKitC-1.         SKU: ESP32-S3-DevKitC-1-N8R8
+ * - mfg: RS Engineering.               date: 2026-06-22
+
+ * @version 0.1
+ * @date 2026-06-22
+ *
+ * @copyright Copyright (c) 2026
+ *
+ */
+
+
+// INCLUDE FILES
 #include "hot_tub_web_server.h"
 
 #include <stdio.h>
@@ -10,18 +32,17 @@
 #include "esp_log.h"
 #include "esp_crc.h"
 
-
 #include "hot_tub_device_state.h"
+//------------------------------------------------------------------------------
 
+
+// GLOBAL STATIC VARIABLES
 static const char *TAG = "hot_tub_web";
 static const char *LFS_BASE_PATH = "/littlefs";
 static const char *LFS_INDEX = "/littlefs/www/index.html";
-
 static httpd_handle_t s_server;
 static int s_ws_clients[4];
-
-
-
+//------------------------------------------------------------------------------
 
 
 

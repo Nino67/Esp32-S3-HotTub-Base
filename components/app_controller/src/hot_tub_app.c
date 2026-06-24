@@ -6,6 +6,7 @@
 #include <string.h>
 
 #include "hot_tub_ble_service.h"
+#include "app_watchdog.h"
 #include "hot_tub_device_state.h"
 #include "hot_tub_ota_manager.h"
 #include "hot_tub_storage.h"
@@ -18,9 +19,17 @@ static const char *TAG = "hot_tub_app";
 
 esp_err_t hot_tub_app_start(void)
 {
+    app_watchdog_config_t watchdog_config;
+    app_watchdog_get_default_config(&watchdog_config);
+    ESP_RETURN_ON_ERROR(app_watchdog_init(&watchdog_config), TAG, "watchdog init failed");
+    ESP_RETURN_ON_ERROR(app_watchdog_register_current_task("hot_tub_app"), TAG, "watchdog task register failed");
+
     ESP_RETURN_ON_ERROR(hot_tub_storage_init(), TAG, "storage init failed");
+    ESP_RETURN_ON_ERROR(app_watchdog_feed_current_task(), TAG, "watchdog feed failed after storage init");
     ESP_RETURN_ON_ERROR(hot_tub_device_state_init(), TAG, "device state init failed");
+    ESP_RETURN_ON_ERROR(app_watchdog_feed_current_task(), TAG, "watchdog feed failed after device state init");
     ESP_RETURN_ON_ERROR(hot_tub_ota_manager_note_boot(), TAG, "ota boot check failed");
+    ESP_RETURN_ON_ERROR(app_watchdog_feed_current_task(), TAG, "watchdog feed failed after ota boot check");
 
     hot_tub_wifi_credentials_t credentials = {0};
     if (strlen(WIFI_CREDENTIALS_SSID) > 0)
@@ -30,10 +39,15 @@ esp_err_t hot_tub_app_start(void)
     }
 
     ESP_RETURN_ON_ERROR(hot_tub_wifi_manager_start(&credentials), TAG, "wifi start failed");
+    ESP_RETURN_ON_ERROR(app_watchdog_feed_current_task(), TAG, "watchdog feed failed after wifi start");
     ESP_RETURN_ON_ERROR(hot_tub_web_server_start(), TAG, "web server start failed");
+    ESP_RETURN_ON_ERROR(app_watchdog_feed_current_task(), TAG, "watchdog feed failed after web server start");
     ESP_RETURN_ON_ERROR(hot_tub_ble_service_init(), TAG, "ble start failed");
+    ESP_RETURN_ON_ERROR(app_watchdog_feed_current_task(), TAG, "watchdog feed failed after ble init");
     ESP_RETURN_ON_ERROR(hot_tub_ota_manager_mark_app_ready(), TAG, "ota validation failed");
+    ESP_RETURN_ON_ERROR(app_watchdog_feed_current_task(), TAG, "watchdog feed failed after app ready");
     ESP_RETURN_ON_ERROR(rgb_led_heartbeat(), TAG, "rgb led heartbeat start failed");
+    ESP_RETURN_ON_ERROR(app_watchdog_feed_current_task(), TAG, "watchdog feed failed after rgb heartbeat start");
 
     ESP_LOGI(TAG, "Hot Tub Controller started successfully");
     return ESP_OK;

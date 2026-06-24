@@ -24,6 +24,7 @@
 
 // INCLUDE FILES 
 #include "rgb_led.h"
+#include "app_watchdog.h"
 #include "esp_log.h"
 #include "esp_err.h"
 #include "led_strip.h"
@@ -247,6 +248,10 @@ static void heartbeat_loop_task(void *arg)
     for (;;) 
     {
         ESP_ERROR_CHECK(cycle_rgb_led_colors());
+        if (app_watchdog_feed_current_task() != ESP_OK)
+        {
+            ESP_LOGW(TAG, "heartbeat task failed to feed watchdog");
+        }
         vTaskDelay(pdMS_TO_TICKS(_heartbeat_time_interval_ms_));
     }
     vTaskDelete(NULL);
@@ -279,17 +284,25 @@ esp_err_t set_heartbeat_interval(int interval_ms)
 esp_err_t rgb_led_heartbeat(void)
 {
     ESP_ERROR_CHECK(init_rgb_led()); // Initialize the RGB LED once before starting the task
+    TaskHandle_t task_handle = NULL;
     BaseType_t result = xTaskCreatePinnedToCore(
                             heartbeat_loop_task,
                             "heartbeat_loop",
                             4096,
                             NULL,
                             5,
-                            NULL,
+                            &task_handle,
                             0);
     if (result != pdPASS) {
         ESP_LOGE(TAG, "Failed to create heartbeat task");
         return ESP_ERR_NO_MEM;
+    }
+
+    if (app_watchdog_register_task(task_handle, "heartbeat_loop") != ESP_OK)
+    {
+        ESP_LOGE(TAG, "Failed to register heartbeat task with watchdog");
+        vTaskDelete(task_handle);
+        return ESP_FAIL;
     }
 
     return ESP_OK;
