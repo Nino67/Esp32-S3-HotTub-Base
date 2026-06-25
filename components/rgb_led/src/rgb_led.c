@@ -33,6 +33,7 @@
 // DEFINES
 #ifndef LED_PIN
 #define LED_PIN 48 
+// #define LED_PIN 38 
 #endif
 
 #ifndef NUM_LEDS
