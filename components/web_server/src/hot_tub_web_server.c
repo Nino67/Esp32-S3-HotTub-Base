@@ -31,6 +31,7 @@
 #include "esp_littlefs.h"
 #include "esp_log.h"
 #include "esp_crc.h"
+#include "esp_ota_ops.h"
 
 #include "hot_tub_device_state.h"
 //------------------------------------------------------------------------------
@@ -52,9 +53,18 @@ static int s_ws_clients[4];
  */
 static esp_err_t mount_littlefs(void)
 {
+    const esp_partition_t *running_app = esp_ota_get_running_partition();
+    const char *fs_partition_label = "storage_0";
+
+    if (running_app != NULL && running_app->subtype == ESP_PARTITION_SUBTYPE_APP_OTA_1) {
+        fs_partition_label = "storage_1";
+    }
+
+    ESP_LOGI(TAG, "Mounting LittleFS partition '%s'", fs_partition_label);
+
     esp_vfs_littlefs_conf_t conf = {
         .base_path = LFS_BASE_PATH,
-        .partition_label = "littlefs",
+        .partition_label = fs_partition_label,
         .format_if_mount_failed = true,
         .dont_mount = false,
     };

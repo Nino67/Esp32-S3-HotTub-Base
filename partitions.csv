@@ -1,46 +1,18 @@
 # Name,     Type, SubType, Offset,   Size,     Flags
-nvs,        data, nvs,     0x9000,   0x6000,
-otadata,    data, ota,     0xF000,   0x2000,
-phy_init,   data, phy,     0x11000,  0x1000,
-ota_0,      app,  ota_0,   0x20000,  0x500000,
-ota_1,      app,  ota_1,   0x520000,  0x500000,
-littlefs,   data, littlefs,0xA20000, 0x400000,
-
-# Name,     Type, SubType, Offset,   Size,     Flags
 #nvs,        data, nvs,     0x9000,   0x6000,
 #otadata,    data, ota,     0xF000,   0x2000,
 #phy_init,   data, phy,     0x11000,  0x1000,
-#ota_0,      app,  ota_0,   0x20000,  0x480000,
-#ota_1,      app,  ota_1,   ,         0x480000,
-#storage_0,  data, littlefs,,         0x300000,
-#storage_1,  data, littlefs,,         0x300000,
+#ota_0,      app,  ota_0,   0x20000,  0x500000,
+#ota_1,      app,  ota_1,   0x520000,  0x500000,
+#littlefs,   data, littlefs,0xA20000, 0x400000,
+
+# Name,     Type, SubType, Offset,   Size,     Flags
+nvs,        data, nvs,     0x9000,   0x6000,
+otadata,    data, ota,     0xF000,   0x2000,
+phy_init,   data, phy,     0x11000,  0x1000,
+ota_0,      app,  ota_0,   0x20000,  0x480000,
+ota_1,      app,  ota_1,   ,         0x480000,
+storage_0,  data, littlefs,,         0x300000,
+storage_1,  data, littlefs,,         0x300000,
 
 
-
-#include "esp_ota_ops.h"
-#include "esp_littlefs.h"
-
-#esp_err_t mount_active_filesystem(void)
-#{
-#    // 1. Get the partition descriptor of the currently running app
-#    const esp_partition_t *running_app = esp_ota_get_running_partition();
-#    const char *fs_partition_label = "storage_0"; // Fallback default
-
-#    // 2. If we are running on ota_1, point to storage_1 instead
-#    if (running_app != NULL && running_app->subtype == ESP_PARTITION_SUBTYPE_APP_OTA_1) 
-#    {
-#        fs_partition_label = "storage_1";
-#    }
-
-#    ESP_LOGI(TAG, "Running from %s. Mounting filesystem partition: %s", 
-#             running_app->label, fs_partition_label);
-
- #   // 3. Mount LittleFS using the designated slot label
- #   esp_vfs_littlefs_conf_t conf = {
- #       .base_path = "/littlefs",
- #       .partition_label = fs_partition_label,
- #       .format_if_mount_failed = false // Don't format over good data if a mount hiccups
- #   };
- #
- #   return esp_vfs_littlefs_register(&conf);
-#}
