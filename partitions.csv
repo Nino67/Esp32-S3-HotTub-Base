@@ -1,10 +1,49 @@
-# Name,     Type, SubType, Offset,   Size,     Flags
-nvs,        data, nvs,     0x9000,   0x6000,
-otadata,    data, ota,     0xF000,   0x2000,
-phy_init,   data, phy,     0x11000,  0x1000,
-ota_0,      app,  ota_0,   0x20000,  0x480000,
-ota_1,      app,  ota_1,   ,         0x480000,
-storage_0,  data, littlefs,,         0x300000,
-storage_1,  data, littlefs,,         0x300000,
+# =============================================================================
+# ESP32-S3 16MB Flash Partition Table (Dual App + Dual LittleFS OTA Layout)
+# =============================================================================
+# This layout provides full A/B redundancy for both the application firmware 
+# and the LittleFS data partitions, enabling safe over-the-air (OTA) updates 
+# with automatic rollback protection.
+#
+# Total Flash Allocated: 16MB (0x1000000 bytes)
+#   - System & Configuration: 0x20000 bytes (128 KB)
+#   - Application (ota_0/1):  2 x 4.5 MB = 9.0 MB
+#   - Filesystem (storage_0/1): 2 x 3.0 MB = 6.0 MB
+# =============================================================================
 
+# -----------------------------------------------------------------------------
+# System & Configuration Partitions
+# -----------------------------------------------------------------------------
+# Name,     Type,  SubType,  Offset,   Size,     Flags
 
+# Non-Volatile Storage (NVS): Stores Wi-Fi credentials, calibration data, and runtime flags.
+nvs,        data,  nvs,      0x9000,   0x6000,
+
+# OTA Data: Tracks which app partition (ota_0 or ota_1) is currently active and booted.
+otadata,    data,  ota,      0xF000,   0x2000,
+
+# PHY Init: Stores physical layer (Wi-Fi/Bluetooth) RF hardware initialization data.
+phy_init,   data,  phy,      0x11000,  0x1000,
+
+# -----------------------------------------------------------------------------
+# Application Partitions (A/B Redundancy - 4.5MB each)
+# -----------------------------------------------------------------------------
+# Offset 0x20000 aligns perfectly with the standard ESP32-S3 bootloader mapping.
+
+# Primary Application Slot (Active on factory flash)
+ota_0,      app,   ota_0,    0x20000,  0x480000,
+
+# Secondary Application Slot (Target for network OTA firmware updates)
+ota_1,      app,   ota_1,    ,         0x480000,
+
+# -----------------------------------------------------------------------------
+# Storage Partitions (A/B Redundancy LittleFS - 3MB each)
+# -----------------------------------------------------------------------------
+# Custom 'littlefs' subtypes are parsed dynamically by the ESP-IDF VFS layer.
+# In code, mount 'storage_0' when running on 'ota_0', and 'storage_1' on 'ota_1'.
+
+# Primary Filesystem Slot (Web assets, configuration profiles, local logs)
+storage_0,  data,  littlefs, ,         0x300000,
+
+# Secondary Filesystem Slot (Target for network OTA filesystem updates)
+storage_1,  data,  littlefs, ,         0x300000,
