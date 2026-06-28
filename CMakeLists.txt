@@ -30,3 +30,4 @@ configure_file("${CMAKE_SOURCE_DIR}/wifi_credentials.h.in"
                "${CMAKE_BINARY_DIR}/wifi_credentials.h"
                @ONLY)
 include_directories(${CMAKE_BINARY_DIR})
+

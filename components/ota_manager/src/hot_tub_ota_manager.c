@@ -5,6 +5,11 @@
 #include "esp_check.h"
 #include "esp_log.h"
 #include "esp_ota_ops.h"
+#include "esp_http_client.h"
+#include "esp_https_ota.h"
+#include "esp_crt_bundle.h"
+#include "esp_system.h"
+
 
 #include "hot_tub_storage.h"
 
@@ -49,4 +54,56 @@ esp_err_t hot_tub_ota_manager_mark_app_ready(void)
     }
 
     return err;
+}
+
+
+
+
+const char* get_active_storage_label(void) 
+{
+    // Check which app partition is currently running
+    const esp_partition_t *running_app = esp_ota_get_running_partition();
+    
+    // If we booted into ota_1, we must mount storage_1
+    if (running_app != NULL && running_app->subtype == ESP_PARTITION_SUBTYPE_APP_OTA_1) {
+        return "storage_1";
+    }
+    
+    // Default fallback: if on ota_0 (or factory), use storage_0
+    return "storage_0";
+}
+
+
+
+
+esp_err_t hot_tub_ota_manager_trigger_github_ota(const char *url)
+{
+    if (url == NULL || url[0] == '\0') {
+        ESP_LOGE(TAG, "OTA URL is empty");
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    ESP_LOGI(TAG, "Starting manual OTA update from GitHub: %s", url);
+
+    esp_http_client_config_t http_config = {
+        .url = url,
+        .timeout_ms = 60000,
+        .disable_auto_redirect = false,
+        .max_redirection_count = 5,
+        .crt_bundle_attach = esp_crt_bundle_attach,
+    };
+
+    esp_https_ota_config_t ota_config = {
+        .http_config = &http_config,
+    };
+
+    esp_err_t ret = esp_https_ota(&ota_config);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "OTA upgrade failed: %s", esp_err_to_name(ret));
+        return ret;
+    }
+
+    ESP_LOGI(TAG, "OTA upgrade successful, rebooting into new partition...");
+    esp_restart();
+    return ESP_OK;
 }

@@ -30,10 +30,13 @@
 #include "esp_http_server.h"
 #include "esp_littlefs.h"
 #include "esp_log.h"
-#include "esp_crc.h"
 #include "esp_ota_ops.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+#include "cJSON.h"
 
 #include "hot_tub_device_state.h"
+#include "hot_tub_ota_manager.h"
 //------------------------------------------------------------------------------
 
 
@@ -184,6 +187,27 @@ static esp_err_t asset_handler(httpd_req_t *req)
  * @param req The HTTP request object representing the WebSocket connection.
  * @return ESP_OK on success, or an error code on failure.
  */
+static void ota_update_task(void *arg)
+{
+    char *url = arg;
+    if (url == NULL)
+    {
+        vTaskDelete(NULL);
+        return;
+    }
+
+    ESP_LOGI(TAG, "OTA task started: %s", url);
+    esp_err_t err = hot_tub_ota_manager_trigger_github_ota(url);
+    if (err != ESP_OK)
+    {
+        ESP_LOGE(TAG, "OTA task failed: %s", esp_err_to_name(err));
+        hot_tub_device_state_set_ota_pending(false);
+    }
+
+    free(url);
+    vTaskDelete(NULL);
+}
+
 static void track_client(int fd)
 {
     for (size_t i = 0; i < sizeof(s_ws_clients) / sizeof(s_ws_clients[0]); ++i)
@@ -281,6 +305,42 @@ static esp_err_t ws_handler(httpd_req_t *req)
     if (err == ESP_OK)
     {
         hot_tub_device_state_set_last_command(payload);
+
+        cJSON *root = cJSON_Parse(payload);
+        if (root != NULL)
+        {
+            cJSON *command_item = cJSON_GetObjectItemCaseSensitive(root, "command");
+            if (cJSON_IsString(command_item) && (command_item->valuestring != NULL))
+            {
+                if (strcmp(command_item->valuestring, "ota_update") == 0)
+                {
+                    cJSON *url_item = cJSON_GetObjectItemCaseSensitive(root, "url");
+                    if (cJSON_IsString(url_item) && url_item->valuestring && url_item->valuestring[0] != '\0')
+                    {
+                        char *url_copy = strdup(url_item->valuestring);
+                        if (url_copy != NULL)
+                        {
+                            hot_tub_device_state_set_ota_pending(true);
+                            if (xTaskCreatePinnedToCore(ota_update_task, "ota_update", 8192, url_copy, 5, NULL, 0) != pdPASS)
+                            {
+                                ESP_LOGE(TAG, "Failed to create OTA task");
+                                free(url_copy);
+                                hot_tub_device_state_set_ota_pending(false);
+                            }
+                        }
+                        else
+                        {
+                            ESP_LOGE(TAG, "Failed to allocate OTA URL copy");
+                        }
+                    }
+                    else
+                    {
+                        ESP_LOGE(TAG, "OTA update command missing valid url");
+                    }
+                }
+            }
+            cJSON_Delete(root);
+        }
 
         char response[256];
         if (hot_tub_device_state_format_json(response, sizeof(response)) == ESP_OK)

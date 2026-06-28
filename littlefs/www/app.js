@@ -8,6 +8,7 @@ const receiveView = document.getElementById('receiveView');
 const sendView = document.getElementById('sendView');
 const commandInput = document.getElementById('commandInput');
 const sendBtn = document.getElementById('sendBtn');
+const otaBtn = document.getElementById('otaBtn');
 
 let socket;
 
@@ -35,6 +36,33 @@ function hardwareInit() {
     } catch (err) {
       sendView.textContent = `Invalid JSON: ${err.message}`;
       console.error('Failed to wrap JSON:', err);
+    }
+  });
+
+  otaBtn.addEventListener('click', () => {
+    if (!socket || socket.readyState !== WebSocket.OPEN) {
+      sendView.textContent = 'Socket is not open. Waiting for connection...';
+      return;
+    }
+
+    const url = prompt('Enter OTA binary URL (GitHub raw/release asset URL):', 'https://raw.githubusercontent.com/Nino67/Esp32-S3-HotTub-Base/main/build/app.bin');
+    if (!url) {
+      return;
+    }
+
+    const payload = {
+      command: 'ota_update',
+      url,
+    };
+
+    try {
+      const wrapped = createCrc32JsonWrapper(payload);
+      socket.send(wrapped);
+      sendView.textContent = wrapped;
+      console.log('Sending OTA update request:', wrapped);
+    } catch (err) {
+      sendView.textContent = `Invalid OTA payload: ${err.message}`;
+      console.error('Failed to wrap OTA payload:', err);
     }
   });
 
