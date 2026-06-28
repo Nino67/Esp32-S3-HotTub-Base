@@ -49,7 +49,7 @@
 #endif
 
 #ifndef HEARTBEAT_INTERVAL_MS
-#define HEARTBEAT_INTERVAL_MS 500
+#define HEARTBEAT_INTERVAL_MS 100
 #endif
 
 

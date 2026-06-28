@@ -45,7 +45,8 @@ function hardwareInit() {
       return;
     }
 
-    const url = prompt('Enter OTA binary URL (GitHub raw/release asset URL):', 'https://raw.githubusercontent.com/Nino67/Esp32-S3-HotTub-Base/main/build/app.bin');
+    const url = prompt('Nino Enter OTA binary URL (GitHub raw/release asset URL):', 
+      'https://raw.githubusercontent.com/Nino67/Esp32-S3-HotTub-Base/main/firmware/hot_tub_controller.bin');
     if (!url) {
       return;
     }
