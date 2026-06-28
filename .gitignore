@@ -31,6 +31,9 @@ sdkconfig.cmake
 *.zip
 *.img
 
+# Allow firmware binary images to be tracked for OTA
+!firmware/*.bin
+
 # IDE and editor files
 .vscode/
 *.swp
