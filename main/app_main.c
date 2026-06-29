@@ -15,42 +15,28 @@
  * @note Matching hardware:
  * - model: ESP32-S3-DevKitC-1.         SKU: ESP32-S3-DevKitC-1-N8R8
  * - mfg: RS Engineering.               date: 2026-06-22
-
+ 
  * @version 0.1
  * @date 2026-06-22
  *
  * @copyright Copyright (c) 2026
  *
  */
+ 
 
+ // INCLUDE FILES
+ #include "esp_err.h"
+ #include "esp_log.h"
+ #include "app_watchdog.h"
+ #include "hot_tub_app.h"
+ 
 
-#include "esp_err.h"
-#include "esp_log.h"
-#include "freertos/FreeRTOS.h"
-#include "freertos/task.h"
-#include "led_strip.h"
-#include "esp_system.h"
-#include "hot_tub_web_server.h"
-#include "cJSON.h"
-#include "json_service.h"
-#include "app_watchdog.h"
-// #include "rgb_led.h"
-#include "hot_tub_app.h"
-
-
-// #define LED_PIN 48 
-// #define NUM_LEDS 1
-// #define LED_MODEL LED_MODEL_WS2812
-// #define LED_STRIP_INTENSITY 1
-// #define HEARTBEAT_INTERVAL_MS 1000
-
-// esp_err_t init_ws2812_led(gpio_num_t gpio_num);
+// FUNCTION PROTOTYPES
 static void hot_tub_app_task(void *arg);
 void app_main(void);
 
 
 static const char *TAG = "app_main";
-
 
 
 
@@ -93,11 +79,6 @@ void app_main(void)
                             5,
                             NULL,
                             0);
-
-
-    
- 
-
 
 } // End of app_main
 //-----------------------------------------------------------------------------

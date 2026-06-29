@@ -124,6 +124,40 @@ button {
   cursor: pointer;
 }
 
+.ota-status-panel {
+  margin-top: 18px;
+}
+
+.ota-status-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.progress {
+  width: 100%;
+  height: 16px;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.progress__bar {
+  width: 0%;
+  min-width: 48px;
+  height: 100%;
+  background: linear-gradient(135deg, var(--accent), var(--accent-2));
+  color: #07111a;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.85rem;
+  font-weight: 700;
+  transition: width 0.2s ease;
+}
+
 @media (max-width: 640px) {
   .shell { width: min(100vw - 20px, 960px); padding-top: 18px; }
   .hero, .panel { border-radius: 18px; }

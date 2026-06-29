@@ -6,4 +6,5 @@ idf_component_register(SRCS "src/hot_tub_ota_manager.c"
                                 esp_http_client 
                                 esp_https_ota 
                                 mbedtls 
-                                littlefs)
+                                littlefs
+                                device_state)

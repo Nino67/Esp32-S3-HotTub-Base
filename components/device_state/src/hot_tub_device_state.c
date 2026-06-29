@@ -65,10 +65,12 @@ esp_err_t hot_tub_device_state_format_json(char *buffer, size_t buffer_size)
 
     lock_state();
     int written = snprintf(buffer, buffer_size,
-                           "{\"wifi_connected\":%s,\"ble_connected\":%s,\"ota_pending\":%s,\"wifi_ip\":\"%s\",\"last_command_length\":%u}",
+                           "{\"wifi_connected\":%s,\"ble_connected\":%s,\"ota_pending\":%s,\"ota_status\":\"%s\",\"ota_progress\":%d,\"wifi_ip\":\"%s\",\"last_command_length\":%u}",
                            s_state.wifi_connected ? "true" : "false",
                            s_state.ble_connected ? "true" : "false",
                            s_state.ota_pending ? "true" : "false",
+                           s_state.ota_status,
+                           s_state.ota_progress,
                            s_state.wifi_ip,
                            (unsigned int)s_state.last_command_length);
     unlock_state();
@@ -107,6 +109,35 @@ void hot_tub_device_state_set_ota_pending(bool pending)
 {
     lock_state();
     s_state.ota_pending = pending;
+    unlock_state();
+}
+
+void hot_tub_device_state_set_ota_status(const char *status)
+{
+    lock_state();
+    if (status)
+    {
+        strlcpy(s_state.ota_status, status, sizeof(s_state.ota_status));
+    }
+    else
+    {
+        s_state.ota_status[0] = '\0';
+    }
+    unlock_state();
+}
+
+void hot_tub_device_state_set_ota_progress(int progress)
+{
+    lock_state();
+    if (progress < 0)
+    {
+        progress = 0;
+    }
+    else if (progress > 100)
+    {
+        progress = 100;
+    }
+    s_state.ota_progress = progress;
     unlock_state();
 }
 

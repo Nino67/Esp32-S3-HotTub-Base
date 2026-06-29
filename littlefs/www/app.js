@@ -7,19 +7,67 @@ const stateView = document.getElementById('stateView');
 const receiveView = document.getElementById('receiveView');
 const sendView = document.getElementById('sendView');
 const commandInput = document.getElementById('commandInput');
+const otaStatus = document.getElementById('otaStatus');
+const otaProgressBar = document.getElementById('otaProgressBar');
 const sendBtn = document.getElementById('sendBtn');
 const otaBtn = document.getElementById('otaBtn');
 
 let socket;
+let otaPollingInterval = null;
 
 function setBadge(text, status) {
   badge.textContent = text;
   badge.dataset.status = status;
 }
 
+function setOtaProgress(value) {
+  const pct = Math.max(0, Math.min(100, Number(value) || 0));
+  otaProgressBar.style.width = `${pct}%`;
+  otaProgressBar.textContent = `${pct}%`;
+}
+
+function stopOtaPolling() {
+  if (otaPollingInterval !== null) {
+    clearInterval(otaPollingInterval);
+    otaPollingInterval = null;
+  }
+}
+
+function startOtaPolling() {
+  if (otaPollingInterval !== null) {
+    return;
+  }
+
+  otaPollingInterval = setInterval(() => {
+    if (socket && socket.readyState === WebSocket.OPEN) {
+      socket.send(JSON.stringify({ command: 'get_state' }));
+    } else {
+      stopOtaPolling();
+    }
+  }, 500);
+}
+
+function updateOtaState(state) {
+  if (state.ota_status) {
+    otaStatus.textContent = state.ota_status;
+  } else {
+    otaStatus.textContent = 'idle';
+  }
+
+  setOtaProgress(state.ota_progress ?? 0);
+
+  if (state.ota_pending) {
+    startOtaPolling();
+  } else {
+    stopOtaPolling();
+  }
+}
+
 function hardwareInit() {
   setBadge('initializing', 'warn');
   sendBtn.disabled = true;
+  otaStatus.textContent = 'idle';
+  setOtaProgress(0);
 
   // add event listener for button 'sendBtn' to send command to the server
   sendBtn.addEventListener('click', () => {
@@ -56,6 +104,9 @@ function hardwareInit() {
       url,
     };
 
+    otaStatus.textContent = 'requested';
+    setOtaProgress(0);
+
     try {
       const wrapped = createCrc32JsonWrapper(payload);
       socket.send(wrapped);
@@ -63,6 +114,7 @@ function hardwareInit() {
       console.log('Sending OTA update request:', wrapped);
     } catch (err) {
       sendView.textContent = `Invalid OTA payload: ${err.message}`;
+      otaStatus.textContent = 'failed';
       console.error('Failed to wrap OTA payload:', err);
     }
   });
@@ -88,12 +140,14 @@ function connect() {
     setBadge('reconnecting', 'warn');
     sendBtn.disabled = true;
     sendView.textContent = 'Connection closed. Reconnecting...';
+    stopOtaPolling();
     window.setTimeout(connect, 1500);
   });
 
   socket.addEventListener('message', (event) => {
     const result = parseAndVerifyCrc32Wrapper(event.data);
     if (result.valid) {
+      updateOtaState(result.payload);
       const text = JSON.stringify(result.payload, null, 2);
       stateView.textContent = text;
       receiveView.textContent = event.data;
