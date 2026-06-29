@@ -445,7 +445,7 @@ static esp_err_t ws_handler(httpd_req_t *req)
         untrack_client(sockfd);
     }
 
-    ESP_LOGI(TAG, "Received WS message: %s", frame.payload);
+    // ESP_LOGI(TAG, "Received WS message: %s", frame.payload);
 
     free(payload);
     return err;

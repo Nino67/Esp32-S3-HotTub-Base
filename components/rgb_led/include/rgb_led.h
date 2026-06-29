@@ -2,6 +2,13 @@
 
 #include "led_strip.h"
 
+#ifndef HEARTBEAT_INTERVAL_MS
+#define HEARTBEAT_INTERVAL_MS 1000
+#endif
+
+#ifndef OTA_HEARTBEAT_INTERVAL_MS
+#define OTA_HEARTBEAT_INTERVAL_MS 20
+#endif
 
 esp_err_t cycle_rgb_led_colors(void);
 esp_err_t deinit_rgb_led(void);

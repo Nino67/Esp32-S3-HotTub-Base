@@ -1,4 +1,5 @@
 #include "hot_tub_ota_manager.h"
+#include "rgb_led.h"
 
 #include <inttypes.h>
 
@@ -152,6 +153,8 @@ esp_err_t hot_tub_ota_manager_trigger_github_ota(const char *url)
     ESP_LOGI(TAG, "Starting manual OTA update from GitHub: %s", url);
     hot_tub_device_state_set_ota_status("started");
     hot_tub_device_state_set_ota_progress(0);
+    set_heartbeat_interval(OTA_HEARTBEAT_INTERVAL_MS);
+
 
     ota_progress_ctx_t *progress_ctx = calloc(1, sizeof(ota_progress_ctx_t));
     if (progress_ctx == NULL) {
@@ -188,6 +191,8 @@ esp_err_t hot_tub_ota_manager_trigger_github_ota(const char *url)
     free(progress_ctx);
     hot_tub_device_state_set_ota_status("success");
     hot_tub_device_state_set_ota_progress(100);
+    set_heartbeat_interval(HEARTBEAT_INTERVAL_MS);
+
     ESP_LOGI(TAG, "OTA upgrade successful, rebooting into new partition...");
     esp_restart();
     return ESP_OK;

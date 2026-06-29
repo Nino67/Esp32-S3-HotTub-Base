@@ -7,4 +7,5 @@ idf_component_register(SRCS "src/hot_tub_ota_manager.c"
                                 esp_https_ota 
                                 mbedtls 
                                 littlefs
+                                rgb_led
                                 device_state)
