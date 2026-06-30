@@ -6,6 +6,7 @@ idf_component_register(SRCS "app_main.c"
                             device_state 
                             esp_common
                             rgb_led 
+                            esp_psram
                             json
                             json_service)
     

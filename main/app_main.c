@@ -28,6 +28,12 @@
  #include "esp_err.h"
  #include "esp_log.h"
  #include "app_watchdog.h"
+ 
+#ifdef CONFIG_SPIRAM
+#include "esp_psram.h"
+#include "esp_heap_caps.h"
+#endif
+
  #include "hot_tub_app.h"
  
 
@@ -70,6 +76,18 @@ static void hot_tub_app_task(void *arg)
  */
 void app_main(void)
 {
+#ifdef CONFIG_SPIRAM
+    if (esp_psram_is_initialized()) {
+        size_t psram_size = esp_psram_get_size();
+        size_t psram_free = heap_caps_get_free_size(MALLOC_CAP_SPIRAM);
+        printf("PSRAM size = %u bytes, free = %u bytes\n",
+               (unsigned)psram_size, (unsigned)psram_free);
+    } else {
+        printf("PSRAM not initialized\n");
+    }
+#else
+    printf("PSRAM support is disabled in config\n");
+#endif
 
 
     xTaskCreatePinnedToCore(hot_tub_app_task,
