@@ -391,23 +391,27 @@ esp_err_t app_watchdog_feed_task(TaskHandle_t task_handle)
         return ESP_ERR_INVALID_ARG;
     }
 
-    esp_err_t twdt_ret = esp_task_wdt_reset();
-
+    esp_err_t ret = ESP_ERR_NOT_FOUND;
     if (xSemaphoreTake(s_mutex, pdMS_TO_TICKS(20)) == pdTRUE)
     {
         app_watchdog_task_slot_t *slot = find_slot_by_handle(task_handle);
-        if (!slot)
+        if (slot && slot->subscribed)
         {
-            xSemaphoreGive(s_mutex);
-            return ESP_ERR_NOT_FOUND;
+            ret = esp_task_wdt_reset();
+            if (ret == ESP_OK)
+            {
+                s_seen_feed_mask |= (1U << (slot - s_slots));
+                feed_rtc_wdt_if_quorum_locked();
+            }
         }
-
-        s_seen_feed_mask |= (1U << (slot - s_slots));
-        feed_rtc_wdt_if_quorum_locked();
         xSemaphoreGive(s_mutex);
     }
+    else
+    {
+        ret = ESP_ERR_TIMEOUT;
+    }
 
-    return twdt_ret;
+    return ret;
 }
 
 esp_err_t app_watchdog_feed_current_task(void)

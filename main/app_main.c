@@ -24,18 +24,25 @@
  */
  
 
- // INCLUDE FILES
- #include "esp_err.h"
- #include "esp_log.h"
- #include "app_watchdog.h"
- 
+// INCLUDE FILES
+#include "hot_tub_app.h"
+#include "esp_err.h"
+#include "esp_log.h"
+#include "app_watchdog.h"
+#include "ntp_time_sync.h"
+#include "esp_check.h"
+#include "esp_log.h"
+
+
 #ifdef CONFIG_SPIRAM
 #include "esp_psram.h"
 #include "esp_heap_caps.h"
 #endif
 
- #include "hot_tub_app.h"
- 
+
+#define MASTER  0
+#define UNIT_ID MASTER
+
 
 // FUNCTION PROTOTYPES
 static void hot_tub_app_task(void *arg);
@@ -71,6 +78,7 @@ static void hot_tub_app_task(void *arg)
 
 
 
+
 /**
  * @brief Main application entry point.
  */
@@ -97,6 +105,20 @@ void app_main(void)
                             5,
                             NULL,
                             0);
+
+
+
+    
+    xTaskCreatePinnedToCore(time_maintenance_task,
+                            "time_maintenance_task",
+                            4096,
+                            NULL,
+                            5,
+                            NULL,
+                            0);         
+
+
+
 
 } // End of app_main
 //-----------------------------------------------------------------------------

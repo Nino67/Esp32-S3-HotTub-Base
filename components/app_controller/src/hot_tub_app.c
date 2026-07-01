@@ -14,9 +14,23 @@
 #include "hot_tub_wifi_manager.h"
 #include "wifi_credentials.h"
 #include "rgb_led.h"
+#include "ntp_time_sync.h"
+
 
 static const char *TAG = "hot_tub_app";
 
+
+// Function prototypes
+void time_maintenance_task(void *arg);
+esp_err_t ntp_time_sync_init(void);
+
+
+
+/**
+ * @brief Start the Hot Tub application.
+ *
+ * @return ESP_OK on success, or an error code on failure.
+ */
 esp_err_t hot_tub_app_start(void)
 {
     app_watchdog_config_t watchdog_config;
@@ -52,3 +66,4 @@ esp_err_t hot_tub_app_start(void)
     ESP_LOGI(TAG, "Hot Tub Controller started successfully");
     return ESP_OK;
 }
+
