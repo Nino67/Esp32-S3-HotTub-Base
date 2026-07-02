@@ -47,6 +47,7 @@
 // FUNCTION PROTOTYPES
 static void hot_tub_app_task(void *arg);
 void app_main(void);
+void time_maintenance_task(void *arg);
 
 
 static const char *TAG = "app_main";
@@ -76,6 +77,24 @@ static void hot_tub_app_task(void *arg)
 //----------------------------------------------------------------------------- 
 
 
+esp_err_t psram_check(void)
+{
+#ifdef CONFIG_SPIRAM
+    if (esp_psram_is_initialized()) {
+        size_t psram_size = esp_psram_get_size();
+        size_t psram_free = heap_caps_get_free_size(MALLOC_CAP_SPIRAM);
+        ESP_LOGI(TAG, "PSRAM size = %u bytes, free = %u bytes", (unsigned)psram_size, (unsigned)psram_free);
+        return ESP_OK;
+    } else {
+        ESP_LOGW(TAG, "PSRAM not initialized");
+        return ESP_ERR_NOT_FOUND;
+    }
+#else
+    ESP_LOGW(TAG, "PSRAM support is disabled in config");
+    return ESP_ERR_NOT_SUPPORTED;
+#endif
+} // End of psram_check
+//-----------------------------------------------------------------------------     
 
 
 
@@ -84,19 +103,23 @@ static void hot_tub_app_task(void *arg)
  */
 void app_main(void)
 {
-#ifdef CONFIG_SPIRAM
-    if (esp_psram_is_initialized()) {
-        size_t psram_size = esp_psram_get_size();
-        size_t psram_free = heap_caps_get_free_size(MALLOC_CAP_SPIRAM);
-        printf("PSRAM size = %u bytes, free = %u bytes\n",
-               (unsigned)psram_size, (unsigned)psram_free);
-    } else {
-        printf("PSRAM not initialized\n");
-    }
-#else
-    printf("PSRAM support is disabled in config\n");
-#endif
+// #ifdef CONFIG_SPIRAM
+//     if (esp_psram_is_initialized()) {
+//         size_t psram_size = esp_psram_get_size();
+//         size_t psram_free = heap_caps_get_free_size(MALLOC_CAP_SPIRAM);
+//         printf("PSRAM size = %u bytes, free = %u bytes\n",
+//                (unsigned)psram_size, (unsigned)psram_free);
+//     } else {
+//         printf("PSRAM not initialized\n");
+//     }
+// #else
+//     printf("PSRAM support is disabled in config\n");
+// #endif
 
+    esp_err_t err = psram_check();
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "PSRAM check failed: %s", esp_err_to_name(err));
+    } 
 
     xTaskCreatePinnedToCore(hot_tub_app_task,
                             "hot_tub_app",

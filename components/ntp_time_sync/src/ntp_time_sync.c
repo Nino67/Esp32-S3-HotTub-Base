@@ -21,6 +21,7 @@
 // Default NTP server to use if none is provided
 #define NTP_SERVER "pool.ntp.org"
 
+#define TIME_ZONE "EST5EDT,M3.2.0,M11.1.0"   // America/Toronto
 
 // ============================================================================
 // GLOBAL STATIC VARIABLES
@@ -32,7 +33,7 @@ static bool s_time_maintenance_watchdog_registered = false;
 static bool s_time_synced = false;
 
 // Clock_synchronization: initial NTP sync, if there is a network connection
-static const char *tz = "EST5EDT,M3.2.0,M11.1.0";   // America/Toronto
+static const char *tz = TIME_ZONE;   // America/Toronto
 static const char *ntp_server = NULL;               // use default in utils
 
 
@@ -292,10 +293,17 @@ static void time_maintenance_register_watchdog(void)
 }
 
 
-
+/**
+ * @brief Time maintenance task
+ *
+ * This task performs periodic NTP time synchronization and feeds the watchdog.
+ * It ensures the system time remains accurate and prevents watchdog resets.
+ * 
+ * @param arg Task argument (unused)
+ */
 void time_maintenance_task(void *arg)
 {
-    const char *tz = "EST5EDT,M3.2.0,M11.1.0";   // America/Toronto
+    const char *tz = TIME_ZONE;   // America/Toronto
     const char *ntp_server = NULL;               // use default in utils
     time_t last_sync = 0;
 

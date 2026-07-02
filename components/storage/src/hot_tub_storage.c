@@ -42,10 +42,12 @@ static esp_err_t open_storage(void)
     return ESP_OK;
 }
 
+
 esp_err_t hot_tub_storage_init(void)
 {
     return open_storage();
 }
+
 
 esp_err_t hot_tub_storage_get_boot_failures(uint32_t *boot_failures)
 {
