@@ -8,36 +8,75 @@
 #include "ntp_time_sync.h"
 
 
-
 // ============================================================================
-// Internet time synchronization and retrieval utilities
-
+// DEFINES
 #define DEBUG_NTP_TIME_SYNC 0
 
-static const char *TAG = "ntp_time_sync";
-
-// POSIX TZ string for Eastern Time (US & Canada 'America/Toronto')
-// const char *tz = "EST5EDT,M3.2.0,M11.1.0";
+// Time maintenance task: initial NTP sync, then 1s updates and daily resync.
+#define NTP_RESYNC_INTERVAL_SEC   (24 * 60 * 60)   // once per day
 
 // Consider time "valid" if it's after 2020-01-01
 #define UTILS_TIME_VALID_EPOCH 1577836800LL
 
-// Flag indicating if time has been synchronized
-static bool s_time_synced = false;
-
+// Default NTP server to use if none is provided
 #define NTP_SERVER "pool.ntp.org"
 
 
+// ============================================================================
+// GLOBAL STATIC VARIABLES
+static const char *TAG = "ntp_time_sync";
+
+static bool s_time_maintenance_watchdog_registered = false;
+
+// Flag indicating if time has been synchronized
+static bool s_time_synced = false;
 
 // Clock_synchronization: initial NTP sync, if there is a network connection
 static const char *tz = "EST5EDT,M3.2.0,M11.1.0";   // America/Toronto
 static const char *ntp_server = NULL;               // use default in utils
-static bool s_time_maintenance_watchdog_registered = false;
+
+
+
+/**
+ * @brief Initialize NTP time synchronization.
+ *
+ * @param ntp_server NTP server hostname (NULL for default)
+ * @param tz         POSIX TZ string (NULL to leave unchanged)
+ * @param timeout_ms Maximum time to wait in milliseconds
+ * @return ESP_OK on success, or an error code on failure.
+ */
+esp_err_t ntp_utils_time_sync_nonblocking(const char *ntp_server,
+                                   const char *tz,
+                                   uint32_t timeout_ms)
+{
+    // Set timezone if provided
+    if (tz != NULL)
+    {
+        setenv("TZ", tz, 1);
+        tzset();
+    }
+
+    // Initialize SNTP
+    if (ntp_server == NULL)
+    {
+        ntp_server = NTP_SERVER;
+    }
+
+    if (esp_sntp_enabled()) {
+        esp_sntp_stop();
+    }
+
+    esp_sntp_setoperatingmode(SNTP_OPMODE_POLL);
+    esp_sntp_setservername(0, ntp_server);
+    esp_sntp_init();
+
+    return ESP_OK;
+}
+
+
+
 
 // ============================================================================
-
-
-
 /** 
  * @brief Synchronize system time via NTP (blocking)
  * 
@@ -211,7 +250,9 @@ esp_err_t ntp_time_sync_init(void)
         if(DEBUG_NTP_TIME_SYNC) {
             ESP_LOGI(TAG, "***** NTP time synchronization: performing initial NTP sync");
         }
-        esp_err_t r = ntp_utils_time_sync_blocking(ntp_server, tz, 15000);
+        // esp_err_t r = ntp_utils_time_sync_blocking(ntp_server, tz, 15000);
+        esp_err_t r = ntp_utils_time_sync_nonblocking(ntp_server, tz, 15000);
+      
         if (r == ESP_OK) {
             time(&last_sync);
             if(DEBUG_NTP_TIME_SYNC) {
@@ -234,27 +275,23 @@ esp_err_t ntp_time_sync_init(void)
 
 
 
-// ============================================================================
-// Time maintenance task: initial NTP sync, then 1s updates and daily resync.
-#define NTP_RESYNC_INTERVAL_SEC   (24 * 60 * 60)   // once per day
 
-static void time_maintenance_task_register_watchdog(void)
+static void time_maintenance_register_watchdog(void)
 {
-    if (s_time_maintenance_watchdog_registered || !app_watchdog_is_initialized())
-    {
+    if (s_time_maintenance_watchdog_registered || !app_watchdog_is_initialized()) {
         return;
     }
 
     esp_err_t err = app_watchdog_register_current_task("time_maintenance_task");
-    if (err == ESP_OK)
-    {
+    if (err == ESP_OK) {
         s_time_maintenance_watchdog_registered = true;
-    }
-    else if (err != ESP_ERR_INVALID_STATE)
-    {
-        ESP_LOGW(TAG, "Failed to register time maintenance task with watchdog: %s", esp_err_to_name(err));
+        ESP_LOGI(TAG, "time_maintenance_task registered with watchdog");
+    } else {
+        ESP_LOGW(TAG, "time_maintenance_task watchdog registration failed: %s", esp_err_to_name(err));
     }
 }
+
+
 
 void time_maintenance_task(void *arg)
 {
@@ -263,7 +300,8 @@ void time_maintenance_task(void *arg)
     time_t last_sync = 0;
 
     ESP_LOGI(TAG, "time_maintenance_task: starting initial NTP sync");
-    esp_err_t err = ntp_utils_time_sync_blocking(ntp_server, tz, 15000);
+    // esp_err_t err = ntp_utils_time_sync_blocking(ntp_server, tz, 15000);
+    esp_err_t err = ntp_utils_time_sync_nonblocking(ntp_server, tz, 15000);
     if (err == ESP_OK) {
         time(&last_sync);
         ESP_LOGI(TAG, "time_maintenance_task: initial NTP sync OK");
@@ -271,35 +309,34 @@ void time_maintenance_task(void *arg)
         ESP_LOGW(TAG, "time_maintenance_task: initial NTP sync failed: %s", esp_err_to_name(err));
     }
 
-    time_maintenance_task_register_watchdog();
+    time_maintenance_register_watchdog();
 
     while (1) {
         // 1-second tick
         vTaskDelay(pdMS_TO_TICKS(1000));
 
-        if (!s_time_maintenance_watchdog_registered)
-        {
-            time_maintenance_task_register_watchdog();
+        if (!s_time_maintenance_watchdog_registered) {
+            time_maintenance_register_watchdog();
         }
 
-        if (s_time_maintenance_watchdog_registered)
-        {
+        // Feed watchdog to prevent reset
+        if (s_time_maintenance_watchdog_registered) {
             if (app_watchdog_feed_current_task() != ESP_OK)
             {
                 ESP_LOGW(TAG, "time maintenance task failed to feed watchdog");
             }
         }
 
-        // Read current local time without doing NTP again
-        struct tm now_tm;
-        if (ntp_utils_time_get_local(&now_tm) == ESP_OK) {
-            char buf[32];
-            if (strftime(buf, sizeof(buf), "%Y-%m-%d %H:%M:%S", &now_tm) > 0) {
-                ESP_LOGI("time_task", "Tick time: %s", buf);
-            } else {
-                ESP_LOGW("time_task", "Failed to format current time");
-            }
-        }
+        // // Read current local time without doing NTP again
+        // struct tm now_tm;
+        // if (ntp_utils_time_get_local(&now_tm) == ESP_OK) {
+        //     char buf[32];
+        //     if (strftime(buf, sizeof(buf), "%Y-%m-%d %H:%M:%S", &now_tm) > 0) {
+        //         ESP_LOGI("time_task", "Tick time: %s", buf);
+        //     } else {
+        //         ESP_LOGW("time_task", "Failed to format current time");
+        //     }
+        // }
 
         // Once per day, resync via NTP to correct drift
         time_t now = 0;
@@ -319,3 +356,55 @@ void time_maintenance_task(void *arg)
 }
 // ============================================================================
 
+
+
+
+
+
+// // Inside your merged heartbeat / housekeeping task:
+
+// const char *tz = "EST5EDT,M3.2.0,M11.1.0";   // America/Toronto
+// const char *ntp_server = NULL;               
+// bool initial_sync_done = false;
+
+// // A simple countdown timer initialized to 0 so it attempts a sync immediately if needed
+// uint32_t ntp_countdown_sec = 0; 
+
+// while (1) {
+//     // 1. Toggle your heartbeat LED every second
+//     rgb_led_heartbeat_toggle();
+
+//     // 2. Handle the NTP maintenance countdown
+//     if (ntp_countdown_sec > 0) {
+//         ntp_countdown_sec--;
+//     }
+
+//     // If the countdown hits 0, it's time to sync (either initial or daily resync)
+//     if (ntp_countdown_sec == 0) {
+//         ESP_LOGI(TAG, "Housekeeping: Requesting NTP time sync...");
+        
+//         // Note: Since this is running in a 1-second loop, a long blocking sync 
+//         // will stall your LED toggle for 15 seconds if it times out. 
+//         // If that bothers you down the road, you can use a non-blocking/async ntp call.
+//         esp_err_t r = ntp_utils_time_sync_blocking(ntp_server, tz, 15000);
+        
+//         if (r == ESP_OK) {
+//             ESP_LOGI(TAG, "Housekeeping: NTP sync OK.");
+//             initial_sync_done = true;
+//             // Sync succeeded! Lock it down for exactly 24 hours (86400 seconds)
+//             ntp_countdown_sec = 24 * 60 * 60; 
+//         } else {
+//             ESP_LOGW(TAG, "Housekeeping: NTP sync failed: %s", esp_err_to_name(r));
+            
+//             // If it's the initial boot sync that failed, retry soon (e.g., in 30 seconds)
+//             // If it's just a daily drift update failing, retry in an hour.
+//             ntp_countdown_sec = (!initial_sync_done) ? 30 : 3600;
+//         }
+//     }
+
+//     // 3. Keep the watchdog happy
+//     app_watchdog_feed_current_task();
+
+//     // Exact 1-second loop cadence
+//     vTaskDelay(pdMS_TO_TICKS(1000));
+// }

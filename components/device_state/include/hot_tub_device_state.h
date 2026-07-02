@@ -2,11 +2,14 @@
 
 #include <stdbool.h>
 #include <stddef.h>
-
+#include <time.h>
 #include "esp_err.h"
+
 
 typedef struct
 {
+    int id;
+    char time_stamp[32];
     bool wifi_connected;
     bool ble_connected;
     bool ota_pending;
@@ -25,3 +28,5 @@ void hot_tub_device_state_set_ota_pending(bool pending);
 void hot_tub_device_state_set_ota_status(const char *status);
 void hot_tub_device_state_set_ota_progress(int progress);
 void hot_tub_device_state_set_last_command(const char *command);
+void hot_tub_device_state_set_time_stamp(const struct tm *time_stamp);  
+void hot_tub_device_state_set_id(int id);
