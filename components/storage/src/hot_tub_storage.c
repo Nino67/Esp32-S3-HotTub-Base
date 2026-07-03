@@ -1,4 +1,5 @@
 #include "hot_tub_storage.h"
+#include "system_status.h"
 
 #include <stdbool.h>
 
@@ -45,7 +46,18 @@ static esp_err_t open_storage(void)
 
 esp_err_t hot_tub_storage_init(void)
 {
-    return open_storage();
+    esp_err_t err = open_storage();
+    if (err == ESP_OK) {
+        filesystem_status_t fs_status = {
+            .is_mounted = true,
+            .total_space_bytes = 0,
+            .used_space_bytes = 0,
+            .open_file_handles = 0,
+            .write_error_flag = false,
+        };
+        system_status_set_filesystem_status(&fs_status);
+    }
+    return err;
 }
 
 

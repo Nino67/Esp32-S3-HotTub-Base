@@ -43,6 +43,7 @@
 
 // GLOBAL STATIC VARIABLES
 static const char *TAG = "hot_tub_web";
+
 static const char *LFS_BASE_PATH = "/littlefs";
 static const char *LFS_INDEX = "/littlefs/www/index.html";
 static httpd_handle_t s_server;
@@ -364,7 +365,7 @@ static esp_err_t ws_handler(httpd_req_t *req)
             cJSON *command_item = cJSON_GetObjectItemCaseSensitive(root, "command");
             if (cJSON_IsString(command_item) && (command_item->valuestring != NULL))
             {
-                ESP_LOGI(TAG, "Received command: %s", command_item->valuestring);   
+                ESP_LOGI(TAG, "Received command nino2: %s", command_item->valuestring);   
                 if (strcmp(command_item->valuestring, "ota_update") == 0)
                 {
                     cJSON *url_item = cJSON_GetObjectItemCaseSensitive(root, "url");

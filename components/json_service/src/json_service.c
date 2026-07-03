@@ -23,6 +23,7 @@
  #include "json_service.h"
 
 #include "cJSON.h"
+#include "esp_err.h"
 #include "esp_log.h"
 #include "esp_crc.h"
 
@@ -116,3 +117,7 @@ bool crc32_json_wrapper(const cJSON *json_obj,
  * @return true if the input is valid and the original JSON was successfully reconstructed, false otherwise
  */
 //------------------------------------------------------------------------------
+
+
+
+

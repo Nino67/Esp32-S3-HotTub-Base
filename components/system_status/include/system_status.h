@@ -2,6 +2,9 @@
 
 #include <stdint.h>
 #include <stdbool.h>
+#include <stddef.h>
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 #include "esp_heap_caps.h"
 
 #define MAX_SSID_LEN        32
@@ -75,8 +78,8 @@ typedef struct {
     char current_version[32];
     char compile_date[16];
     char compile_time[16];
-    uint8_t active_partition_slot;   // 0 or 1 for the 2-partition scheme
-    uint8_t running_partition_slot;  // Can check if boot matched expected active slot
+    uint8_t active_partition_slot;
+    uint8_t running_partition_slot;
     ota_state_t current_ota_state;
     uint32_t ota_bytes_written;
     uint32_t ota_total_expected_bytes;
@@ -84,25 +87,47 @@ typedef struct {
 
 // --- Master System Status Structure ---
 typedef struct {
-    // System Identification & Vital Signs
+    bool initialized;
     uint64_t uptime_us;
-    float core_0_free_heap;          // Checked frequently on the comms core
-    float core_1_free_heap;
-    float internal_temperature;       // Built-in ESP32-S3 TSENS
-    uint32_t crash_counter;          // Retained via RTC memory if you want to track resets
-    
-    // Subsystem Structs
+    uint64_t last_update_us;
+    size_t core_0_free_heap_bytes;
+    size_t core_1_free_heap_bytes;
+    size_t psram_free_bytes;
+    float internal_temperature;
+    uint32_t crash_counter;
+    uint32_t reset_reason;
+    uint32_t core_0_task_stack_high_water_bytes;
+
     wireless_status_t   network;
     ble_config_status_t bluetooth;
     filesystem_status_t storage;
     webserver_status_t  web_server;
     firmware_status_t   firmware;
-    
-    // Dynamic Parameter Mirror (For BLE/Web configuration syncing)
-    // Put a placeholder here for your custom runtime params
+
     struct {
         float loop_frequency_hz;
         bool telemetry_enabled;
         uint8_t debug_level;
     } parameters;
 } SystemStatus_t;
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+esp_err_t system_status_init(TaskHandle_t core0_task);
+esp_err_t system_status_snapshot(void);
+esp_err_t system_status_update(void);
+SystemStatus_t *system_status_get(void);
+
+char *system_status_get_json(void);
+
+esp_err_t system_status_set_wireless_status(const wireless_status_t *status);
+esp_err_t system_status_set_network_status(const wireless_status_t *status);
+esp_err_t system_status_set_firmware_status(const firmware_status_t *status);
+esp_err_t system_status_set_filesystem_status(const filesystem_status_t *status);
+esp_err_t system_status_set_webserver_status(const webserver_status_t *status);
+
+#ifdef __cplusplus
+}
+#endif

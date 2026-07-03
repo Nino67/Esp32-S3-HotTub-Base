@@ -4,6 +4,7 @@
 #include "esp_sntp.h"
 #include "esp_timer.h"
 #include "app_watchdog.h"
+#include "system_status.h"
 
 #include "ntp_time_sync.h"
 
@@ -333,6 +334,12 @@ void time_maintenance_task(void *arg)
             {
                 ESP_LOGW(TAG, "time maintenance task failed to feed watchdog");
             }
+        }
+
+        // Update periodic system status fields
+        esp_err_t status_err = system_status_update();
+        if (status_err != ESP_OK) {
+            ESP_LOGW(TAG, "system_status_update failed: %s", esp_err_to_name(status_err));
         }
 
         // Once per day, resync via NTP to correct drift

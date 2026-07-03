@@ -12,6 +12,7 @@
 #include "freertos/semphr.h"
 
 #include "hot_tub_device_state.h"
+#include "system_status.h"
 
 static const char *TAG = "hot_tub_wifi";
 
@@ -106,6 +107,17 @@ static void wifi_event_handler(void *arg, esp_event_base_t event_base, int32_t e
         update_sta_ip(event);
         unlock_state();
         hot_tub_device_state_set_wifi_connected(true, s_status.sta_ip);
+
+        wireless_status_t status = {0};
+        status.current_mode = WIFI_STATE_STA_CONNECTED;
+        status.internet_connected = true;
+        strlcpy(status.active_ssid, s_status.sta_connected ? s_status.sta_ip : "", sizeof(status.active_ssid));
+        status.connected_client_count = 0;
+        memset(status.clients[0].mac_address, 0, sizeof(status.clients[0].mac_address));
+        strlcpy((char *)status.clients[0].ip_address, s_status.sta_ip, sizeof(status.clients[0].ip_address));
+        status.clients[0].rssi = 0;
+        system_status_set_network_status(&status);
+
         ESP_LOGI(TAG, "STA got IP: %s", s_status.sta_ip);
     }
 }
@@ -184,6 +196,13 @@ esp_err_t hot_tub_wifi_manager_start(const hot_tub_wifi_credentials_t *sta_crede
         s_status.ap_started = true;
         update_ap_ip();
         unlock_state();
+
+        wireless_status_t status = {0};
+        status.current_mode = WIFI_STATE_AP_FALLBACK;
+        status.internet_connected = false;
+        strlcpy(status.active_ssid, "HotTub-Controller", sizeof(status.active_ssid));
+        status.connected_client_count = 0;
+        system_status_set_network_status(&status);
     }
 
     if (s_sta_enabled)

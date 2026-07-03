@@ -1,3 +1,3 @@
 idf_component_register(SRCS "src/hot_tub_storage.c"
                        INCLUDE_DIRS "include"
-                       REQUIRES nvs_flash esp_common)
+                       REQUIRES nvs_flash esp_common system_status)

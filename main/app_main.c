@@ -33,16 +33,15 @@
 #include "esp_check.h"
 #include "esp_log.h"
 #include "esp_heap_caps.h"
+#include "system_status.h"
 
 
 
 
 #ifdef CONFIG_SPIRAM
 #include "esp_psram.h"
-#include "esp_heap_caps.h"
 #include "psram_allocator_c.h"
 #endif
-
 
 #define MASTER  0
 #define UNIT_ID MASTER
@@ -114,28 +113,15 @@ esp_err_t psram_check(void)
  */
 void app_main(void)
 {
-// #ifdef CONFIG_SPIRAM
-//     if (esp_psram_is_initialized()) {
-//         size_t psram_size = esp_psram_get_size();
-//         size_t psram_free = heap_caps_get_free_size(MALLOC_CAP_SPIRAM);
-//         printf("PSRAM size = %u bytes, free = %u bytes\n",
-//                (unsigned)psram_size, (unsigned)psram_free);
-//     } else {
-//         printf("PSRAM not initialized\n");
-//     }
-// #else
-//     printf("PSRAM support is disabled in config\n");
-// #endif
-
     size_t default_heap_free = heap_caps_get_free_size(MALLOC_CAP_INTERNAL);
-    ESP_LOGI(TAG, "Default heap free size = %u bytes", (unsigned)default_heap_free);    
+    ESP_LOGI(TAG, "Default heap free size = %u bytes", (unsigned)default_heap_free);
 
+#ifdef CONFIG_SPIRAM
     esp_err_t err = psram_check();
     if (err != ESP_OK) {
         ESP_LOGW(TAG, "PSRAM check failed: %s", esp_err_to_name(err));
     }
 
-// #ifdef CONFIG_SPIRAM
     if (psram_allocator_init()) {
         size_t total = psram_allocator_get_total_size();
         size_t used = psram_allocator_get_used_size();
@@ -157,9 +143,6 @@ void app_main(void)
                      buffer[0], buffer[1], buffer[2],
                      buffer[253], buffer[254], buffer[255]);
             ESP_LOGI(TAG, "PSRAM allocator total=%u", (unsigned)psram_allocator_get_total_size());
-            // psram_allocator_get_used_size();
-            // psram_allocator_get_remaining_size();
-            // psram_allocator_get_active_allocation_count();
             ESP_LOGI(TAG, "PSRAM allocator used=%u remaining=%u active=%u",
                      (unsigned)psram_allocator_get_used_size(),
                      (unsigned)psram_allocator_get_remaining_size(),
@@ -172,7 +155,7 @@ void app_main(void)
     } else {
         ESP_LOGW(TAG, "PSRAM allocator initialization failed");
     }
-// #endif
+#endif
 
 
 
@@ -181,17 +164,31 @@ void app_main(void)
 
 
 
+    TaskHandle_t hot_tub_app_task_handle = NULL;
     xTaskCreatePinnedToCore(hot_tub_app_task,
                             "hot_tub_app",
                             8192,
                             NULL,
                             5,
-                            NULL,
+                            &hot_tub_app_task_handle,
                             0);
 
 
 
-    
+    if (hot_tub_app_task_handle != NULL) {
+        esp_err_t status_err = system_status_init(hot_tub_app_task_handle);
+        if (status_err != ESP_OK) {
+            ESP_LOGW(TAG, "system_status_init failed: %s", esp_err_to_name(status_err));
+        } else {
+            esp_err_t snap_err = system_status_snapshot();
+            if (snap_err != ESP_OK) {
+                ESP_LOGW(TAG, "system_status_snapshot failed: %s", esp_err_to_name(snap_err));
+            }
+        }
+    } else {
+        ESP_LOGW(TAG, "Failed to create hot_tub_app task handle");
+    }
+
     xTaskCreatePinnedToCore(time_maintenance_task,
                             "time_maintenance_task",
                             4096,

@@ -10,7 +10,8 @@ idf_component_register(SRCS "app_main.c"
                             ntp_time_sync
                             json
                             json_service
-                            psram_allocator)
+                            psram_allocator
+                            system_status)
                             
     
 littlefs_create_partition_image(storage_0 ../littlefs FLASH_IN_PROJECT)
