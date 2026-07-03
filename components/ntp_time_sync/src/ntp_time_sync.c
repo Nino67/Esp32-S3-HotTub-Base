@@ -309,7 +309,7 @@ void time_maintenance_task(void *arg)
 
     ESP_LOGI(TAG, "time_maintenance_task: starting initial NTP sync");
     // esp_err_t err = ntp_utils_time_sync_blocking(ntp_server, tz, 15000);
-    esp_err_t err = ntp_utils_time_sync_nonblocking(ntp_server, tz, 15000);
+    esp_err_t err = ntp_utils_time_sync_blocking(ntp_server, tz, 15000);
     if (err == ESP_OK) {
         time(&last_sync);
         ESP_LOGI(TAG, "time_maintenance_task: initial NTP sync OK");
@@ -334,17 +334,6 @@ void time_maintenance_task(void *arg)
                 ESP_LOGW(TAG, "time maintenance task failed to feed watchdog");
             }
         }
-
-        // // Read current local time without doing NTP again
-        // struct tm now_tm;
-        // if (ntp_utils_time_get_local(&now_tm) == ESP_OK) {
-        //     char buf[32];
-        //     if (strftime(buf, sizeof(buf), "%Y-%m-%d %H:%M:%S", &now_tm) > 0) {
-        //         ESP_LOGI("time_task", "Tick time: %s", buf);
-        //     } else {
-        //         ESP_LOGW("time_task", "Failed to format current time");
-        //     }
-        // }
 
         // Once per day, resync via NTP to correct drift
         time_t now = 0;

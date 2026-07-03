@@ -364,6 +364,7 @@ static esp_err_t ws_handler(httpd_req_t *req)
             cJSON *command_item = cJSON_GetObjectItemCaseSensitive(root, "command");
             if (cJSON_IsString(command_item) && (command_item->valuestring != NULL))
             {
+                ESP_LOGI(TAG, "Received command: %s", command_item->valuestring);   
                 if (strcmp(command_item->valuestring, "ota_update") == 0)
                 {
                     cJSON *url_item = cJSON_GetObjectItemCaseSensitive(root, "url");

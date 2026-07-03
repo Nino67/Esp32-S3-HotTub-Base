@@ -32,11 +32,15 @@
 #include "ntp_time_sync.h"
 #include "esp_check.h"
 #include "esp_log.h"
+#include "esp_heap_caps.h"
+
+
 
 
 #ifdef CONFIG_SPIRAM
 #include "esp_psram.h"
 #include "esp_heap_caps.h"
+#include "psram_allocator_c.h"
 #endif
 
 
@@ -98,6 +102,13 @@ esp_err_t psram_check(void)
 
 
 
+
+
+
+
+
+
+
 /**
  * @brief Main application entry point.
  */
@@ -116,10 +127,59 @@ void app_main(void)
 //     printf("PSRAM support is disabled in config\n");
 // #endif
 
+    size_t default_heap_free = heap_caps_get_free_size(MALLOC_CAP_INTERNAL);
+    ESP_LOGI(TAG, "Default heap free size = %u bytes", (unsigned)default_heap_free);    
+
     esp_err_t err = psram_check();
     if (err != ESP_OK) {
         ESP_LOGW(TAG, "PSRAM check failed: %s", esp_err_to_name(err));
-    } 
+    }
+
+// #ifdef CONFIG_SPIRAM
+    if (psram_allocator_init()) {
+        size_t total = psram_allocator_get_total_size();
+        size_t used = psram_allocator_get_used_size();
+        size_t remaining = psram_allocator_get_remaining_size();
+        size_t active = psram_allocator_get_active_allocation_count();
+
+        ESP_LOGI(TAG, "PSRAM allocator total=%u used=%u remaining=%u active=%u",
+                 (unsigned)total,
+                 (unsigned)used,
+                 (unsigned)remaining,
+                 (unsigned)active);
+
+        uint8_t *buffer = (uint8_t *)psram_allocator_malloc(256);
+        if (buffer) {
+            for (size_t i = 0; i < 256; ++i) {
+                buffer[i] = (uint8_t)i;
+            }
+            ESP_LOGW(TAG, "PSRAM buffer: %02X %02X %02X ... %02X %02X %02X",
+                     buffer[0], buffer[1], buffer[2],
+                     buffer[253], buffer[254], buffer[255]);
+            ESP_LOGI(TAG, "PSRAM allocator total=%u", (unsigned)psram_allocator_get_total_size());
+            // psram_allocator_get_used_size();
+            // psram_allocator_get_remaining_size();
+            // psram_allocator_get_active_allocation_count();
+            ESP_LOGI(TAG, "PSRAM allocator used=%u remaining=%u active=%u",
+                     (unsigned)psram_allocator_get_used_size(),
+                     (unsigned)psram_allocator_get_remaining_size(),
+                     (unsigned)psram_allocator_get_active_allocation_count());
+            psram_allocator_free(buffer);
+            ESP_LOGI(TAG, "PSRAM buffer allocated and freed through C wrapper");
+        } else {
+            ESP_LOGW(TAG, "PSRAM allocator malloc failed");
+        }
+    } else {
+        ESP_LOGW(TAG, "PSRAM allocator initialization failed");
+    }
+// #endif
+
+
+
+
+
+
+
 
     xTaskCreatePinnedToCore(hot_tub_app_task,
                             "hot_tub_app",
