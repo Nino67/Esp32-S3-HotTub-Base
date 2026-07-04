@@ -51,6 +51,12 @@ static int s_ws_clients[4];
 static TaskHandle_t s_state_broadcast_task;
 //------------------------------------------------------------------------------
 
+esp_err_t hot_tub_web_server_ota_update_requested(cJSON *);
+
+esp_err_t json_service_validate_crc32(const char *, char *, size_t, uint32_t *, uint32_t *);    
+
+esp_err_t json_service_parse_json(const char *, cJSON **);
+
 
 
 /**
@@ -357,44 +363,56 @@ static esp_err_t ws_handler(httpd_req_t *req)
     err = httpd_ws_recv_frame(req, &frame, frame.len);
     if (err == ESP_OK)
     {
-        hot_tub_device_state_set_last_command(payload);
-
         cJSON *root = cJSON_Parse(payload);
         if (root != NULL)
         {
+            cJSON *crc_item = cJSON_GetObjectItemCaseSensitive(root, "crc32");
+            if (cJSON_IsNumber(crc_item))
+            {
+                uint32_t expected_crc = 0;
+                uint32_t computed_crc = 0;
+                // Validate the CRC32 of the received payload and strip 
+                // crc32 from the JSON payload if valid 
+                err = json_service_validate_crc32(payload, NULL, 0, &expected_crc, &computed_crc);
+                if (err != ESP_OK)
+                {
+                    ESP_LOGW(TAG, "WS payload CRC32 invalid (expected=%" PRIu32 ", computed=%" PRIu32 ")",
+                             expected_crc,
+                             computed_crc);
+                    cJSON_Delete(root);
+                    untrack_client(sockfd);
+                    free(payload);
+                    return err;
+                }
+                
+                cJSON *parsed_json = NULL;
+                err = json_service_parse_json(payload, &parsed_json);
+                if (err != ESP_OK)
+                {
+                    ESP_LOGW(TAG, "Failed to parse JSON payload");
+                    cJSON_Delete(root);
+                    untrack_client(sockfd);
+                    free(payload);
+                    return err;
+                }
+
+                ESP_LOGI(TAG, "WS payload CRC32 valid (expected=%" PRIu32 ", computed=%" PRIu32 ")",
+                         expected_crc,
+                         computed_crc);
+                ESP_LOGW(TAG, "Received WS Nino message: %s", payload);
+            }
+
             cJSON *command_item = cJSON_GetObjectItemCaseSensitive(root, "command");
             if (cJSON_IsString(command_item) && (command_item->valuestring != NULL))
             {
-                ESP_LOGI(TAG, "Received command nino2: %s", command_item->valuestring);   
+                hot_tub_device_state_set_last_command(payload);
                 if (strcmp(command_item->valuestring, "ota_update") == 0)
                 {
-                    cJSON *url_item = cJSON_GetObjectItemCaseSensitive(root, "url");
-                    if (cJSON_IsString(url_item) && url_item->valuestring && url_item->valuestring[0] != '\0')
+                    ESP_LOGI(TAG, "OTA update command received");
+                    esp_err_t ota_err = hot_tub_web_server_ota_update_requested(root);
+                    if (ota_err != ESP_OK)
                     {
-                        char *url_copy = strdup(url_item->valuestring);
-                        if (url_copy != NULL)
-                        {
-                            hot_tub_device_state_set_ota_pending(true);
-                            hot_tub_device_state_set_ota_status("requested");
-                            hot_tub_device_state_set_ota_progress(0);
-                            if (xTaskCreatePinnedToCore(ota_update_task, "ota_update", 8192, url_copy, 5, NULL, 0) != pdPASS)
-                            {
-                                ESP_LOGE(TAG, "Failed to create OTA task");
-                                free(url_copy);
-                                hot_tub_device_state_set_ota_pending(false);
-                                hot_tub_device_state_set_ota_status("failed");
-                            }
-                        }
-                        else
-                        {
-                            ESP_LOGE(TAG, "Failed to allocate OTA URL copy");
-                            hot_tub_device_state_set_ota_status("failed");
-                            hot_tub_device_state_set_ota_pending(false);
-                        }
-                    }
-                    else
-                    {
-                        ESP_LOGE(TAG, "OTA update command missing valid url");
+                        ESP_LOGE(TAG, "OTA update request failed: %s", esp_err_to_name(ota_err));
                         hot_tub_device_state_set_ota_status("failed");
                         hot_tub_device_state_set_ota_pending(false);
                     }
@@ -560,12 +578,53 @@ esp_err_t hot_tub_web_server_broadcast_json(const char *json)
 //-----------------------------------------------------------------------------
 
 
+/**
+ * @brief Handle an OTA update request.
+ * 
+ * @param root The JSON object containing the OTA update request.
+ * @return ESP_OK on success, or an error code on failure.
+ */
+esp_err_t hot_tub_web_server_ota_update_requested(cJSON *root)
+{
+    if (!s_server)
+    {
+        return ESP_ERR_INVALID_STATE;
+    }
 
+    // Implement OTA update request handling here
+    cJSON *url_item = cJSON_GetObjectItemCaseSensitive(root, "url");
+    if (cJSON_IsString(url_item) && url_item->valuestring && url_item->valuestring[0] != '\0')
+    {
+        char *url_copy = strdup(url_item->valuestring);
+        if (url_copy != NULL)
+        {
+            hot_tub_device_state_set_ota_pending(true);
+            hot_tub_device_state_set_ota_status("requested");
+            hot_tub_device_state_set_ota_progress(0);
+            if (xTaskCreatePinnedToCore(ota_update_task, "ota_update", 8192, url_copy, 5, NULL, 0) != pdPASS)
+            {
+                ESP_LOGE(TAG, "Failed to create OTA task");
+                free(url_copy);
+                hot_tub_device_state_set_ota_pending(false);
+                hot_tub_device_state_set_ota_status("failed");
+            }
+        }
+        else
+        {
+            ESP_LOGE(TAG, "Failed to allocate OTA URL copy");
+            hot_tub_device_state_set_ota_status("failed");
+            hot_tub_device_state_set_ota_pending(false);
+        }
+    }
+    else
+    {
+        ESP_LOGE(TAG, "OTA update command missing valid url");
+        hot_tub_device_state_set_ota_status("failed");
+        hot_tub_device_state_set_ota_pending(false);
+    }
 
-
-
-
-
+    return ESP_OK;
+}
 
 
 
