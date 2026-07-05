@@ -57,6 +57,8 @@ esp_err_t json_service_validate_crc32(const char *, char *, size_t, uint32_t *, 
 
 esp_err_t json_service_parse_json(const char *, cJSON **);
 
+char *system_status_get_json();
+void ws_json_service_dispatcher_core0(const char *incoming_json);
 
 
 /**
@@ -366,6 +368,7 @@ static esp_err_t ws_handler(httpd_req_t *req)
         cJSON *root = cJSON_Parse(payload);
         if (root != NULL)
         {
+            // Check for CRC32 field and validate the payload
             cJSON *crc_item = cJSON_GetObjectItemCaseSensitive(root, "crc32");
             if (cJSON_IsNumber(crc_item))
             {
@@ -385,21 +388,29 @@ static esp_err_t ws_handler(httpd_req_t *req)
                     return err;
                 }
                 
-                cJSON *parsed_json = NULL;
-                err = json_service_parse_json(payload, &parsed_json);
-                if (err != ESP_OK)
-                {
-                    ESP_LOGW(TAG, "Failed to parse JSON payload");
-                    cJSON_Delete(root);
-                    untrack_client(sockfd);
-                    free(payload);
-                    return err;
-                }
-
-                ESP_LOGI(TAG, "WS payload CRC32 valid (expected=%" PRIu32 ", computed=%" PRIu32 ")",
+                // cJSON *received_json = NULL;
+                // err = json_service_parse_json(payload, &received_json);
+                // if (err != ESP_OK)
+                // {
+                //     ESP_LOGW(TAG, "Failed to parse JSON payload");
+                //     cJSON_Delete(root);
+                //     untrack_client(sockfd);
+                //     free(payload);
+                //     return err;
+                // }
+                
+                ESP_LOGW(TAG, "WS payload CRC32 valid first(expected=%" PRIu32 ", computed=%" PRIu32 ")",
                          expected_crc,
                          computed_crc);
-                ESP_LOGW(TAG, "Received WS Nino message: %s", payload);
+                ws_json_service_dispatcher_core0(payload);
+
+                // char *json_recieved_msg = system_status_get_json();
+                // ESP_LOGW(TAG, "Received WS Nino message: %s", json_recieved_msg);
+                // if (json_recieved_msg) {
+                //     cJSON_free(json_recieved_msg);
+                // } else {
+                //     ESP_LOGW(TAG, "Failed to get system status JSON");          
+                // }
             }
 
             cJSON *command_item = cJSON_GetObjectItemCaseSensitive(root, "command");

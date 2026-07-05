@@ -120,7 +120,7 @@ esp_err_t system_status_snapshot(void);
 esp_err_t system_status_update(void);
 SystemStatus_t *system_status_get(void);
 
-char *system_status_get_json(void);
+char *system_status_get_json();
 
 esp_err_t system_status_set_wireless_status(const wireless_status_t *status);
 esp_err_t system_status_set_network_status(const wireless_status_t *status);

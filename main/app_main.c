@@ -33,6 +33,7 @@
 #include "esp_check.h"
 #include "esp_log.h"
 #include "esp_heap_caps.h"
+#include "freertos/semphr.h"
 #include "system_status.h"
 
 
@@ -64,10 +65,16 @@ static const char *TAG = "app_main";
  */
 static void hot_tub_app_task(void *arg)
 {
+    SemaphoreHandle_t startup_sem = (SemaphoreHandle_t)arg;
+
     ESP_LOGI(TAG, "Starting Hot Tub Controller on core %d", xPortGetCoreID());
     esp_err_t err = hot_tub_app_start();
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "hot_tub_app_start failed: %s", esp_err_to_name(err));
+    }
+
+    if (startup_sem != NULL) {
+        xSemaphoreGive(startup_sem);
     }
 
     esp_err_t unregister_err = app_watchdog_unregister_current_task();
@@ -164,19 +171,38 @@ void app_main(void)
 
 
 
+    SemaphoreHandle_t startup_done_sem = xSemaphoreCreateBinary();
+    if (startup_done_sem == NULL) {
+        ESP_LOGW(TAG, "Failed to create startup semaphore");
+    }
+
     TaskHandle_t hot_tub_app_task_handle = NULL;
     xTaskCreatePinnedToCore(hot_tub_app_task,
                             "hot_tub_app",
-                            8192,
-                            NULL,
+                            12288,
+                            startup_done_sem,
                             5,
                             &hot_tub_app_task_handle,
                             0);
 
+    if (startup_done_sem != NULL) {
+        if (xSemaphoreTake(startup_done_sem, portMAX_DELAY) != pdTRUE) {
+            ESP_LOGW(TAG, "hot_tub_app startup semaphore wait failed");
+        }
+        vSemaphoreDelete(startup_done_sem);
+    }
 
+    TaskHandle_t time_maintenance_task_handle = NULL;
+    xTaskCreatePinnedToCore(time_maintenance_task,
+                            "time_maintenance_task",
+                            4096,
+                            NULL,
+                            5,
+                            &time_maintenance_task_handle,
+                            0);
 
-    if (hot_tub_app_task_handle != NULL) {
-        esp_err_t status_err = system_status_init(hot_tub_app_task_handle);
+    if (hot_tub_app_task_handle != NULL && time_maintenance_task_handle != NULL) {
+        esp_err_t status_err = system_status_init(time_maintenance_task_handle);
         if (status_err != ESP_OK) {
             ESP_LOGW(TAG, "system_status_init failed: %s", esp_err_to_name(status_err));
         } else {
@@ -186,16 +212,13 @@ void app_main(void)
             }
         }
     } else {
-        ESP_LOGW(TAG, "Failed to create hot_tub_app task handle");
+        if (hot_tub_app_task_handle == NULL) {
+            ESP_LOGW(TAG, "Failed to create hot_tub_app task handle");
+        }
+        if (time_maintenance_task_handle == NULL) {
+            ESP_LOGW(TAG, "Failed to create time_maintenance_task handle for status tracking");
+        }
     }
-
-    xTaskCreatePinnedToCore(time_maintenance_task,
-                            "time_maintenance_task",
-                            4096,
-                            NULL,
-                            5,
-                            NULL,
-                            0);         
 
 
 

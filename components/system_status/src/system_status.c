@@ -10,12 +10,18 @@
 #include "esp_timer.h"
 #include "driver/temperature_sensor.h"
 #include "cJSON.h"
+#include "json_service.h"
+
 
 static const char *TAG = "system_status";
 static SystemStatus_t s_system_status;
 static TaskHandle_t s_core0_task = NULL;
 static temperature_sensor_handle_t s_temp_sensor = NULL;
 static bool s_temp_sensor_failed = false;
+static void System_status_callback(cJSON *data);
+bool json_service_register_command(const char *cmd_string, json_cmd_callback_t callback, uint8_t target_core);
+
+
 
 static esp_err_t system_status_read_temperature(float *out_temp)
 {
@@ -137,6 +143,9 @@ esp_err_t system_status_init(TaskHandle_t core0_task)
 
     s_system_status.firmware.current_ota_state = OTA_READY;
 
+    // Register this command to fire explicitly on Core 1
+    json_service_register_command("system_status", System_status_callback, 0);
+
     return ESP_OK;
 }
 
@@ -242,9 +251,12 @@ static const char *ota_state_to_string(ota_state_t state)
     default:
         return "OTA_UNKNOWN";
     }
-}
+} // End of ota_state_to_string
+//-----------------------------------------------------------------------------
 
-char *system_status_get_json(void)
+
+
+char *system_status_get_json()
 {
     cJSON *root = cJSON_CreateObject();
     if (root == NULL) {
@@ -339,7 +351,36 @@ char *system_status_get_json(void)
         cJSON_AddNumberToObject(parameters, "debug_level", (double)s_system_status.parameters.debug_level);
     }
 
-    char *json_string = cJSON_PrintUnformatted(root);
+    char* json_string = cJSON_Print(root);
     cJSON_Delete(root);
     return json_string;
+} // End of system_status_get_json
+//-----------------------------------------------------------------------------
+
+
+
+
+
+
+static void System_status_callback(cJSON *data) {
+    ESP_LOGW(TAG, "System_status_callback invoked on Core %d", xPortGetCoreID());
+    ESP_LOGW(TAG, "System_status_callback received data: %s", cJSON_PrintUnformatted(data));
+    cJSON *cmd = cJSON_GetObjectItemCaseSensitive(data, "cmd");
+    cJSON *vdata = cJSON_GetObjectItemCaseSensitive(data, "data");
+    ESP_LOGW(TAG, "Received WS Nino callback command: %s", cmd ? cmd->valuestring : "NULL");
+    ESP_LOGW(TAG, "Received WS Nino callback data: %s", vdata ? cJSON_PrintUnformatted(vdata) : "NULL");
+
+    // cJSON *status_snapshot = cJSON_GetObjectItemCaseSensitive(data, "request");
+    if (cJSON_IsString(vdata)) {
+        // Execute heater logic here (Running safely on Core 1)
+
+        char *status_snapshot_current = system_status_get_json();
+        ESP_LOGW(TAG, "Received WS Nino message: %s", status_snapshot_current);
+        if (status_snapshot_current) {
+            cJSON_free(status_snapshot_current);
+        } else {
+            ESP_LOGW(TAG, "Failed to get system status JSON");          
+        }
+    }
 }
+

@@ -4,8 +4,45 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "freertos/FreeRTOS.h"
+#include "freertos/queue.h"
 #include "esp_err.h"
 #include "cJSON.h"
+
+
+
+
+// Generic callback signature every component will implement
+typedef void (*json_cmd_callback_t)(cJSON *data);
+
+
+// The registry entry structure
+typedef struct {
+    const char *cmd_string;          // e.g., "SET_TEMP"
+    json_cmd_callback_t callback;    // The component's execution function
+    uint8_t target_core;             // 0 or 1 (tells which core it needs to execute)
+} json_command_entry_t;
+
+
+// Generalized container to pass unparsed string payloads to Core 1
+typedef struct {
+    json_cmd_callback_t callback; // Pass the exact function address directly!
+    char *json_data_string;       // The inner data string copy
+} core1_generic_msg_t;
+
+
+extern QueueHandle_t xCore1GenericQueue;
+
+
+void ws_json_service_dispatcher_core0(const char *incoming_json);
+
+
+
+bool json_service_register_command(const char *cmd_string, 
+                                    json_cmd_callback_t callback, 
+                                    uint8_t target_core);
+
+
 
 
 bool crc32_json_wrapper(const cJSON *json_obj,

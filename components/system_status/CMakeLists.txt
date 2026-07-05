@@ -8,4 +8,5 @@ idf_component_register(SRCS "src/system_status.c"
                             esp_system
                             app_update
                             driver
+                            json_service
                             espressif__cjson)
