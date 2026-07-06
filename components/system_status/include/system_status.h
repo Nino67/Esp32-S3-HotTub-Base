@@ -6,6 +6,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "esp_heap_caps.h"
+#include "cJSON.h"
 
 #define MAX_SSID_LEN        32
 #define MAX_PASSWORD_LEN    64
@@ -87,6 +88,9 @@ typedef struct {
 
 // --- Master System Status Structure ---
 typedef struct {
+    uint16_t id;
+    char device_name[32];
+    char timestamp[32];
     bool initialized;
     uint64_t uptime_us;
     uint64_t last_update_us;
@@ -120,7 +124,7 @@ esp_err_t system_status_snapshot(void);
 esp_err_t system_status_update(void);
 SystemStatus_t *system_status_get(void);
 
-char *system_status_get_json();
+cJSON *system_status_get_json(void);
 
 esp_err_t system_status_set_wireless_status(const wireless_status_t *status);
 esp_err_t system_status_set_network_status(const wireless_status_t *status);

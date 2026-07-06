@@ -1,5 +1,7 @@
 #include "system_status.h"
 #include <stdio.h>
+#include <string.h>
+#include <time.h>
 #include "esp_err.h"
 #include "esp_log.h"
 #include "esp_ota_ops.h"
@@ -14,12 +16,23 @@
 
 
 static const char *TAG = "system_status";
+static const char *DEFAULT_DEVICE_NAME = "HotTub";
 static SystemStatus_t s_system_status;
 static TaskHandle_t s_core0_task = NULL;
 static temperature_sensor_handle_t s_temp_sensor = NULL;
+
 static bool s_temp_sensor_failed = false;
-static void System_status_callback(cJSON *data);
-bool json_service_register_command(const char *cmd_string, json_cmd_callback_t callback, uint8_t target_core);
+static void system_status_callback(cJSON *data);
+bool json_service_register_command(const char *cmd_string, 
+                                   json_cmd_callback_t callback, 
+                                   uint8_t target_core);
+
+
+bool crc32_json_wrapper(const cJSON *json_obj,
+                        char *output,
+                        size_t output_size,
+                        size_t *output_len);
+
 
 
 
@@ -117,6 +130,20 @@ static void system_status_update_timestamp(void)
     }
     s_system_status.last_update_us = (uint64_t)now_us;
     s_system_status.uptime_us = (uint64_t)esp_timer_get_time();
+
+    time_t now = 0;
+    if (time(&now) != (time_t)-1) {
+        struct tm now_tm;
+        if (localtime_r(&now, &now_tm) != NULL) {
+            strftime(s_system_status.timestamp, sizeof(s_system_status.timestamp), "%Y-%m-%d %H:%M:%S", &now_tm);
+        } else {
+            strncpy(s_system_status.timestamp, "1970-01-01 00:00:00", sizeof(s_system_status.timestamp));
+            s_system_status.timestamp[sizeof(s_system_status.timestamp) - 1] = '\0';
+        }
+    } else {
+        strncpy(s_system_status.timestamp, "1970-01-01 00:00:00", sizeof(s_system_status.timestamp));
+        s_system_status.timestamp[sizeof(s_system_status.timestamp) - 1] = '\0';
+    }
 }
 
 esp_err_t system_status_init(TaskHandle_t core0_task)
@@ -128,6 +155,8 @@ esp_err_t system_status_init(TaskHandle_t core0_task)
     memset(&s_system_status, 0, sizeof(s_system_status));
     s_core0_task = core0_task;
     s_system_status.initialized = true;
+    strncpy(s_system_status.device_name, DEFAULT_DEVICE_NAME, sizeof(s_system_status.device_name));
+    s_system_status.device_name[sizeof(s_system_status.device_name) - 1] = '\0';
     system_status_load_reset_reason();
     system_status_update_core_heap();
     system_status_update_task_stack();
@@ -143,8 +172,8 @@ esp_err_t system_status_init(TaskHandle_t core0_task)
 
     s_system_status.firmware.current_ota_state = OTA_READY;
 
-    // Register this command to fire explicitly on Core 1
-    json_service_register_command("system_status", System_status_callback, 0);
+    // Register the "system_status" command with the JSON service
+    json_service_register_command("system_status", system_status_callback, 0);
 
     return ESP_OK;
 }
@@ -256,13 +285,15 @@ static const char *ota_state_to_string(ota_state_t state)
 
 
 
-char *system_status_get_json()
+cJSON *system_status_get_json()
 {
     cJSON *root = cJSON_CreateObject();
     if (root == NULL) {
         return NULL;
     }
-
+    cJSON_AddNumberToObject(root, "id", s_system_status.id);
+    cJSON_AddStringToObject(root, "device_name", s_system_status.device_name);
+    cJSON_AddStringToObject(root, "timestamp", s_system_status.timestamp);
     cJSON_AddBoolToObject(root, "initialized", s_system_status.initialized);
     cJSON_AddNumberToObject(root, "uptime_us", (double)s_system_status.uptime_us);
     cJSON_AddNumberToObject(root, "last_update_us", (double)s_system_status.last_update_us);
@@ -351,9 +382,11 @@ char *system_status_get_json()
         cJSON_AddNumberToObject(parameters, "debug_level", (double)s_system_status.parameters.debug_level);
     }
 
-    char* json_string = cJSON_Print(root);
-    cJSON_Delete(root);
-    return json_string;
+     
+    // char* json_string = cJSON_Print(root);
+    // cJSON_Delete(root);
+    // return json_string;
+    return root;
 } // End of system_status_get_json
 //-----------------------------------------------------------------------------
 
@@ -361,26 +394,43 @@ char *system_status_get_json()
 
 
 
+/**
+ * @brief Callback function to handle the "system_status" command received via JSON service.
+ *
+ * @param data The cJSON object containing the command data.
+ */
+static void system_status_callback(cJSON *data) {
+    // Check if the data is a string and matches "request"
+    if (!cJSON_IsString(data)) {
+        return;
+    }
+    if (data->valuestring == NULL) {
+        return;
+    }
+    // If the command is "request", 
+    // send the current system status JSON back to the requester
+    if (strcmp(data->valuestring, "request") == 0) {
 
-static void System_status_callback(cJSON *data) {
-    ESP_LOGW(TAG, "System_status_callback invoked on Core %d", xPortGetCoreID());
-    ESP_LOGW(TAG, "System_status_callback received data: %s", cJSON_PrintUnformatted(data));
-    cJSON *cmd = cJSON_GetObjectItemCaseSensitive(data, "cmd");
-    cJSON *vdata = cJSON_GetObjectItemCaseSensitive(data, "data");
-    ESP_LOGW(TAG, "Received WS Nino callback command: %s", cmd ? cmd->valuestring : "NULL");
-    ESP_LOGW(TAG, "Received WS Nino callback data: %s", vdata ? cJSON_PrintUnformatted(vdata) : "NULL");
-
-    // cJSON *status_snapshot = cJSON_GetObjectItemCaseSensitive(data, "request");
-    if (cJSON_IsString(vdata)) {
-        // Execute heater logic here (Running safely on Core 1)
-
-        char *status_snapshot_current = system_status_get_json();
-        ESP_LOGW(TAG, "Received WS Nino message: %s", status_snapshot_current);
+        cJSON *status_snapshot_current = system_status_get_json();
+        char wrapped[2500];
+        size_t wrapped_len = 0;
+        bool ok = crc32_json_wrapper(status_snapshot_current, wrapped, sizeof(wrapped), &wrapped_len);
+    
+        ESP_LOGW(TAG, "Received WS Nino message: %s", wrapped);
+    
         if (status_snapshot_current) {
-            cJSON_free(status_snapshot_current);
+            cJSON_Delete(status_snapshot_current);
         } else {
             ESP_LOGW(TAG, "Failed to get system status JSON");          
         }
+    
+        // if (ok) {
+        //     // hot_tub_web_server_broadcast_json(wrapped);
+        // }
+        // if (wrapped) {
+        //     ESP_LOGW(TAG, "Freeing wrapped JSON memory");
+        //     free(wrapped);
+        // }         
     }
 }
 

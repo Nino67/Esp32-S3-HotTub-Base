@@ -388,31 +388,13 @@ static esp_err_t ws_handler(httpd_req_t *req)
                     return err;
                 }
                 
-                // cJSON *received_json = NULL;
-                // err = json_service_parse_json(payload, &received_json);
-                // if (err != ESP_OK)
-                // {
-                //     ESP_LOGW(TAG, "Failed to parse JSON payload");
-                //     cJSON_Delete(root);
-                //     untrack_client(sockfd);
-                //     free(payload);
-                //     return err;
-                // }
-                
-                ESP_LOGW(TAG, "WS payload CRC32 valid first(expected=%" PRIu32 ", computed=%" PRIu32 ")",
-                         expected_crc,
-                         computed_crc);
+                // Dispatch a JSON command to the appropriate callback 
+                // based on the registered command map.
                 ws_json_service_dispatcher_core0(payload);
 
-                // char *json_recieved_msg = system_status_get_json();
-                // ESP_LOGW(TAG, "Received WS Nino message: %s", json_recieved_msg);
-                // if (json_recieved_msg) {
-                //     cJSON_free(json_recieved_msg);
-                // } else {
-                //     ESP_LOGW(TAG, "Failed to get system status JSON");          
-                // }
             }
 
+            // Check for "command" field and handle OTA update if present
             cJSON *command_item = cJSON_GetObjectItemCaseSensitive(root, "command");
             if (cJSON_IsString(command_item) && (command_item->valuestring != NULL))
             {
@@ -430,53 +412,53 @@ static esp_err_t ws_handler(httpd_req_t *req)
                 }
             }
             cJSON_Delete(root);
-        }
+        } 
 
-        char response[256];
-        char wrapped_response[384];
-        size_t wrapped_len = 0;
-        if (hot_tub_device_state_format_json(response, sizeof(response)) == ESP_OK)
-        {
-            cJSON *json = cJSON_Parse(response);
-            if (json != NULL)
-            {
-                if (crc32_json_wrapper(json, wrapped_response, sizeof(wrapped_response), &wrapped_len))
-                {
-                    httpd_ws_frame_t out = {
-                        .type = HTTPD_WS_TYPE_TEXT,
-                        .payload = (uint8_t *)wrapped_response,
-                        .len = wrapped_len,
-                    };
-                    err = httpd_ws_send_frame(req, &out);
-                }
-                else
-                {
-                    httpd_ws_frame_t out = {
-                        .type = HTTPD_WS_TYPE_TEXT,
-                        .payload = (uint8_t *)response,
-                        .len = strlen(response),
-                    };
-                    err = httpd_ws_send_frame(req, &out);
-                }
-                cJSON_Delete(json);
-            }
-            else
-            {
-                httpd_ws_frame_t out = {
-                    .type = HTTPD_WS_TYPE_TEXT,
-                    .payload = (uint8_t *)response,
-                    .len = strlen(response),
-                };
-                err = httpd_ws_send_frame(req, &out);
-            }
-        }
+        // char response[256];
+        // char wrapped_response[384];
+        // size_t wrapped_len = 0;
+        // if (hot_tub_device_state_format_json(response, sizeof(response)) == ESP_OK)
+        // {
+        //     cJSON *json = cJSON_Parse(response);
+        //     if (json != NULL)
+        //     {
+        //         if (crc32_json_wrapper(json, wrapped_response, sizeof(wrapped_response), &wrapped_len))
+        //         {
+        //             httpd_ws_frame_t out = {
+        //                 .type = HTTPD_WS_TYPE_TEXT,
+        //                 .payload = (uint8_t *)wrapped_response,
+        //                 .len = wrapped_len,
+        //             };
+        //             err = httpd_ws_send_frame(req, &out);
+        //         }
+        //         else
+        //         {
+        //             httpd_ws_frame_t out = {
+        //                 .type = HTTPD_WS_TYPE_TEXT,
+        //                 .payload = (uint8_t *)response,
+        //                 .len = strlen(response),
+        //             };
+        //             err = httpd_ws_send_frame(req, &out);
+        //         }
+        //         cJSON_Delete(json);
+        //     }
+        //     else
+        //     {
+        //         httpd_ws_frame_t out = {
+        //             .type = HTTPD_WS_TYPE_TEXT,
+        //             .payload = (uint8_t *)response,
+        //             .len = strlen(response),
+        //         };
+        //         err = httpd_ws_send_frame(req, &out);
+        //     }
+        // }
     }
     else
     {
         untrack_client(sockfd);
     }
 
-    // ESP_LOGI(TAG, "Received WS message: %s", frame.payload);
+    ESP_LOGI(TAG, "Received WS message: %s", frame.payload);
 
     free(payload);
     return err;

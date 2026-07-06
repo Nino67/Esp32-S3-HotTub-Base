@@ -35,6 +35,7 @@
 #include <string.h>
 #include <stdlib.h>
 #include <ctype.h>
+#include "hot_tub_web_server.h"
 //------------------------------------------------------------------------------
 
 
@@ -48,6 +49,7 @@ static const char *TAG = "json_service";
 
 static json_command_entry_t *cmd_registry = NULL;
 static size_t registered_cmd_count = 0;
+
 
 
 /**
@@ -65,20 +67,21 @@ bool crc32_json_wrapper(const cJSON *json_obj,
                         size_t output_size,
                         size_t *output_len)
 {
-  // ESP_LOGI("json_service", "Building CRC32 enveloped JSON message");
-
   if (json_obj == NULL || output == NULL || output_len == NULL)
   {
     return false;
   }
 
-  char *base_complete = cJSON_PrintUnformatted((cJSON *)json_obj);
+//   char *base_complete = cJSON_PrintUnformatted((cJSON *)json_obj);
+  char *base_complete = cJSON_Print((cJSON *)json_obj);
   if (base_complete == NULL)
   {
     return false;
   }
-
+  
   size_t complete_len = strlen(base_complete);
+//   ESP_LOGW(TAG, "Base JSON string length : %zu", complete_len);
+
   if (complete_len < 2 || base_complete[complete_len - 1] != '}')
   {
     free(base_complete);
@@ -104,8 +107,9 @@ bool crc32_json_wrapper(const cJSON *json_obj,
     return false;
   }
 
-  // ESP_LOGI("json_service", "Built CRC32 enveloped JSON message: %s", output);
   *output_len = (size_t)written;
+  ESP_LOGW(TAG, "Built CRC32 enveloped JSON message: %s", output);
+  ESP_LOGW(TAG, "Built CRC32 enveloped JSON message length: %d", written - complete_len);
   return true;
 } // end of crc32_json_wrapper()
 //------------------------------------------------------------------------------
@@ -278,33 +282,30 @@ void ws_json_service_dispatcher_core0(const char *incoming_json) {
 
     cJSON *cmd = cJSON_GetObjectItemCaseSensitive(root, "cmd");
     cJSON *data = cJSON_GetObjectItemCaseSensitive(root, "data");
-    ESP_LOGW(TAG, "Received WS Nino command: %s", cmd ? cmd->valuestring : "NULL");
-    ESP_LOGW(TAG, "Received WS Nino data: %s", data ? cJSON_PrintUnformatted(data) : "NULL");
     if (cJSON_IsString(cmd) && cmd->valuestring != NULL) {
         // Search the dynamic array
         for (size_t i = 0; i < registered_cmd_count; i++) {
             if (strcmp(cmd->valuestring, cmd_registry[i].cmd_string) == 0) {
-                ESP_LOGW(TAG, "Found registered command '%s' for execution on Core %d", cmd_registry[i].cmd_string, cmd_registry[i].target_core);
                 if (cmd_registry[i].target_core == 0) {
                     // --- Core 0 Local Execution ---
-                    ESP_LOGW(TAG, "Executing command '%s' on Core 0", cmd_registry[i].cmd_string);
-                    ESP_LOGW(TAG, "Address to callback: %p", cmd_registry[i].callback);
+                    // ESP_LOGW(TAG, "Executing command '%s' on Core 0", cmd_registry[i].cmd_string);
+                    // ESP_LOGW(TAG, "Address to callback: %p", cmd_registry[i].callback);
                     cmd_registry[i].callback(data);
                 } 
-                // else if (cmd_registry[i].target_core == 1) {
-                //     // --- Core 1 Remote Execution ---
-                //     // Render just the "data" sub-object back to a string to pass across cores safely
-                //     char *data_str = cJSON_PrintUnformatted(data);
+                else if (cmd_registry[i].target_core == 1) {
+                    // --- Core 1 Remote Execution ---
+                    // Render just the "data" sub-object back to a string to pass across cores safely
+                    char *data_str = cJSON_PrintUnformatted(data);
                     
-                //     core1_generic_msg_t msg = {
-                //         .callback = cmd_registry[i].callback,
-                //         .json_data_string = data_str
-                //     };
+                    core1_generic_msg_t msg = {
+                        .callback = cmd_registry[i].callback,
+                        .json_data_string = data_str
+                    };
                     
-                //     if (xQueueSend(xCore1GenericQueue, &msg, 0) != pdTRUE) {
-                //         free(data_str); // Queue full, clean up string
-                //     }
-                // }
+                    if (xQueueSend(xCore1GenericQueue, &msg, 0) != pdTRUE) {
+                        free(data_str); // Queue full, clean up string
+                    }
+                }
                 break;
             }
         }
