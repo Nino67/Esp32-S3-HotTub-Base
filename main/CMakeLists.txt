@@ -3,7 +3,6 @@ idf_component_register(SRCS "app_main.c"
                        REQUIRES 
                             app_controller 
                             web_server 
-                            device_state 
                             esp_common
                             rgb_led 
                             esp_psram

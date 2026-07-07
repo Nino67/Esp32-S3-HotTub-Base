@@ -35,7 +35,7 @@
 #include <string.h>
 #include <stdlib.h>
 #include <ctype.h>
-#include "hot_tub_web_server.h"
+#include "web_server.h"
 //------------------------------------------------------------------------------
 
 
@@ -293,18 +293,18 @@ void ws_json_service_dispatcher_core0(const char *incoming_json) {
                     cmd_registry[i].callback(data);
                 } 
                 else if (cmd_registry[i].target_core == 1) {
-                    // --- Core 1 Remote Execution ---
-                    // Render just the "data" sub-object back to a string to pass across cores safely
-                    char *data_str = cJSON_PrintUnformatted(data);
+                    // // --- Core 1 Remote Execution ---
+                    // // Render just the "data" sub-object back to a string to pass across cores safely
+                    // char *data_str = cJSON_PrintUnformatted(data);
                     
-                    core1_generic_msg_t msg = {
-                        .callback = cmd_registry[i].callback,
-                        .json_data_string = data_str
-                    };
+                    // core1_generic_msg_t msg = {
+                    //     .callback = cmd_registry[i].callback,
+                    //     .json_data_string = data_str
+                    // };
                     
-                    if (xQueueSend(xCore1GenericQueue, &msg, 0) != pdTRUE) {
-                        free(data_str); // Queue full, clean up string
-                    }
+                    // if (xQueueSend(xCore1GenericQueue, &msg, 0) != pdTRUE) {
+                    //     free(data_str); // Queue full, clean up string
+                    // }
                 }
                 break;
             }

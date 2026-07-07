@@ -415,7 +415,11 @@ static void system_status_callback(cJSON *data) {
         char wrapped[2500];
         size_t wrapped_len = 0;
         bool ok = crc32_json_wrapper(status_snapshot_current, wrapped, sizeof(wrapped), &wrapped_len);
-    
+        if (!ok) {
+            ESP_LOGW(TAG, "Failed to wrap system status JSON with CRC32");
+            cJSON_Delete(status_snapshot_current);
+            return;
+        }
         ESP_LOGW(TAG, "Received WS Nino message: %s", wrapped);
     
         if (status_snapshot_current) {

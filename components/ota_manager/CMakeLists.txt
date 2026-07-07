@@ -1,11 +1,10 @@
-idf_component_register(SRCS "src/hot_tub_ota_manager.c"
+idf_component_register(SRCS "src/ota_manager.c"
                        INCLUDE_DIRS "include"
-                       REQUIRES storage 
+                       REQUIRES nvs_storage 
                                 app_update 
                                 esp_common 
                                 esp_http_client 
                                 esp_https_ota 
                                 mbedtls 
                                 littlefs
-                                rgb_led
-                                device_state)
+                                rgb_led)

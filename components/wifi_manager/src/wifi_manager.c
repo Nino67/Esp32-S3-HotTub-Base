@@ -1,4 +1,4 @@
-#include "hot_tub_wifi_manager.h"
+#include "wifi_manager.h"
 
 #include <string.h>
 
@@ -11,16 +11,16 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 
-#include "hot_tub_device_state.h"
+// #include "hot_tub_device_state.h"
 #include "system_status.h"
 
-static const char *TAG = "hot_tub_wifi";
+static const char *TAG = "wifi_manager";
 
 static bool s_started;
 static bool s_sta_enabled;
 static bool s_ap_enabled;
 static SemaphoreHandle_t s_mutex;
-static hot_tub_wifi_status_t s_status;
+static wifi_status_t s_status;
 
 static void lock_state(void)
 {
@@ -93,7 +93,7 @@ static void wifi_event_handler(void *arg, esp_event_base_t event_base, int32_t e
         s_status.sta_connected = false;
         s_status.sta_ip[0] = '\0';
         unlock_state();
-        hot_tub_device_state_set_wifi_connected(false, NULL);
+        // hot_tub_device_state_set_wifi_connected(false, NULL);
         if (s_sta_enabled)
         {
             esp_wifi_connect();
@@ -106,7 +106,7 @@ static void wifi_event_handler(void *arg, esp_event_base_t event_base, int32_t e
         s_status.sta_connected = true;
         update_sta_ip(event);
         unlock_state();
-        hot_tub_device_state_set_wifi_connected(true, s_status.sta_ip);
+        // hot_tub_device_state_set_wifi_connected(true, s_status.sta_ip);
 
         wireless_status_t status = {0};
         status.current_mode = WIFI_STATE_STA_CONNECTED;
@@ -122,7 +122,7 @@ static void wifi_event_handler(void *arg, esp_event_base_t event_base, int32_t e
     }
 }
 
-esp_err_t hot_tub_wifi_manager_start(const hot_tub_wifi_credentials_t *sta_credentials)
+esp_err_t wifi_manager_start(const wifi_credentials_t *sta_credentials)
 {
     if (s_started)
     {
@@ -210,12 +210,12 @@ esp_err_t hot_tub_wifi_manager_start(const hot_tub_wifi_credentials_t *sta_crede
         ESP_RETURN_ON_ERROR(esp_wifi_connect(), TAG, "sta connect failed");
     }
 
-    hot_tub_device_state_set_wifi_connected(false, NULL);
+    // hot_tub_device_state_set_wifi_connected(false, NULL);
     s_started = true;
     return ESP_OK;
 }
 
-esp_err_t hot_tub_wifi_manager_get_status(hot_tub_wifi_status_t *status)
+esp_err_t wifi_manager_get_status(wifi_status_t *status)
 {
     if (!status)
     {
@@ -228,7 +228,7 @@ esp_err_t hot_tub_wifi_manager_get_status(hot_tub_wifi_status_t *status)
     return ESP_OK;
 }
 
-bool hot_tub_wifi_manager_is_connected(void)
+bool wifi_manager_is_connected(void)
 {
     bool connected;
     lock_state();

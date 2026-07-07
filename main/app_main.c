@@ -25,7 +25,7 @@
  
 
 // INCLUDE FILES
-#include "hot_tub_app.h"
+#include "app_controller.h"
 #include "esp_err.h"
 #include "esp_log.h"
 #include "app_watchdog.h"
@@ -68,9 +68,9 @@ static void hot_tub_app_task(void *arg)
     SemaphoreHandle_t startup_sem = (SemaphoreHandle_t)arg;
 
     ESP_LOGI(TAG, "Starting Hot Tub Controller on core %d", xPortGetCoreID());
-    esp_err_t err = hot_tub_app_start();
+    esp_err_t err = app_start();
     if (err != ESP_OK) {
-        ESP_LOGE(TAG, "hot_tub_app_start failed: %s", esp_err_to_name(err));
+        ESP_LOGE(TAG, "app_start failed: %s", esp_err_to_name(err));
     }
 
     if (startup_sem != NULL) {
@@ -79,7 +79,7 @@ static void hot_tub_app_task(void *arg)
 
     esp_err_t unregister_err = app_watchdog_unregister_current_task();
     if (unregister_err != ESP_OK && unregister_err != ESP_ERR_NOT_FOUND) {
-        ESP_LOGW(TAG, "Failed to unregister hot_tub_app from watchdog: %s", esp_err_to_name(unregister_err));
+        ESP_LOGW(TAG, "Failed to unregister app_start from watchdog: %s", esp_err_to_name(unregister_err));
     }
 
     vTaskDelete(NULL);

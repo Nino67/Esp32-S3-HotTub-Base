@@ -1,4 +1,4 @@
-#include "hot_tub_storage.h"
+#include "nvs_storage.h"
 #include "system_status.h"
 
 #include <stdbool.h>
@@ -8,8 +8,8 @@
 #include "nvs.h"
 #include "nvs_flash.h"
 
-static const char *TAG = "hot_tub_storage";
-static const char *NVS_NAMESPACE = "hot_tub";
+static const char *TAG = "nvs_storage";
+static const char *NVS_NAMESPACE = "nvs_storage";
 static const char *BOOT_FAILURES_KEY = "boot_failures";
 
 static nvs_handle_t s_nvs_handle;
@@ -44,7 +44,7 @@ static esp_err_t open_storage(void)
 }
 
 
-esp_err_t hot_tub_storage_init(void)
+esp_err_t nvs_storage_init(void)
 {
     esp_err_t err = open_storage();
     if (err == ESP_OK) {
@@ -61,7 +61,7 @@ esp_err_t hot_tub_storage_init(void)
 }
 
 
-esp_err_t hot_tub_storage_get_boot_failures(uint32_t *boot_failures)
+esp_err_t nvs_storage_get_boot_failures(uint32_t *boot_failures)
 {
     if (!boot_failures)
     {
@@ -80,19 +80,19 @@ esp_err_t hot_tub_storage_get_boot_failures(uint32_t *boot_failures)
     return err;
 }
 
-esp_err_t hot_tub_storage_set_boot_failures(uint32_t boot_failures)
+esp_err_t nvs_storage_set_boot_failures(uint32_t boot_failures)
 {
     ESP_RETURN_ON_ERROR(open_storage(), TAG, "storage not ready");
     ESP_RETURN_ON_ERROR(nvs_set_u32(s_nvs_handle, BOOT_FAILURES_KEY, boot_failures), TAG, "nvs set failed");
     return nvs_commit(s_nvs_handle);
 }
 
-esp_err_t hot_tub_storage_increment_boot_failures(uint32_t *boot_failures)
+esp_err_t nvs_storage_increment_boot_failures(uint32_t *boot_failures)
 {
     uint32_t value = 0;
-    ESP_RETURN_ON_ERROR(hot_tub_storage_get_boot_failures(&value), TAG, "read boot failures failed");
+    ESP_RETURN_ON_ERROR(nvs_storage_get_boot_failures(&value), TAG, "read boot failures failed");
     value += 1;
-    ESP_RETURN_ON_ERROR(hot_tub_storage_set_boot_failures(value), TAG, "write boot failures failed");
+    ESP_RETURN_ON_ERROR(nvs_storage_set_boot_failures(value), TAG, "write boot failures failed");
     if (boot_failures)
     {
         *boot_failures = value;
@@ -100,7 +100,7 @@ esp_err_t hot_tub_storage_increment_boot_failures(uint32_t *boot_failures)
     return ESP_OK;
 }
 
-esp_err_t hot_tub_storage_reset_boot_failures(void)
+esp_err_t nvs_storage_reset_boot_failures(void)
 {
-    return hot_tub_storage_set_boot_failures(0);
+    return nvs_storage_set_boot_failures(0);
 }

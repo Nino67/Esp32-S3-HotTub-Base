@@ -1,4 +1,4 @@
-#include "hot_tub_ble_service.h"
+#include "ble_service.h"
 
 #include <inttypes.h>
 #include <string.h>
@@ -18,9 +18,8 @@
 #include "services/gatt/ble_svc_gatt.h"
 #include "host/ble_store.h"
 
-#include "hot_tub_device_state.h"
 
-static const char *TAG = "hot_tub_ble";
+static const char *TAG = "ble_service";
 
 extern void ble_store_config_init(void);
 
@@ -91,7 +90,7 @@ static int gap_event(struct ble_gap_event *event, void *arg)
         if (event->connect.status == 0)
         {
             s_conn_handle = event->connect.conn_handle;
-            hot_tub_device_state_set_ble_connected(true);
+            // hot_tub_device_state_set_ble_connected(true);
             ESP_LOGI(TAG, "BLE connected");
         }
         else
@@ -103,7 +102,7 @@ static int gap_event(struct ble_gap_event *event, void *arg)
 
     case BLE_GAP_EVENT_DISCONNECT:
         s_conn_handle = BLE_HS_CONN_HANDLE_NONE;
-        hot_tub_device_state_set_ble_connected(false);
+        // hot_tub_device_state_set_ble_connected(false);
         ESP_LOGI(TAG, "BLE disconnected");
         start_advertising();
         return 0;
@@ -186,34 +185,34 @@ static int rx_access_cb(uint16_t conn_handle, uint16_t attr_handle, struct ble_g
         os_mbuf_copydata(ctxt->om, 0, len, payload);
         payload[len] = '\0';
 
-        hot_tub_device_state_set_last_command(payload);
+        // hot_tub_device_state_set_last_command(payload);
         ESP_LOGI(TAG, "BLE RX: %s", payload);
 
         if (s_conn_handle != BLE_HS_CONN_HANDLE_NONE)
         {
-            char state[256];
-            if (hot_tub_device_state_format_json(state, sizeof(state)) == ESP_OK)
-            {
-                struct os_mbuf *om = ble_hs_mbuf_from_flat(state, strlen(state));
-                if (om)
-                {
-                    ble_gatts_notify_custom(s_conn_handle, s_tx_val_handle, om);
-                }
-            }
+            // char state[256];
+            // if (hot_tub_device_state_format_json(state, sizeof(state)) == ESP_OK)
+            // {
+            //     struct os_mbuf *om = ble_hs_mbuf_from_flat(state, strlen(state));
+            //     if (om)
+            //     {
+            //         ble_gatts_notify_custom(s_conn_handle, s_tx_val_handle, om);
+            //     }
+            // }
         }
         return 0;
     }
 
     if (ctxt->op == BLE_GATT_ACCESS_OP_READ_CHR)
     {
-        char state[256];
-        if (hot_tub_device_state_format_json(state, sizeof(state)) != ESP_OK)
-        {
-            return BLE_ATT_ERR_UNLIKELY;
-        }
+        // char state[256];
+        // if (hot_tub_device_state_format_json(state, sizeof(state)) != ESP_OK)
+        // {
+        //     return BLE_ATT_ERR_UNLIKELY;
+        // }
 
-        int rc = os_mbuf_append(ctxt->om, state, strlen(state));
-        return rc == 0 ? 0 : BLE_ATT_ERR_INSUFFICIENT_RES;
+        // int rc = os_mbuf_append(ctxt->om, state, strlen(state));
+        // return rc == 0 ? 0 : BLE_ATT_ERR_INSUFFICIENT_RES;
     }
 
     return BLE_ATT_ERR_UNLIKELY;
@@ -253,7 +252,7 @@ static const struct ble_gatt_svc_def s_svcs[] = {
     {0},
 };
 
-esp_err_t hot_tub_ble_service_init(void)
+esp_err_t ble_service_init(void)
 {
     ESP_RETURN_ON_ERROR(nimble_port_init(), TAG, "nimble init failed");
 
@@ -295,7 +294,7 @@ esp_err_t hot_tub_ble_service_init(void)
     return ESP_OK;
 }
 
-esp_err_t hot_tub_ble_service_send_json(const char *json)
+esp_err_t ble_service_send_json(const char *json)
 {
     if (!json || s_conn_handle == BLE_HS_CONN_HANDLE_NONE)
     {

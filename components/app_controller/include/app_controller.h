@@ -2,4 +2,4 @@
 
 #include "esp_err.h"
 
-esp_err_t hot_tub_app_start(void);
+esp_err_t app_start(void);

@@ -20,7 +20,7 @@
 
 
 // INCLUDE FILES
-#include "hot_tub_web_server.h"
+#include "web_server.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -36,22 +36,22 @@
 #include "cJSON.h"
 
 #include "json_service.h"
-#include "hot_tub_device_state.h"
-#include "hot_tub_ota_manager.h"
+// #include "hot_tub_device_state.h"
+#include "ota_manager.h"
 //------------------------------------------------------------------------------
 
 
 // GLOBAL STATIC VARIABLES
-static const char *TAG = "hot_tub_web";
+static const char *TAG = "web_server";
 
 static const char *LFS_BASE_PATH = "/littlefs";
 static const char *LFS_INDEX = "/littlefs/www/index.html";
 static httpd_handle_t s_server;
 static int s_ws_clients[4];
-static TaskHandle_t s_state_broadcast_task;
+// static TaskHandle_t s_state_broadcast_task;
 //------------------------------------------------------------------------------
 
-esp_err_t hot_tub_web_server_ota_update_requested(cJSON *);
+esp_err_t web_server_ota_update_requested(cJSON *);
 
 esp_err_t json_service_validate_crc32(const char *, char *, size_t, uint32_t *, uint32_t *);    
 
@@ -93,61 +93,61 @@ static esp_err_t mount_littlefs(void)
 //-----------------------------------------------------------------------------
 
 
-/**
- * @brief Determine the content type based on the file extension.
- * 
- * @param path The file path to determine the content type for.
- * @return The content type string corresponding to the file extension.
- */
-static esp_err_t broadcast_crc_wrapped_state(void)
-{
-    char response[256];
-    char wrapped[384];
-    size_t wrapped_len = 0;
+// /**
+//  * @brief Determine the content type based on the file extension.
+//  * 
+//  * @param path The file path to determine the content type for.
+//  * @return The content type string corresponding to the file extension.
+//  */
+// static esp_err_t broadcast_crc_wrapped_state(void)
+// {
+//     char response[256];
+//     char wrapped[384];
+//     size_t wrapped_len = 0;
 
-    if (hot_tub_device_state_format_json(response, sizeof(response)) != ESP_OK)
-    {
-        return ESP_FAIL;
-    }
+//     // if (hot_tub_device_state_format_json(response, sizeof(response)) != ESP_OK)
+//     // {
+//     //     return ESP_FAIL;
+//     // }
 
-    cJSON *json = cJSON_Parse(response);
-    if (json == NULL)
-    {
-        return ESP_FAIL;
-    }
+//     cJSON *json = cJSON_Parse(response);
+//     if (json == NULL)
+//     {
+//         return ESP_FAIL;
+//     }
 
-    bool ok = crc32_json_wrapper(json, wrapped, sizeof(wrapped), &wrapped_len);
-    cJSON_Delete(json);
-    if (!ok)
-    {
-        return ESP_FAIL;
-    }
+//     bool ok = crc32_json_wrapper(json, wrapped, sizeof(wrapped), &wrapped_len);
+//     cJSON_Delete(json);
+//     if (!ok)
+//     {
+//         return ESP_FAIL;
+//     }
 
-    return hot_tub_web_server_broadcast_json(wrapped);
-}
+//     return hot_tub_web_server_broadcast_json(wrapped);
+// }
 
-static void state_broadcast_task(void *arg)
-{
-    (void)arg;
-    hot_tub_device_state_t state;
+// static void state_broadcast_task(void *arg)
+// {
+//     (void)arg;
+//     hot_tub_device_state_t state;
 
-    while (true)
-    {
-        vTaskDelay(pdMS_TO_TICKS(250));
+//     while (true)
+//     {
+//         vTaskDelay(pdMS_TO_TICKS(250));
 
-        if (hot_tub_device_state_get_snapshot(&state) != ESP_OK)
-        {
-            continue;
-        }
+//         // if (hot_tub_device_state_get_snapshot(&state) != ESP_OK)
+//         // {
+//         //     continue;
+//         // }
 
-        if (!state.ota_pending)
-        {
-            continue;
-        }
+//         if (!state.ota_pending)
+//         {
+//             continue;
+//         }
 
-        broadcast_crc_wrapped_state();
-    }
-}
+//         broadcast_crc_wrapped_state();
+//     }
+// }
 
 static const char *content_type_for_path(const char *path)
 {
@@ -258,11 +258,11 @@ static void ota_update_task(void *arg)
     }
 
     ESP_LOGI(TAG, "OTA task started: %s", url);
-    esp_err_t err = hot_tub_ota_manager_trigger_github_ota(url);
+    esp_err_t err = ota_manager_trigger_github_ota(url);
     if (err != ESP_OK)
     {
         ESP_LOGE(TAG, "OTA task failed: %s", esp_err_to_name(err));
-        hot_tub_device_state_set_ota_pending(false);
+        // hot_tub_device_state_set_ota_pending(false);
     }
 
     free(url);
@@ -398,16 +398,16 @@ static esp_err_t ws_handler(httpd_req_t *req)
             cJSON *command_item = cJSON_GetObjectItemCaseSensitive(root, "command");
             if (cJSON_IsString(command_item) && (command_item->valuestring != NULL))
             {
-                hot_tub_device_state_set_last_command(payload);
+                // hot_tub_device_state_set_last_command(payload);
                 if (strcmp(command_item->valuestring, "ota_update") == 0)
                 {
                     ESP_LOGI(TAG, "OTA update command received");
-                    esp_err_t ota_err = hot_tub_web_server_ota_update_requested(root);
+                    esp_err_t ota_err = web_server_ota_update_requested(root);
                     if (ota_err != ESP_OK)
                     {
                         ESP_LOGE(TAG, "OTA update request failed: %s", esp_err_to_name(ota_err));
-                        hot_tub_device_state_set_ota_status("failed");
-                        hot_tub_device_state_set_ota_pending(false);
+                        // hot_tub_device_state_set_ota_status("failed");
+                        // hot_tub_device_state_set_ota_pending(false);
                     }
                 }
             }
@@ -472,7 +472,7 @@ static esp_err_t ws_handler(httpd_req_t *req)
  * 
  * @return ESP_OK on success, or an error code on failure.
  */
-esp_err_t hot_tub_web_server_start(void)
+esp_err_t web_server_start(void)
 {
     if (s_server)
     {
@@ -489,10 +489,10 @@ esp_err_t hot_tub_web_server_start(void)
 
     ESP_RETURN_ON_ERROR(httpd_start(&s_server, &config), TAG, "httpd start failed");
 
-    if (xTaskCreatePinnedToCore(state_broadcast_task, "state_broadcast", 4096, NULL, 5, &s_state_broadcast_task, 0) != pdPASS)
-    {
-        ESP_LOGW(TAG, "Failed to create OTA state broadcast task");
-    }
+    // if (xTaskCreatePinnedToCore(state_broadcast_task, "state_broadcast", 4096, NULL, 5, &s_state_broadcast_task, 0) != pdPASS)
+    // {
+        // ESP_LOGW(TAG, "Failed to create OTA state broadcast task");
+    // }
 
     httpd_uri_t index_uri = {
         .uri = "/",
@@ -528,7 +528,7 @@ esp_err_t hot_tub_web_server_start(void)
     ESP_RETURN_ON_ERROR(httpd_register_uri_handler(s_server, &ws_uri), TAG, "ws handler failed");
 
     return ESP_OK;
-} // End of hot_tub_web_server_start
+} // End of web_server_start
 //-----------------------------------------------------------------------------
 
 
@@ -539,7 +539,7 @@ esp_err_t hot_tub_web_server_start(void)
  * @param json The JSON string to broadcast.
  * @return ESP_OK on success, or an error code on failure.
  */
-esp_err_t hot_tub_web_server_broadcast_json(const char *json)
+esp_err_t web_server_broadcast_json(const char *json)
 {
     if (!s_server || !json)
     {
@@ -567,7 +567,7 @@ esp_err_t hot_tub_web_server_broadcast_json(const char *json)
     }
 
     return result;
-} // End of hot_tub_web_server_broadcast_json
+} // End of web_server_broadcast_json
 //-----------------------------------------------------------------------------
 
 
@@ -577,7 +577,7 @@ esp_err_t hot_tub_web_server_broadcast_json(const char *json)
  * @param root The JSON object containing the OTA update request.
  * @return ESP_OK on success, or an error code on failure.
  */
-esp_err_t hot_tub_web_server_ota_update_requested(cJSON *root)
+esp_err_t web_server_ota_update_requested(cJSON *root)
 {
     if (!s_server)
     {
@@ -591,29 +591,29 @@ esp_err_t hot_tub_web_server_ota_update_requested(cJSON *root)
         char *url_copy = strdup(url_item->valuestring);
         if (url_copy != NULL)
         {
-            hot_tub_device_state_set_ota_pending(true);
-            hot_tub_device_state_set_ota_status("requested");
-            hot_tub_device_state_set_ota_progress(0);
+            // web_server_device_state_set_ota_pending(true);
+            // web_server_device_state_set_ota_status("requested");
+            // web_server_device_state_set_ota_progress(0);
             if (xTaskCreatePinnedToCore(ota_update_task, "ota_update", 8192, url_copy, 5, NULL, 0) != pdPASS)
             {
                 ESP_LOGE(TAG, "Failed to create OTA task");
                 free(url_copy);
-                hot_tub_device_state_set_ota_pending(false);
-                hot_tub_device_state_set_ota_status("failed");
+                // web_server_device_state_set_ota_pending(false);
+                // web_server_device_state_set_ota_status("failed");
             }
         }
         else
         {
             ESP_LOGE(TAG, "Failed to allocate OTA URL copy");
-            hot_tub_device_state_set_ota_status("failed");
-            hot_tub_device_state_set_ota_pending(false);
+            // web_server_device_state_set_ota_status("failed");
+            // web_server_device_state_set_ota_pending(false);
         }
     }
     else
     {
         ESP_LOGE(TAG, "OTA update command missing valid url");
-        hot_tub_device_state_set_ota_status("failed");
-        hot_tub_device_state_set_ota_pending(false);
+        // web_server_device_state_set_ota_status("failed");
+        // web_server_device_state_set_ota_pending(false);
     }
 
     return ESP_OK;
