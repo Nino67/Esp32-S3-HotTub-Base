@@ -25,8 +25,6 @@
  *
  */
 
-const JSON_CRC32 = 'crc32';
-
 /**
  * CRC32 implementation in JavaScript.
  * This implementation is based on the polynomial 0xEDB88320.
@@ -41,7 +39,6 @@ for (let i = 0; i < 256; i += 1) {
   CRC32_TABLE[i] = crc >>> 0;
 } // End of CRC32_TABLE initialization
 //------------------------------------------------------------------
-
 
 
 /**
@@ -61,7 +58,6 @@ function crc32(data, initial = 0) {
   return (crc ^ 0xffffffff) >>> 0;
 } // End of crc32 function
 //----------------------------------------------------------------
-
 
 
 /**
@@ -85,36 +81,27 @@ function normalizeJsonObject(json) {
 
 /**
  * Creates a CRC32-wrapped JSON string from a given JSON object or string.
+ * The returned format is: "<crc32>:<json>".
  * @param {Object|string} json - The JSON object or JSON string to wrap.
  * @returns {string} - The CRC32-wrapped JSON string.
- * @throws {Error} - If the serialized JSON does not produce an object.
  */
 export function createCrc32JsonWrapper(json) {
   const obj = normalizeJsonObject(json);
-  const wrapper = {};
-  for (const key of Object.keys(obj)) {
-    if (key === JSON_CRC32) {
-      continue;
-    }
-    wrapper[key] = obj[key];
-  }
-
-  const base = JSON.stringify(wrapper);
-  if (!base.endsWith('}')) {
+  const jsonString = JSON.stringify(obj);
+  if (!jsonString || !jsonString.startsWith('{') || !jsonString.endsWith('}')) {
     throw new Error('Serialized JSON did not produce an object');
   }
 
-  const prefixNoClose = base.slice(0, -1);
-  const bytes = new TextEncoder().encode(prefixNoClose);
+  const bytes = new TextEncoder().encode(jsonString);
   const checksum = crc32(bytes);
-  return `${prefixNoClose},"${JSON_CRC32}":${checksum}}`;
+  return `${checksum}:${jsonString}`;
 } // End of createCrc32JsonWrapper function
 //------------------------------------------------------------------
 
 
-
 /**
  * Parses and verifies a CRC32-wrapped JSON string.
+ * The expected format is: "<crc32>:<json>".
  * @param {string} raw - The CRC32-wrapped JSON string to parse and verify.
  * @returns {Object} - An object containing the validity, payload, expected, and computed CRC32 values.
  */
@@ -122,21 +109,27 @@ export function parseAndVerifyCrc32Wrapper(raw) {
   if (typeof raw !== 'string') {
     throw new TypeError('Input must be a raw JSON string');
   }
+
   const trimmed = raw.trim();
-  const match = trimmed.match(/^(.*),"crc32"\s*:\s*(\d+)}\s*$/);
-  if (!match) {
+  const separatorIndex = trimmed.indexOf(':');
+  if (separatorIndex <= 0) {
     return { valid: false, reason: 'invalid wrapper format' };
   }
 
-  const prefixNoClose = match[1];
-  const expected = Number(match[2]);
-  const computed = crc32(new TextEncoder().encode(prefixNoClose));
+  const expectedText = trimmed.slice(0, separatorIndex);
+  const jsonText = trimmed.slice(separatorIndex + 1).trim();
+  if (!/^[0-9]+$/.test(expectedText) || jsonText.length === 0) {
+    return { valid: false, reason: 'invalid wrapper format' };
+  }
+
+  const expected = Number(expectedText);
+  const computed = crc32(new TextEncoder().encode(jsonText));
   if (computed !== expected) {
     return { valid: false, expected, computed };
   }
 
   try {
-    const payload = JSON.parse(`${prefixNoClose}}`);
+    const payload = JSON.parse(jsonText);
     return { valid: true, payload, expected, computed };
   } catch (err) {
     return { valid: false, reason: 'invalid JSON payload' };

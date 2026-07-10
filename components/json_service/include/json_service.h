@@ -31,49 +31,77 @@ typedef struct {
 } core1_generic_msg_t;
 
 
-extern QueueHandle_t xCore1GenericQueue;
-
-
-void ws_json_service_dispatcher_core0(const char *incoming_json);
-
-
-
-bool json_service_register_command(const char *cmd_string, 
-                                    json_cmd_callback_t callback, 
-                                    uint8_t target_core);
-
-
-
-
-bool crc32_json_wrapper(const cJSON *json_obj,
-                        char *output,
-                        size_t output_size,
-                        size_t *output_len);
-
+/**
+ * @brief RPC Message Types mapped from the "type" key string
+ */
+#ifndef RPC_TYPE_T
+#define RPC_TYPE_T
+ typedef enum {
+    RPC_TYPE_UNKNOWN = 0,
+    RPC_TYPE_REQ,      // Maps to "req"
+    RPC_TYPE_RES,      // Maps to "res"
+    RPC_TYPE_EVT       // Maps to "evt"
+} rpc_type_t;
+#endif
 
 
 
 /**
- * @brief  Validate a received JSON string with CRC32 envelope and reconstruct the original JSON if valid
- *
- * @param input The input JSON string with CRC32 envelope
- * @param output Buffer to write the reconstructed original JSON string (without CRC32 envelope)
- * @param output_size Size of the output buffer
- * @param expected_crc Pointer to uint32_t to receive the expected CRC32 value from the input
- * @param computed_crc Pointer to uint32_t to receive the computed CRC32 value from the input
- *
- * @return true if the input is valid and the original JSON was successfully reconstructed, false otherwise
+ * @brief Standardized Error Codes for the "error.code" block
  */
+#ifndef RPC_ERROR_CODE_T
+#define RPC_ERROR_CODE_T
+ typedef enum {
+    RPC_ERR_OK                 = 0,
+    RPC_ERR_BAD_REQUEST        = 400,  // Malformed JSON envelope
+    RPC_ERR_NOT_FOUND          = 404,  // Unknown command namespace
+    RPC_ERR_INVALID_PARAMS     = 422,  // Params missing or out of range
+    RPC_ERR_INTERNAL_HARDWARE  = 500,  // Sensor/Relay/SPI link failed
+    RPC_ERR_SAFETY_INTERLOCK   = 503   // Hardware safety trip active
+} rpc_error_code_t;
+#endif
 
 
 
-esp_err_t json_service_parse_json(const char *json_str, cJSON **out_json);
+extern QueueHandle_t xCore1GenericQueue;
+
+
+// void ws_json_service_dispatcher_core0(const char *incoming_json);
+void json_service_dispatcher_core0(const char *incoming_json);
+
+
+
+/**
+ * @brief Create an RPC envelope JSON object.
+ *
+ * @param json_obj The cJSON object to populate.
+ * @param type The RPC type.
+ * @param id The RPC ID.
+ * @param cmd The command string.
+ * @param params The parameters object.
+ */
+cJSON * json_service_create_rpc_envelope(rpc_type_t type, 
+                                        uint32_t id, 
+                                        const char *cmd, 
+                                        cJSON *params);
+
+
+//  void json_service_create_rpc_envelope(cJSON *json_obj, rpc_type_t type, uint32_t id, const char *cmd, cJSON *params);
 
 
 
 
-esp_err_t json_service_validate_crc32(const char *input,
-                                      char *output,
-                                      size_t output_size,
-                                      uint32_t *expected_crc,
-                                      uint32_t *computed_crc);
+
+cJSON *json_service_parse_rpc_envelope(const char *json_str, rpc_type_t *out_type, uint32_t *out_id, char **out_cmd, cJSON **out_params);
+
+
+// bool json_service_register_command(const char *cmd_string, 
+//                                     json_cmd_callback_t callback, 
+//                                     uint8_t target_core);
+
+
+
+
+char *json_service_crc32_envelope_encode(const cJSON *json);
+cJSON *json_service_crc32_envelope_decode(const char *packet);
+

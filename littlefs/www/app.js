@@ -40,7 +40,7 @@ function startOtaPolling() {
 
   otaPollingInterval = setInterval(() => {
     if (socket && socket.readyState === WebSocket.OPEN) {
-      socket.send(JSON.stringify({ command: 'get_state' }));
+      // socket.send(JSON.stringify({ command: 'get_state' }));
     } else {
       stopOtaPolling();
     }
@@ -133,7 +133,7 @@ function connect() {
     setBadge('connected', 'ok');
     sendBtn.disabled = false;
     sendView.textContent = 'Connected. Ready to send.';
-    socket.send(JSON.stringify({ command: 'get_state' }));
+    // socket.send(JSON.stringify({ command: 'get_state' }));
   });
 
   socket.addEventListener('close', () => {

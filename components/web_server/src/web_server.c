@@ -35,9 +35,11 @@
 #include "freertos/task.h"
 #include "cJSON.h"
 
+
+#include "system_status.h"
 #include "json_service.h"
-// #include "hot_tub_device_state.h"
 #include "ota_manager.h"
+
 //------------------------------------------------------------------------------
 
 
@@ -53,12 +55,27 @@ static int s_ws_clients[4];
 
 esp_err_t web_server_ota_update_requested(cJSON *);
 
-esp_err_t json_service_validate_crc32(const char *, char *, size_t, uint32_t *, uint32_t *);    
+// esp_err_t json_service_validate_crc32(const char *, char *, size_t, uint32_t *, uint32_t *);    
+// 
+// esp_err_t json_service_parse_json(const char *, cJSON **);
 
-esp_err_t json_service_parse_json(const char *, cJSON **);
+cJSON *system_status_get_json();
+// void ws_json_service_dispatcher_core0(const char *incoming_json);
 
-char *system_status_get_json();
-void ws_json_service_dispatcher_core0(const char *incoming_json);
+void json_service_dispatcher_core0(const char *);
+char *json_service_crc32_envelope_encode(const cJSON *);
+
+
+cJSON * json_service_create_rpc_envelope(rpc_type_t type, 
+                                        uint32_t id, 
+                                        const char *cmd, 
+                                        cJSON *params);
+
+cJSON *json_service_crc32_envelope_decode(const char *);
+
+
+cJSON *json_service_parse_rpc_envelope(const char *json_str, rpc_type_t *out_type, uint32_t *out_id, char **out_cmd, cJSON **out_params);
+
 
 
 /**
@@ -365,54 +382,55 @@ static esp_err_t ws_handler(httpd_req_t *req)
     err = httpd_ws_recv_frame(req, &frame, frame.len);
     if (err == ESP_OK)
     {
-        cJSON *root = cJSON_Parse(payload);
+        // char *json_service_crc32_envelope_encode(const cJSON *);
+        // cJSON *json_service_crc32_envelope_decode(const char *);
+
+        cJSON * root = json_service_crc32_envelope_decode(payload);
         if (root != NULL)
         {
-            // Check for CRC32 field and validate the payload
-            cJSON *crc_item = cJSON_GetObjectItemCaseSensitive(root, "crc32");
-            if (cJSON_IsNumber(crc_item))
-            {
-                uint32_t expected_crc = 0;
-                uint32_t computed_crc = 0;
-                // Validate the CRC32 of the received payload and strip 
-                // crc32 from the JSON payload if valid 
-                err = json_service_validate_crc32(payload, NULL, 0, &expected_crc, &computed_crc);
-                if (err != ESP_OK)
-                {
-                    ESP_LOGW(TAG, "WS payload CRC32 invalid (expected=%" PRIu32 ", computed=%" PRIu32 ")",
-                             expected_crc,
-                             computed_crc);
-                    cJSON_Delete(root);
-                    untrack_client(sockfd);
-                    free(payload);
-                    return err;
-                }
-                
-                // Dispatch a JSON command to the appropriate callback 
-                // based on the registered command map.
-                ws_json_service_dispatcher_core0(payload);
+            char *msg = cJSON_PrintUnformatted(root);
+            ESP_LOGW(TAG, "Decoded JSON message: %s", msg);
+            json_service_dispatcher_core0(msg);
+            free(msg);
+        }
 
-            }
+        // cJSON *system_status = system_status_get_json();
+        // cJSON *json_msg = NULL;
+        // if (system_status)
+        // {
+        //     // ESP_LOGW(TAG, "System status webserver ws rec JSON: %s", cJSON_Print(system_status));
+        //     json_msg = json_service_create_rpc_envelope(RPC_TYPE_REQ, 1, "system.status", system_status);
+        //     if (json_msg)
+        //     {
+        //         char *msg = json_service_crc32_envelope_encode(json_msg);
+        //         // ESP_LOGW(TAG, "Wrapped JSON message: %s", msg);
+        //         free(msg);
+        //         cJSON_Delete(json_msg);
+        //     }
+        // }
+        // Dispatch a JSON command to the appropriate callback 
+        // based on the registered command map.
+        // free(payload);
 
-            // Check for "command" field and handle OTA update if present
-            cJSON *command_item = cJSON_GetObjectItemCaseSensitive(root, "command");
-            if (cJSON_IsString(command_item) && (command_item->valuestring != NULL))
+        // Check for "command" field and handle OTA update if present
+        cJSON *command_item = cJSON_GetObjectItemCaseSensitive(root, "command");
+        if (cJSON_IsString(command_item) && (command_item->valuestring != NULL))
+        {
+            // hot_tub_device_state_set_last_command(payload);
+            if (strcmp(command_item->valuestring, "ota_update") == 0)
             {
-                // hot_tub_device_state_set_last_command(payload);
-                if (strcmp(command_item->valuestring, "ota_update") == 0)
+                ESP_LOGI(TAG, "OTA update command received");
+                esp_err_t ota_err = web_server_ota_update_requested(root);
+                if (ota_err != ESP_OK)
                 {
-                    ESP_LOGI(TAG, "OTA update command received");
-                    esp_err_t ota_err = web_server_ota_update_requested(root);
-                    if (ota_err != ESP_OK)
-                    {
-                        ESP_LOGE(TAG, "OTA update request failed: %s", esp_err_to_name(ota_err));
-                        // hot_tub_device_state_set_ota_status("failed");
-                        // hot_tub_device_state_set_ota_pending(false);
-                    }
+                    ESP_LOGE(TAG, "OTA update request failed: %s", esp_err_to_name(ota_err));
+                    // hot_tub_device_state_set_ota_status("failed");
+                    // hot_tub_device_state_set_ota_pending(false);
                 }
             }
-            cJSON_Delete(root);
-        } 
+        }
+        cJSON_Delete(root);
+ 
 
         // char response[256];
         // char wrapped_response[384];
@@ -458,7 +476,7 @@ static esp_err_t ws_handler(httpd_req_t *req)
         untrack_client(sockfd);
     }
 
-    ESP_LOGI(TAG, "Received WS message: %s", frame.payload);
+    // ESP_LOGI(TAG, "Received WS message: %s", frame.payload);
 
     free(payload);
     return err;

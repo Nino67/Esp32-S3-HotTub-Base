@@ -179,7 +179,7 @@ void app_main(void)
     TaskHandle_t hot_tub_app_task_handle = NULL;
     xTaskCreatePinnedToCore(hot_tub_app_task,
                             "hot_tub_app",
-                            12288,
+                            16384,
                             startup_done_sem,
                             5,
                             &hot_tub_app_task_handle,

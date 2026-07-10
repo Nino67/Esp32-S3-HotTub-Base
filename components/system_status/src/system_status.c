@@ -28,11 +28,12 @@ bool json_service_register_command(const char *cmd_string,
                                    uint8_t target_core);
 
 
-bool crc32_json_wrapper(const cJSON *json_obj,
-                        char *output,
-                        size_t output_size,
-                        size_t *output_len);
+// bool crc32_json_wrapper(const cJSON *json_obj,
+//                         char *output,
+//                         size_t output_size,
+//                         size_t *output_len);
 
+char *json_service_crc32_envelope_encode(const cJSON *json);
 
 
 
@@ -173,7 +174,7 @@ esp_err_t system_status_init(TaskHandle_t core0_task)
     s_system_status.firmware.current_ota_state = OTA_READY;
 
     // Register the "system_status" command with the JSON service
-    json_service_register_command("system_status", system_status_callback, 0);
+    json_service_register_command("system.status.get", system_status_callback, 0);
 
     return ESP_OK;
 }
@@ -399,42 +400,86 @@ cJSON *system_status_get_json()
  *
  * @param data The cJSON object containing the command data.
  */
-static void system_status_callback(cJSON *data) {
-    // Check if the data is a string and matches "request"
-    if (!cJSON_IsString(data)) {
-        return;
-    }
-    if (data->valuestring == NULL) {
-        return;
-    }
-    // If the command is "request", 
-    // send the current system status JSON back to the requester
-    if (strcmp(data->valuestring, "request") == 0) {
+ static void system_status_callback(cJSON *data) {
+    
+    cJSON  *id_item = cJSON_GetObjectItemCaseSensitive(data, "id");
+    cJSON  *type_item = cJSON_GetObjectItemCaseSensitive(data, "type");
+    cJSON  *cmd = cJSON_GetObjectItemCaseSensitive(data, "cmd");
 
-        cJSON *status_snapshot_current = system_status_get_json();
-        char wrapped[2500];
-        size_t wrapped_len = 0;
-        bool ok = crc32_json_wrapper(status_snapshot_current, wrapped, sizeof(wrapped), &wrapped_len);
-        if (!ok) {
-            ESP_LOGW(TAG, "Failed to wrap system status JSON with CRC32");
-            cJSON_Delete(status_snapshot_current);
-            return;
-        }
-        ESP_LOGW(TAG, "Received WS Nino message: %s", wrapped);
+    const uint32_t id = cJSON_IsNumber(id_item) ? id_item->valueint : 0;
+    const char *type_str = type_item->valuestring;
+    const char *cmd_str = cmd->valuestring;
     
-        if (status_snapshot_current) {
-            cJSON_Delete(status_snapshot_current);
-        } else {
-            ESP_LOGW(TAG, "Failed to get system status JSON");          
-        }
-    
-        // if (ok) {
-        //     // hot_tub_web_server_broadcast_json(wrapped);
-        // }
-        // if (wrapped) {
-        //     ESP_LOGW(TAG, "Freeing wrapped JSON memory");
-        //     free(wrapped);
-        // }         
+    ESP_LOGW(TAG, "System status envelope: id=%d, type=%s, cmd=%s", 
+             id,
+             type_str ? type_str : "null",
+             cmd_str ? cmd_str : "null");
+             
+    cJSON *status_snapshot_current = system_status_get_json();
+    cJSON *rpc_envelope = json_service_create_rpc_envelope(RPC_TYPE_RES, id, cmd_str, status_snapshot_current);
+
+    char * encoded_msg = json_service_crc32_envelope_encode(rpc_envelope);
+    ESP_LOGW(TAG, "Received WS Nino message: %s", encoded_msg);
+    if (encoded_msg == NULL) {
+        ESP_LOGW(TAG, "Failed to wrap system status JSON with CRC32");
+        cJSON_Delete(status_snapshot_current);
+        return;
     }
 }
+
+    //     if (status_snapshot_current) {
+    //         cJSON_Delete(status_snapshot_current);
+    //     } else {
+    //         ESP_LOGW(TAG, "Failed to get system status JSON");          
+    //     }
+    
+    //     if (encoded_msg) {
+    //         // hot_tub_web_server_broadcast_json(encoded_msg);
+    //         ESP_LOGW(TAG, "Freeing encoded JSON memory");
+    //         free(encoded_msg);
+    //     }
+    
+
+    
+
+    
+    // // Check if the data is a string and matches "request"
+    // if (!cJSON_IsString(data)) {
+        //     return;
+    // }
+    // if (data->valuestring == NULL) {
+    //     return;
+    // }
+    
+
+
+    
+
+    // // If the command is "request", 
+    // // send the current system status JSON back to the requester
+    // if (strcmp(data->valuestring, "request") == 0) {
+
+    //     cJSON *status_snapshot_current = system_status_get_json();
+    //     char wrapped[2500];
+    //     size_t wrapped_len = 0;
+    //     char * encoded_msg = json_service_crc32_envelope_encode(status_snapshot_current);
+    //     if (encoded_msg == NULL) {
+    //         ESP_LOGW(TAG, "Failed to wrap system status JSON with CRC32");
+    //         cJSON_Delete(status_snapshot_current);
+    //         return;
+    //     }
+    //     ESP_LOGW(TAG, "Received WS Nino message: %s", encoded_msg);
+    
+    //     if (status_snapshot_current) {
+    //         cJSON_Delete(status_snapshot_current);
+    //     } else {
+    //         ESP_LOGW(TAG, "Failed to get system status JSON");          
+    //     }
+    
+    //     if (encoded_msg) {
+    //         // hot_tub_web_server_broadcast_json(encoded_msg);
+    //         ESP_LOGW(TAG, "Freeing encoded JSON memory");
+    //         free(encoded_msg);
+    //     }
+    // }
 
