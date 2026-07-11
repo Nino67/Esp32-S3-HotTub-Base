@@ -351,130 +351,59 @@ static esp_err_t ws_handler(httpd_req_t *req)
     };
 
     esp_err_t err = httpd_ws_recv_frame(req, &frame, 0);
-    if (err != ESP_OK)
-    {
+    if (err != ESP_OK) {
         untrack_client(sockfd);
         return err;
     }
 
-    if (frame.type == HTTPD_WS_TYPE_CLOSE)
-    {
+    if (frame.type == HTTPD_WS_TYPE_CLOSE) {
         untrack_client(sockfd);
         return ESP_OK;
     }
 
-    if (frame.type != HTTPD_WS_TYPE_TEXT)
-    {
-        return ESP_OK;
-    }
+    if (frame.type != HTTPD_WS_TYPE_TEXT) { return ESP_OK; }
 
-    if (frame.len == 0)
-    {
-        return ESP_OK;
-    }
+    if (frame.len == 0) { return ESP_OK; }
 
     char *payload = calloc(1, frame.len + 1);
-    if (!payload)
-    {
-        return ESP_ERR_NO_MEM;
-    }
+    if (!payload) { return ESP_ERR_NO_MEM; }
 
     frame.payload = (uint8_t *)payload;
     err = httpd_ws_recv_frame(req, &frame, frame.len);
     if (err == ESP_OK)
     {
-        // char *json_service_crc32_envelope_encode(const cJSON *);
-        // cJSON *json_service_crc32_envelope_decode(const char *);
-
         cJSON * root = json_service_crc32_envelope_decode(payload);
         if (root != NULL)
         {
             json_service_dispatcher_core0(root);
             char *encoded_msg = json_service_crc32_envelope_encode(root);
-            ESP_LOGW(TAG, "Encoded JSON message: %s", encoded_msg);
-            // free(msg);
-            free(encoded_msg);
+            int len = strlen(encoded_msg);
+            httpd_ws_frame_t out_frame = {
+                .type = HTTPD_WS_TYPE_TEXT,
+                .payload = (uint8_t *)encoded_msg,
+                .len = len,
+            };
+            err = httpd_ws_send_frame(req, &out_frame);
+            ESP_LOGW(TAG, "Sent encoded JSON message: %s ", encoded_msg);
+            if (encoded_msg) { free(encoded_msg); }
+            if (root) { cJSON_Delete(root); }
         }
 
-        // cJSON *system_status = system_status_get_json();
-        // cJSON *json_msg = NULL;
-        // if (system_status)
+        // // Check for "command" field and handle OTA update if present
+        // cJSON *command_item = cJSON_GetObjectItemCaseSensitive(root, "command");
+        // if (cJSON_IsString(command_item) && (command_item->valuestring != NULL))
         // {
-        //     // ESP_LOGW(TAG, "System status webserver ws rec JSON: %s", cJSON_Print(system_status));
-        //     json_msg = json_service_create_rpc_envelope(RPC_TYPE_REQ, 1, "system.status", system_status);
-        //     if (json_msg)
+        //     // hot_tub_device_state_set_last_command(payload);
+        //     if (strcmp(command_item->valuestring, "ota_update") == 0)
         //     {
-        //         char *msg = json_service_crc32_envelope_encode(json_msg);
-        //         // ESP_LOGW(TAG, "Wrapped JSON message: %s", msg);
-        //         free(msg);
-        //         cJSON_Delete(json_msg);
-        //     }
-        // }
-        // Dispatch a JSON command to the appropriate callback 
-        // based on the registered command map.
-        // free(payload);
-
-        // Check for "command" field and handle OTA update if present
-        cJSON *command_item = cJSON_GetObjectItemCaseSensitive(root, "command");
-        if (cJSON_IsString(command_item) && (command_item->valuestring != NULL))
-        {
-            // hot_tub_device_state_set_last_command(payload);
-            if (strcmp(command_item->valuestring, "ota_update") == 0)
-            {
-                ESP_LOGI(TAG, "OTA update command received");
-                esp_err_t ota_err = web_server_ota_update_requested(root);
-                if (ota_err != ESP_OK)
-                {
-                    ESP_LOGE(TAG, "OTA update request failed: %s", esp_err_to_name(ota_err));
-                    // hot_tub_device_state_set_ota_status("failed");
-                    // hot_tub_device_state_set_ota_pending(false);
-                }
-            }
-        }
-        // if (root)
-        // {
-        //     cJSON_Delete(root);
-        // }
-
-        // cJSON_Delete(root);
- 
-
-        // char response[256];
-        // char wrapped_response[384];
-        // size_t wrapped_len = 0;
-        // if (hot_tub_device_state_format_json(response, sizeof(response)) == ESP_OK)
-        // {
-        //     cJSON *json = cJSON_Parse(response);
-        //     if (json != NULL)
-        //     {
-        //         if (crc32_json_wrapper(json, wrapped_response, sizeof(wrapped_response), &wrapped_len))
+        //         ESP_LOGI(TAG, "OTA update command received");
+        //         esp_err_t ota_err = web_server_ota_update_requested(root);
+        //         if (ota_err != ESP_OK)
         //         {
-        //             httpd_ws_frame_t out = {
-        //                 .type = HTTPD_WS_TYPE_TEXT,
-        //                 .payload = (uint8_t *)wrapped_response,
-        //                 .len = wrapped_len,
-        //             };
-        //             err = httpd_ws_send_frame(req, &out);
+        //             ESP_LOGE(TAG, "OTA update request failed: %s", esp_err_to_name(ota_err));
+        //             // hot_tub_device_state_set_ota_status("failed");
+        //             // hot_tub_device_state_set_ota_pending(false);
         //         }
-        //         else
-        //         {
-        //             httpd_ws_frame_t out = {
-        //                 .type = HTTPD_WS_TYPE_TEXT,
-        //                 .payload = (uint8_t *)response,
-        //                 .len = strlen(response),
-        //             };
-        //             err = httpd_ws_send_frame(req, &out);
-        //         }
-        //         cJSON_Delete(json);
-        //     }
-        //     else
-        //     {
-        //         httpd_ws_frame_t out = {
-        //             .type = HTTPD_WS_TYPE_TEXT,
-        //             .payload = (uint8_t *)response,
-        //             .len = strlen(response),
-        //         };
-        //         err = httpd_ws_send_frame(req, &out);
         //     }
         // }
     }
@@ -483,13 +412,6 @@ static esp_err_t ws_handler(httpd_req_t *req)
         untrack_client(sockfd);
     }
 
-    // ESP_LOGI(TAG, "Received WS message: %s", frame.payload);
-
-    if (payload)
-    {
-        free(payload);
-    }
-    // free(payload);
     return err;
 } // End of ws_handler
 //-----------------------------------------------------------------------------
@@ -517,11 +439,6 @@ esp_err_t web_server_start(void)
     config.max_uri_handlers = 12;
 
     ESP_RETURN_ON_ERROR(httpd_start(&s_server, &config), TAG, "httpd start failed");
-
-    // if (xTaskCreatePinnedToCore(state_broadcast_task, "state_broadcast", 4096, NULL, 5, &s_state_broadcast_task, 0) != pdPASS)
-    // {
-        // ESP_LOGW(TAG, "Failed to create OTA state broadcast task");
-    // }
 
     httpd_uri_t index_uri = {
         .uri = "/",

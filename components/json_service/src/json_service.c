@@ -297,11 +297,9 @@ bool json_service_register_command(const char *cmd_string, json_cmd_callback_t c
  *
  * @param incoming_json The incoming JSON string.
  */
-void json_service_dispatcher_core0(cJSON *root)       // const char *incoming_json)
+void json_service_dispatcher_core0(cJSON *root)       
 {
-    // cJSON *root = cJSON_Parse(incoming_json);
     if (!root) return;
-    // ESP_LOGW(TAG, "Received JSON message for execution stage: %s", incoming_json);
 
     cJSON *id_item = cJSON_GetObjectItemCaseSensitive(root, "id");
     cJSON *type_item = cJSON_GetObjectItemCaseSensitive(root, "type");
@@ -310,7 +308,7 @@ void json_service_dispatcher_core0(cJSON *root)       // const char *incoming_js
     const uint32_t id = cJSON_IsNumber(id_item) ? id_item->valueint : 0;
     const char *type_str = type_item->valuestring;
     const char *cmd_str = cmd->valuestring;
-    // ESP_LOGW(TAG, "RPC received envelope: id=%d, type=%s, cmd=%s", id, type_str, cmd_str);
+    ESP_LOGW(TAG, "RPC received envelope: id=%d, type=%s, cmd=%s", id, type_str, cmd_str);
 
     if (type_str != NULL && strcmp(type_str, "req") == 0) 
     {
@@ -330,20 +328,20 @@ void json_service_dispatcher_core0(cJSON *root)       // const char *incoming_js
                     
             }
         }
-        // ESP_LOGW(TAG, "RPC request response type for id=%d, type=%s and cmd=%s", id, type_str ? type_str : "null", cmd_str);
+        ESP_LOGD(TAG, "RPC request response type for id=%d, type=%s and cmd=%s", id, type_str ? type_str : "null", cmd_str);
     } 
     else if (type_str != NULL && strcmp(type_str, "res") == 0) 
     {
 
-        ESP_LOGW(TAG, "Processing RPC response with id=%d and cmd=%s", id, cmd_str);
+        ESP_LOGD(TAG, "Processing RPC response with id=%d and cmd=%s", id, cmd_str);
     } 
     else if (type_str != NULL && strcmp(type_str, "evt") == 0) 
     {
-        ESP_LOGW(TAG, "Processing RPC event with id=%d and cmd=%s", id, cmd_str);
+        ESP_LOGD(TAG, "Processing RPC event with id=%d and cmd=%s", id, cmd_str);
     } 
     else 
     {
-        ESP_LOGW(TAG, "Unknown RPC type for id=%d, type=%s and cmd=%s", id, type_str ? type_str : "null", cmd_str);
+        ESP_LOGD(TAG, "Unknown RPC type for id=%d, type=%s and cmd=%s", id, type_str ? type_str : "null", cmd_str);
     }
 
 } // end of json_service_dispatcher_core0() 

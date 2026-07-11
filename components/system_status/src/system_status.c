@@ -390,12 +390,10 @@ cJSON *system_status_get_json()
 
 
 
-
-
 /**
  * @brief Callback function to handle the "system_status" command received via JSON service.
  *
- * @param data The cJSON object containing the command data.
+ * @param root The cJSON object containing the command and its data.
  */
  static void system_status_callback(cJSON *root) {
     
@@ -407,111 +405,16 @@ cJSON *system_status_get_json()
     const char *type_str = cJSON_IsString(type_item) && type_item->valuestring != NULL ? type_item->valuestring : NULL;
     const char *cmd_str = cJSON_IsString(cmd) && cmd->valuestring != NULL ? cmd->valuestring : NULL;
     
-    // ESP_LOGW(TAG, "System status envelope: id=%d, type=%s, cmd=%s", 
-    //          id,
-    //          type_str ? type_str : "null",
-    //          cmd_str ? cmd_str : "null");
+    ESP_LOGD(TAG, "System status envelope: id=%d, type=%s, cmd=%s", 
+             id,
+             type_str ? type_str : "null",
+             cmd_str ? cmd_str : "null");
              
     cJSON *status_snapshot_current = system_status_get_json();
     cJSON_AddStringToObject(root, "status", "ok");
     cJSON_AddItemToObject(root, "response", cJSON_Duplicate(status_snapshot_current, 1));
     cJSON_SetValuestring(type_item, "res");
-    if (status_snapshot_current) 
-    {
-        cJSON_Delete(status_snapshot_current);
-    }
-    // char *response_msg = cJSON_PrintUnformatted(root);
-    // // ESP_LOGW(TAG, "System status response msg: %s", response_msg);
-    // if (response_msg) {
-    //     // hot_tub_web_server_broadcast_json(response_msg);
-    //     free(response_msg);
-    // }
-    // free(response_msg);
-    // cJSON_Delete(status_snapshot_current);
-}
+    if (status_snapshot_current) { cJSON_Delete(status_snapshot_current); }
 
-
-
-    // cJSON *rpc_envelope = json_service_create_rpc_envelope(RPC_TYPE_RES, id, cmd_str, status_snapshot_current);
-    // char * encoded_msg = json_service_crc32_envelope_encode(rpc_envelope);
-    
-    // ESP_LOGW(TAG, "System status response msg: %s", encoded_msg);
-    // if (encoded_msg == NULL) {
-    //     // ESP_LOGW(TAG, "Failed to wrap system status JSON with CRC32");
-    //     cJSON_Delete(status_snapshot_current);
-    //     return;
-    // }
-    
-    // int result_len = strlen(encoded_msg);
-    // char *result = malloc(result_len + 1);
-    // if (result == NULL) {
-    //     ESP_LOGW(TAG, "Failed to allocate memory for result string");
-    //     free(encoded_msg);
-    //     cJSON_Delete(status_snapshot_current);
-    //     return;
-    // }
-    // strcpy(result, encoded_msg);
-    // free(encoded_msg);
-    // cJSON_Delete(status_snapshot_current);
-    // return result; // Caller must free this result string
-
-
-
-
-
-    //     if (status_snapshot_current) {
-    //         cJSON_Delete(status_snapshot_current);
-    //     } else {
-    //         ESP_LOGW(TAG, "Failed to get system status JSON");          
-    //     }
-    
-    //     if (encoded_msg) {
-    //         // hot_tub_web_server_broadcast_json(encoded_msg);
-    //         ESP_LOGW(TAG, "Freeing encoded JSON memory");
-    //         free(encoded_msg);
-    //     }
-    
-
-    
-
-    
-    // // Check if the data is a string and matches "request"
-    // if (!cJSON_IsString(data)) {
-        //     return;
-    // }
-    // if (data->valuestring == NULL) {
-    //     return;
-    // }
-    
-
-
-    
-
-    // // If the command is "request", 
-    // // send the current system status JSON back to the requester
-    // if (strcmp(data->valuestring, "request") == 0) {
-
-    //     cJSON *status_snapshot_current = system_status_get_json();
-    //     char wrapped[2500];
-    //     size_t wrapped_len = 0;
-    //     char * encoded_msg = json_service_crc32_envelope_encode(status_snapshot_current);
-    //     if (encoded_msg == NULL) {
-    //         ESP_LOGW(TAG, "Failed to wrap system status JSON with CRC32");
-    //         cJSON_Delete(status_snapshot_current);
-    //         return;
-    //     }
-    //     ESP_LOGW(TAG, "Received WS Nino message: %s", encoded_msg);
-    
-    //     if (status_snapshot_current) {
-    //         cJSON_Delete(status_snapshot_current);
-    //     } else {
-    //         ESP_LOGW(TAG, "Failed to get system status JSON");          
-    //     }
-    
-    //     if (encoded_msg) {
-    //         // hot_tub_web_server_broadcast_json(encoded_msg);
-    //         ESP_LOGW(TAG, "Freeing encoded JSON memory");
-    //         free(encoded_msg);
-    //     }
-    // }
-
+} // End of system_status_callback
+//-----------------------------------------------------------------------------
