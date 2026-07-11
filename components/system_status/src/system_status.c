@@ -383,11 +383,8 @@ cJSON *system_status_get_json()
         cJSON_AddNumberToObject(parameters, "debug_level", (double)s_system_status.parameters.debug_level);
     }
 
-     
-    // char* json_string = cJSON_Print(root);
-    // cJSON_Delete(root);
-    // return json_string;
-    return root;
+    return root; // Caller must free this cJSON object using cJSON_Delete
+
 } // End of system_status_get_json
 //-----------------------------------------------------------------------------
 
@@ -400,32 +397,67 @@ cJSON *system_status_get_json()
  *
  * @param data The cJSON object containing the command data.
  */
- static void system_status_callback(cJSON *data) {
+ static void system_status_callback(cJSON *root) {
     
-    cJSON  *id_item = cJSON_GetObjectItemCaseSensitive(data, "id");
-    cJSON  *type_item = cJSON_GetObjectItemCaseSensitive(data, "type");
-    cJSON  *cmd = cJSON_GetObjectItemCaseSensitive(data, "cmd");
+    cJSON  *id_item = cJSON_GetObjectItemCaseSensitive(root, "id");
+    cJSON  *type_item = cJSON_GetObjectItemCaseSensitive(root, "type");
+    cJSON  *cmd = cJSON_GetObjectItemCaseSensitive(root, "cmd");
 
     const uint32_t id = cJSON_IsNumber(id_item) ? id_item->valueint : 0;
-    const char *type_str = type_item->valuestring;
-    const char *cmd_str = cmd->valuestring;
+    const char *type_str = cJSON_IsString(type_item) && type_item->valuestring != NULL ? type_item->valuestring : NULL;
+    const char *cmd_str = cJSON_IsString(cmd) && cmd->valuestring != NULL ? cmd->valuestring : NULL;
     
-    ESP_LOGW(TAG, "System status envelope: id=%d, type=%s, cmd=%s", 
-             id,
-             type_str ? type_str : "null",
-             cmd_str ? cmd_str : "null");
+    // ESP_LOGW(TAG, "System status envelope: id=%d, type=%s, cmd=%s", 
+    //          id,
+    //          type_str ? type_str : "null",
+    //          cmd_str ? cmd_str : "null");
              
     cJSON *status_snapshot_current = system_status_get_json();
-    cJSON *rpc_envelope = json_service_create_rpc_envelope(RPC_TYPE_RES, id, cmd_str, status_snapshot_current);
-
-    char * encoded_msg = json_service_crc32_envelope_encode(rpc_envelope);
-    ESP_LOGW(TAG, "Received WS Nino message: %s", encoded_msg);
-    if (encoded_msg == NULL) {
-        ESP_LOGW(TAG, "Failed to wrap system status JSON with CRC32");
+    cJSON_AddStringToObject(root, "status", "ok");
+    cJSON_AddItemToObject(root, "response", cJSON_Duplicate(status_snapshot_current, 1));
+    cJSON_SetValuestring(type_item, "res");
+    if (status_snapshot_current) 
+    {
         cJSON_Delete(status_snapshot_current);
-        return;
     }
+    // char *response_msg = cJSON_PrintUnformatted(root);
+    // // ESP_LOGW(TAG, "System status response msg: %s", response_msg);
+    // if (response_msg) {
+    //     // hot_tub_web_server_broadcast_json(response_msg);
+    //     free(response_msg);
+    // }
+    // free(response_msg);
+    // cJSON_Delete(status_snapshot_current);
 }
+
+
+
+    // cJSON *rpc_envelope = json_service_create_rpc_envelope(RPC_TYPE_RES, id, cmd_str, status_snapshot_current);
+    // char * encoded_msg = json_service_crc32_envelope_encode(rpc_envelope);
+    
+    // ESP_LOGW(TAG, "System status response msg: %s", encoded_msg);
+    // if (encoded_msg == NULL) {
+    //     // ESP_LOGW(TAG, "Failed to wrap system status JSON with CRC32");
+    //     cJSON_Delete(status_snapshot_current);
+    //     return;
+    // }
+    
+    // int result_len = strlen(encoded_msg);
+    // char *result = malloc(result_len + 1);
+    // if (result == NULL) {
+    //     ESP_LOGW(TAG, "Failed to allocate memory for result string");
+    //     free(encoded_msg);
+    //     cJSON_Delete(status_snapshot_current);
+    //     return;
+    // }
+    // strcpy(result, encoded_msg);
+    // free(encoded_msg);
+    // cJSON_Delete(status_snapshot_current);
+    // return result; // Caller must free this result string
+
+
+
+
 
     //     if (status_snapshot_current) {
     //         cJSON_Delete(status_snapshot_current);

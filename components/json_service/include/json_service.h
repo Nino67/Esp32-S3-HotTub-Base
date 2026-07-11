@@ -40,7 +40,8 @@ typedef struct {
     RPC_TYPE_UNKNOWN = 0,
     RPC_TYPE_REQ,      // Maps to "req"
     RPC_TYPE_RES,      // Maps to "res"
-    RPC_TYPE_EVT       // Maps to "evt"
+    RPC_TYPE_EVT,      // Maps to "evt"
+    RPC_TYPE_PUB       // Maps to "pub"
 } rpc_type_t;
 #endif
 
@@ -67,8 +68,8 @@ extern QueueHandle_t xCore1GenericQueue;
 
 
 // void ws_json_service_dispatcher_core0(const char *incoming_json);
-void json_service_dispatcher_core0(const char *incoming_json);
-
+// void json_service_dispatcher_core0(const char *incoming_json);
+void json_service_dispatcher_core0(cJSON *root); 
 
 
 /**

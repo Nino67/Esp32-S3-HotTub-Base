@@ -62,7 +62,8 @@ esp_err_t web_server_ota_update_requested(cJSON *);
 cJSON *system_status_get_json();
 // void ws_json_service_dispatcher_core0(const char *incoming_json);
 
-void json_service_dispatcher_core0(const char *);
+// void json_service_dispatcher_core0(const char *);
+void json_service_dispatcher_core0(cJSON *root); 
 char *json_service_crc32_envelope_encode(const cJSON *);
 
 
@@ -388,10 +389,11 @@ static esp_err_t ws_handler(httpd_req_t *req)
         cJSON * root = json_service_crc32_envelope_decode(payload);
         if (root != NULL)
         {
-            char *msg = cJSON_PrintUnformatted(root);
-            ESP_LOGW(TAG, "Decoded JSON message: %s", msg);
-            json_service_dispatcher_core0(msg);
-            free(msg);
+            json_service_dispatcher_core0(root);
+            char *encoded_msg = json_service_crc32_envelope_encode(root);
+            ESP_LOGW(TAG, "Encoded JSON message: %s", encoded_msg);
+            // free(msg);
+            free(encoded_msg);
         }
 
         // cJSON *system_status = system_status_get_json();
@@ -429,7 +431,12 @@ static esp_err_t ws_handler(httpd_req_t *req)
                 }
             }
         }
-        cJSON_Delete(root);
+        // if (root)
+        // {
+        //     cJSON_Delete(root);
+        // }
+
+        // cJSON_Delete(root);
  
 
         // char response[256];
@@ -478,7 +485,11 @@ static esp_err_t ws_handler(httpd_req_t *req)
 
     // ESP_LOGI(TAG, "Received WS message: %s", frame.payload);
 
-    free(payload);
+    if (payload)
+    {
+        free(payload);
+    }
+    // free(payload);
     return err;
 } // End of ws_handler
 //-----------------------------------------------------------------------------
