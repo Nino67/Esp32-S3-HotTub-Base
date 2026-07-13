@@ -13,12 +13,11 @@
 #define RPC_TYPE_T
  typedef enum {
     RPC_TYPE_UNKNOWN = 0,
-    RPC_TYPE_REQ,      // Maps to "req"
-    RPC_TYPE_RES,      // Maps to "res"
-    RPC_TYPE_EVT       // Maps to "evt"
+    RPC_TYPE_REQ,      // Maps to "req"-
+    RPC_TYPE_EVT,      // Maps to "evt"
+    RPC_TYPE_PUB       // Maps to "pub"
 } rpc_type_t;
 #endif
-
 
 
 /**

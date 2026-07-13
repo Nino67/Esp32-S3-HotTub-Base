@@ -1,21 +1,27 @@
-#include "ota_manager.h"
-#include "rgb_led.h"
-
 #include <inttypes.h>
 
-#include "esp_check.h"
+#include "ota_manager.h"
+#include "rgb_led.h"
+ 
+#include "freertos/FreeRTOS.h"
+#include "freertos/queue.h"
+#include "json_service.h"
+#include "cJSON.h"
+#include "esp_err.h"
 #include "esp_log.h"
+
+#include "esp_check.h"
 #include "esp_ota_ops.h"
 #include "esp_http_client.h"
 #include "esp_https_ota.h"
 #include "esp_crt_bundle.h"
 #include "esp_system.h"
 
-
-// #include "hot_tub_device_state.h"
 #include "nvs_storage.h"
 
-static const char *TAG = "hot_tub_ota";
+
+
+static const char *TAG = "ota_manager";
 static const uint32_t BOOT_FAILURE_LIMIT = 3;
 
 typedef struct
@@ -24,6 +30,26 @@ typedef struct
     int64_t content_length;
     int last_progress;
 } ota_progress_ctx_t;
+
+
+
+
+bool json_service_register_command(const char *cmd_string, 
+                                   json_cmd_callback_t callback, 
+                                   uint8_t target_core);
+
+
+// bool crc32_json_wrapper(const cJSON *json_obj,
+//                         char *output,
+//                         size_t output_size,
+//                         size_t *output_len);
+
+char *json_service_crc32_envelope_encode(const cJSON *json);
+
+static void ota_manager_update_git_callback(cJSON *root);
+
+
+
 
 static esp_err_t ota_http_event_handler(esp_http_client_event_t *evt)
 {
@@ -89,6 +115,10 @@ esp_err_t ota_manager_note_boot(void)
         return ESP_ERR_INVALID_STATE;
     }
 
+
+    // Register the "ota.manager.update.git" command with the JSON service
+    json_service_register_command("ota.manager.update.github", ota_manager_update_git_callback, 0);
+
     esp_ota_img_states_t ota_state;
     esp_err_t err = esp_ota_get_state_partition(running, &ota_state);
     if (err == ESP_OK && ota_state == ESP_OTA_IMG_PENDING_VERIFY)
@@ -143,6 +173,7 @@ const char* get_active_storage_label(void)
 
 esp_err_t ota_manager_trigger_github_ota(const char *url)
 {
+    ESP_LOGW(TAG, "Inside ota_manager_trigger_github_ota with URL: %s", url);
     if (url == NULL || url[0] == '\0') {
         ESP_LOGE(TAG, "OTA URL is empty");
         // hot_tub_device_state_set_ota_status("failed");
@@ -164,6 +195,7 @@ esp_err_t ota_manager_trigger_github_ota(const char *url)
         return ESP_ERR_NO_MEM;
     }
 
+    ESP_LOGI(TAG, "OTA progress context allocated at %p", (void *)progress_ctx);
     esp_http_client_config_t http_config = {
         .url = url,
         .timeout_ms = 60000,
@@ -196,4 +228,135 @@ esp_err_t ota_manager_trigger_github_ota(const char *url)
     ESP_LOGI(TAG, "OTA upgrade successful, rebooting into new partition...");
     esp_restart();
     return ESP_OK;
+} // End of ota_manager_trigger_github_ota
+//-----------------------------------------------------------------------------
+
+
+
+// /**
+//  * @brief Callback function to handle the "system_status" command received via JSON service.
+//  *
+//  * @param root The cJSON object containing the command and its data.
+//  */
+//  static void system_status_callback(cJSON *root) {
+    
+//     cJSON  *id_item = cJSON_GetObjectItemCaseSensitive(root, "id");
+//     cJSON  *type_item = cJSON_GetObjectItemCaseSensitive(root, "type");
+//     cJSON  *cmd = cJSON_GetObjectItemCaseSensitive(root, "cmd");
+
+//     const uint32_t id = cJSON_IsNumber(id_item) ? id_item->valueint : 0;
+//     const char *type_str = cJSON_IsString(type_item) && type_item->valuestring != NULL ? type_item->valuestring : NULL;
+//     const char *cmd_str = cJSON_IsString(cmd) && cmd->valuestring != NULL ? cmd->valuestring : NULL;
+    
+//     ESP_LOGD(TAG, "System status envelope: id=%d, type=%s, cmd=%s", 
+//              id,
+//              type_str ? type_str : "null",
+//              cmd_str ? cmd_str : "null");
+             
+//     cJSON *status_snapshot_current = system_status_get_json();
+//     cJSON_AddStringToObject(root, "status", "ok");
+//     cJSON_AddItemToObject(root, "response", cJSON_Duplicate(status_snapshot_current, 1));
+//     cJSON_SetValuestring(type_item, "res");
+//     if (status_snapshot_current) { cJSON_Delete(status_snapshot_current); }
+
+// } // End of system_status_callback
+// //-----------------------------------------------------------------------------
+
+
+
+static void ota_manager_update_git_callback(cJSON *root) {
+    cJSON  *id_item = cJSON_GetObjectItemCaseSensitive(root, "id");
+    cJSON  *type_item = cJSON_GetObjectItemCaseSensitive(root, "type");
+    cJSON  *cmd = cJSON_GetObjectItemCaseSensitive(root, "cmd");
+    cJSON  *params = cJSON_GetObjectItemCaseSensitive(root, "params");
+
+    const uint32_t id = cJSON_IsNumber(id_item) ? id_item->valueint : 0;
+    const char *type_str = cJSON_IsString(type_item) && type_item->valuestring != NULL ? type_item->valuestring : NULL;
+    const char *cmd_str = cJSON_IsString(cmd) && cmd->valuestring != NULL ? cmd->valuestring : NULL;
+    const char *params_str = cJSON_IsObject(params) ? cJSON_PrintUnformatted(params) : NULL;
+ 
+    ESP_LOGD(TAG, "OTA update envelope: id=%d, type=%s, cmd=%s, params=%s", 
+             id,
+             type_str ? type_str : "null",
+             cmd_str ? cmd_str : "null",
+             params_str ? params_str : "null");
+
+    if (params && cJSON_IsObject(params)) {
+        cJSON *url_item = cJSON_GetObjectItemCaseSensitive(params, "url");
+        if (cJSON_IsString(url_item) && url_item->valuestring != NULL) {
+            // const char *ota_url = url_item->valuestring;
+            // ESP_LOGI(TAG, "Triggering OTA update from URL: %s", ota_url);
+            // esp_err_t ota_result = ota_manager_trigger_github_ota(ota_url);
+            // if (ota_result != ESP_OK) {
+            //     ESP_LOGE(TAG, "OTA update failed with error: %s", esp_err_to_name(ota_result));
+            //     // Optionally, you can send a response back indicating failure
+            // }
+        } else {
+            ESP_LOGE(TAG, "Invalid or missing 'url' parameter for OTA update.");
+        }
+    } else {
+        ESP_LOGE(TAG, "Missing 'params' object for OTA update command.");
+    }
 }
+
+
+
+
+
+
+
+
+
+
+
+// /**
+//  * @brief Handle an OTA update request.
+//  * 
+//  * @param root The JSON object containing the OTA update request.
+//  * @return ESP_OK on success, or an error code on failure.
+//  */
+// esp_err_t web_server_ota_update_requested(cJSON *root)
+// {   
+//     ESP_LOGW(TAG, "Inside OTA update request handler");
+//     if (!s_server)
+//     {
+//         return ESP_ERR_INVALID_STATE;
+//     }
+//     ESP_LOGI(TAG, "OTA update request received: %s", cJSON_Print(root));
+//     // Implement OTA update request handling here
+//     cJSON *url_item = cJSON_GetObjectItemCaseSensitive(root, "url");
+    
+//     if (cJSON_IsString(url_item) && url_item->valuestring && url_item->valuestring[0] != '\0')
+//     {
+//         char *url_copy = strdup(url_item->valuestring);
+//         if (url_copy != NULL)
+//         {
+//             // web_server_device_state_set_ota_pending(true);
+//             // web_server_device_state_set_ota_status("requested");
+//             // web_server_device_state_set_ota_progress(0);
+//             if (xTaskCreatePinnedToCore(ota_update_task, "ota_update", 8192, url_copy, 5, NULL, 0) != pdPASS)
+//             {
+//                 ESP_LOGE(TAG, "Failed to create OTA task");
+//                 free(url_copy);
+//                 // web_server_device_state_set_ota_pending(false);
+//                 // web_server_device_state_set_ota_status("failed");
+//             }
+//         }
+//         else
+//         {
+//             ESP_LOGE(TAG, "Failed to allocate OTA URL copy");
+//             // web_server_device_state_set_ota_status("failed");
+//             // web_server_device_state_set_ota_pending(false);
+//         }
+//     }
+//     else
+//     {
+//         ESP_LOGE(TAG, "OTA update command missing valid url");
+//         // web_server_device_state_set_ota_status("failed");
+//         // web_server_device_state_set_ota_pending(false);
+//     }
+
+//     ESP_LOGW(TAG, "OTA update request processing completed");
+//     return ESP_OK;
+// }
+

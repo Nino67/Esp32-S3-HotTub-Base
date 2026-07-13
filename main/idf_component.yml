@@ -16,3 +16,4 @@ dependencies:
   #   public: true
   espressif/led_strip: ^3.0.3
   espressif/cjson: ^1.7.19~2
+  espressif/ds18b20: "^0.4.0"

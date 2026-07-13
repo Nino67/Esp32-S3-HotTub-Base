@@ -268,6 +268,7 @@ static esp_err_t asset_handler(httpd_req_t *req)
  */
 static void ota_update_task(void *arg)
 {
+    ESP_LOGW(TAG, "Inside OTA update task function");
     char *url = arg;
     if (url == NULL)
     {
@@ -372,7 +373,26 @@ static esp_err_t ws_handler(httpd_req_t *req)
     err = httpd_ws_recv_frame(req, &frame, frame.len);
     if (err == ESP_OK)
     {
+        // Check for "command" field and handle OTA update if present
         cJSON * root = json_service_crc32_envelope_decode(payload);
+        cJSON *command_item = cJSON_GetObjectItemCaseSensitive(root, "command");
+        if (cJSON_IsString(command_item) && (command_item->valuestring != NULL))
+        {
+            // hot_tub_device_state_set_last_command(payload);
+            if (strcmp(command_item->valuestring, "ota_update") == 0)
+            {
+                ESP_LOGI(TAG, "OTA update command received");
+                esp_err_t ota_err = web_server_ota_update_requested(root);
+                if (ota_err != ESP_OK)
+                {
+                    ESP_LOGE(TAG, "OTA update request failed: %s", esp_err_to_name(ota_err));
+                    // hot_tub_device_state_set_ota_status("failed");
+                    // hot_tub_device_state_set_ota_pending(false);
+                }
+            }
+            if (command_item) { cJSON_Delete(command_item); }
+        }
+
         if (root != NULL)
         {
             json_service_dispatcher_core0(root);
@@ -384,34 +404,16 @@ static esp_err_t ws_handler(httpd_req_t *req)
                 .len = len,
             };
             err = httpd_ws_send_frame(req, &out_frame);
-            ESP_LOGW(TAG, "Sent encoded JSON message: %s ", encoded_msg);
+            ESP_LOGI(TAG, "Sent encoded JSON message: %s ", encoded_msg);
             if (encoded_msg) { free(encoded_msg); }
             if (root) { cJSON_Delete(root); }
         }
-
-        // // Check for "command" field and handle OTA update if present
-        // cJSON *command_item = cJSON_GetObjectItemCaseSensitive(root, "command");
-        // if (cJSON_IsString(command_item) && (command_item->valuestring != NULL))
-        // {
-        //     // hot_tub_device_state_set_last_command(payload);
-        //     if (strcmp(command_item->valuestring, "ota_update") == 0)
-        //     {
-        //         ESP_LOGI(TAG, "OTA update command received");
-        //         esp_err_t ota_err = web_server_ota_update_requested(root);
-        //         if (ota_err != ESP_OK)
-        //         {
-        //             ESP_LOGE(TAG, "OTA update request failed: %s", esp_err_to_name(ota_err));
-        //             // hot_tub_device_state_set_ota_status("failed");
-        //             // hot_tub_device_state_set_ota_pending(false);
-        //         }
-        //     }
-        // }
     }
     else
     {
         untrack_client(sockfd);
     }
-
+    if (payload) { free(payload); }
     return err;
 } // End of ws_handler
 //-----------------------------------------------------------------------------
@@ -524,14 +526,16 @@ esp_err_t web_server_broadcast_json(const char *json)
  * @return ESP_OK on success, or an error code on failure.
  */
 esp_err_t web_server_ota_update_requested(cJSON *root)
-{
+{   
+    ESP_LOGW(TAG, "Inside OTA update request handler");
     if (!s_server)
     {
         return ESP_ERR_INVALID_STATE;
     }
-
+    ESP_LOGI(TAG, "OTA update request received: %s", cJSON_Print(root));
     // Implement OTA update request handling here
     cJSON *url_item = cJSON_GetObjectItemCaseSensitive(root, "url");
+    
     if (cJSON_IsString(url_item) && url_item->valuestring && url_item->valuestring[0] != '\0')
     {
         char *url_copy = strdup(url_item->valuestring);
@@ -562,6 +566,7 @@ esp_err_t web_server_ota_update_requested(cJSON *root)
         // web_server_device_state_set_ota_pending(false);
     }
 
+    ESP_LOGW(TAG, "OTA update request processing completed");
     return ESP_OK;
 }
 

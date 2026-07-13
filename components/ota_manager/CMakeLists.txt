@@ -7,4 +7,6 @@ idf_component_register(SRCS "src/ota_manager.c"
                                 esp_https_ota 
                                 mbedtls 
                                 littlefs
-                                rgb_led)
+                                rgb_led
+                                json_service)
+                                

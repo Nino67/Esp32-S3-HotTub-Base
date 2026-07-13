@@ -1,16 +1,14 @@
 #pragma once
 
-#include "freertos/FreeRTOS.h"
-#include "freertos/task.h"
+#ifndef HOT_TUB_CONTROLLER_H
+#define HOT_TUB_CONTROLLER_H
 
-#ifdef __cplusplus
-extern "C" {
-#endif
+
+
 
 void hot_tub_controller_task(void *arg);
 
-#ifdef __cplusplus
-}
-#endif   
 
 
+#endif // HOT_TUB_CONTROLLER_H
+//-----------------------------------------------------------------------------

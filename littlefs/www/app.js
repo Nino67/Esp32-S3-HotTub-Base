@@ -100,8 +100,10 @@ function hardwareInit() {
     }
 
     const payload = {
-      command: 'ota_update',
-      url,
+      id: 1,
+      type: 'req',
+      cmd: 'ota.manager.update.github',
+      params: {"url": url},
     };
 
     otaStatus.textContent = 'requested';
