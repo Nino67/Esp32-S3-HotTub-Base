@@ -233,37 +233,15 @@ esp_err_t ota_manager_trigger_github_ota(const char *url)
 
 
 
-// /**
-//  * @brief Callback function to handle the "system_status" command received via JSON service.
-//  *
-//  * @param root The cJSON object containing the command and its data.
-//  */
-//  static void system_status_callback(cJSON *root) {
-    
-//     cJSON  *id_item = cJSON_GetObjectItemCaseSensitive(root, "id");
-//     cJSON  *type_item = cJSON_GetObjectItemCaseSensitive(root, "type");
-//     cJSON  *cmd = cJSON_GetObjectItemCaseSensitive(root, "cmd");
-
-//     const uint32_t id = cJSON_IsNumber(id_item) ? id_item->valueint : 0;
-//     const char *type_str = cJSON_IsString(type_item) && type_item->valuestring != NULL ? type_item->valuestring : NULL;
-//     const char *cmd_str = cJSON_IsString(cmd) && cmd->valuestring != NULL ? cmd->valuestring : NULL;
-    
-//     ESP_LOGD(TAG, "System status envelope: id=%d, type=%s, cmd=%s", 
-//              id,
-//              type_str ? type_str : "null",
-//              cmd_str ? cmd_str : "null");
-             
-//     cJSON *status_snapshot_current = system_status_get_json();
-//     cJSON_AddStringToObject(root, "status", "ok");
-//     cJSON_AddItemToObject(root, "response", cJSON_Duplicate(status_snapshot_current, 1));
-//     cJSON_SetValuestring(type_item, "res");
-//     if (status_snapshot_current) { cJSON_Delete(status_snapshot_current); }
-
-// } // End of system_status_callback
-// //-----------------------------------------------------------------------------
-
-
-
+/**
+ * @brief Callback function to handle OTA update requests from the JSON service.
+ * 
+ * @param root The cJSON object containing the OTA update request.
+ *
+ * @note This function is registered with the JSON service to handle the "ota.manager.update.github" command.
+ *       It extracts the OTA URL (GitHub)from the request and triggers the OTA update process.
+ *       https://raw.githubusercontent.com/Nino67/Esp32-S3-HotTub-Base/main/firmware/hot_tub_controller.bin
+ */
 static void ota_manager_update_git_callback(cJSON *root) {
     cJSON  *id_item = cJSON_GetObjectItemCaseSensitive(root, "id");
     cJSON  *type_item = cJSON_GetObjectItemCaseSensitive(root, "type");
@@ -275,7 +253,7 @@ static void ota_manager_update_git_callback(cJSON *root) {
     const char *cmd_str = cJSON_IsString(cmd) && cmd->valuestring != NULL ? cmd->valuestring : NULL;
     const char *params_str = cJSON_IsObject(params) ? cJSON_PrintUnformatted(params) : NULL;
  
-    ESP_LOGD(TAG, "OTA update envelope: id=%d, type=%s, cmd=%s, params=%s", 
+    ESP_LOGI(TAG, "OTA update envelope: id=%d, type=%s, cmd=%s, params=%s", 
              id,
              type_str ? type_str : "null",
              cmd_str ? cmd_str : "null",
@@ -284,19 +262,24 @@ static void ota_manager_update_git_callback(cJSON *root) {
     if (params && cJSON_IsObject(params)) {
         cJSON *url_item = cJSON_GetObjectItemCaseSensitive(params, "url");
         if (cJSON_IsString(url_item) && url_item->valuestring != NULL) {
-            // const char *ota_url = url_item->valuestring;
-            // ESP_LOGI(TAG, "Triggering OTA update from URL: %s", ota_url);
-            // esp_err_t ota_result = ota_manager_trigger_github_ota(ota_url);
-            // if (ota_result != ESP_OK) {
-            //     ESP_LOGE(TAG, "OTA update failed with error: %s", esp_err_to_name(ota_result));
-            //     // Optionally, you can send a response back indicating failure
-            // }
+            const char *ota_url = url_item->valuestring;
+            ESP_LOGI(TAG, "Triggering OTA update from URL: %s", ota_url);
+            esp_err_t ota_result = ota_manager_trigger_github_ota(ota_url);
+            if (ota_result != ESP_OK) {
+                ESP_LOGE(TAG, "OTA update failed with error: %s", esp_err_to_name(ota_result));
+                // Optionally, you can send a response back indicating failure
+            }
+            cJSON_AddStringToObject(root, "status", "ok");
+
         } else {
             ESP_LOGE(TAG, "Invalid or missing 'url' parameter for OTA update.");
         }
     } else {
         ESP_LOGE(TAG, "Missing 'params' object for OTA update command.");
     }
+    cJSON_AddStringToObject(root, "status", "ok");
+    cJSON_AddItemToObject(root, "response", cJSON_CreateString("ota update completed"));
+    cJSON_SetValuestring(type_item, "res");
 }
 
 

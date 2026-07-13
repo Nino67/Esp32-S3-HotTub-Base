@@ -373,26 +373,7 @@ static esp_err_t ws_handler(httpd_req_t *req)
     err = httpd_ws_recv_frame(req, &frame, frame.len);
     if (err == ESP_OK)
     {
-        // Check for "command" field and handle OTA update if present
         cJSON * root = json_service_crc32_envelope_decode(payload);
-        cJSON *command_item = cJSON_GetObjectItemCaseSensitive(root, "command");
-        if (cJSON_IsString(command_item) && (command_item->valuestring != NULL))
-        {
-            // hot_tub_device_state_set_last_command(payload);
-            if (strcmp(command_item->valuestring, "ota_update") == 0)
-            {
-                ESP_LOGI(TAG, "OTA update command received");
-                esp_err_t ota_err = web_server_ota_update_requested(root);
-                if (ota_err != ESP_OK)
-                {
-                    ESP_LOGE(TAG, "OTA update request failed: %s", esp_err_to_name(ota_err));
-                    // hot_tub_device_state_set_ota_status("failed");
-                    // hot_tub_device_state_set_ota_pending(false);
-                }
-            }
-            if (command_item) { cJSON_Delete(command_item); }
-        }
-
         if (root != NULL)
         {
             json_service_dispatcher_core0(root);
