@@ -104,3 +104,4 @@ esp_err_t nvs_storage_reset_boot_failures(void)
 {
     return nvs_storage_set_boot_failures(0);
 }
+

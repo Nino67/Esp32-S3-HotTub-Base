@@ -11,4 +11,6 @@ idf_component_register(SRCS "src/app_controller.c"
                                 esp_common
                                 rgb_led
                                 ntp_time_sync
-                                json_service)
+                                json_service
+                                hot_tub_controller)
+                                

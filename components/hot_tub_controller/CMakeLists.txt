@@ -3,6 +3,8 @@ idf_component_register(SRCS "src/hot_tub_controller.c"
                        REQUIRES freertos 
                                 esp_common
                                 esp_timer
-                                esp_system)
+                                esp_system
+                                nvs_flash
+                                espressif__cjson)
 
 
