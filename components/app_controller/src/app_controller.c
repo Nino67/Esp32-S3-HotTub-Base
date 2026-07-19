@@ -74,7 +74,6 @@ esp_err_t app_start(void)
     ESP_RETURN_ON_ERROR(hot_tub_controller_publish_status(), TAG, "hot tub controller publish status failed");
     
 
-
     return ESP_OK;
 }
 

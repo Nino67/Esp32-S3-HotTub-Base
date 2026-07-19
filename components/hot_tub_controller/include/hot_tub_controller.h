@@ -63,7 +63,6 @@ esp_err_t hot_tub_controller_publish_status(void);
 esp_err_t hot_tub_controller_settings_save_to_nvs(void);
 
 
-
     
 #endif // HOT_TUB_CONTROLLER_H
 //-----------------------------------------------------------------------------

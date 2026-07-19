@@ -315,6 +315,7 @@ void json_service_dispatcher_core0(cJSON *root)
     if (!cJSON_IsString(cmd) || cmd->valuestring == NULL) {
         return;
     }
+    
     const char *cmd_str = cmd->valuestring;
     ESP_LOGW(TAG, "RPC received envelope: id=%d, type=%s, cmd=%s, params=%s", id, type_str, cmd_str, cJSON_PrintUnformatted(params));
 

@@ -11,8 +11,8 @@
 // #include "esp_timer.h"
 // #include "driver/temperature_sensor.h"
 #include "cJSON.h"
-// #include "json_service.h"
-
+#
+#include "json_service.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 
@@ -24,19 +24,37 @@ static const char *NVS_HOTTUB_SETTINGS_NAMESPACE = "hottub_settings";
 
 
 #define TIME_BUFFER_SIZE 32
-
+#define CORE_0 0
+#define CORE_1 1
 // GPIO pin definitions for pump control
 #define GPIO_PUMP_LOW 25
 #define GPIO_PUMP_HIGH 26
 #define PUMP_DEAD_TIME_MS 2000
 
 
+#define DEFAULT_HOTTUB_TIMING_LOOP_DELAY_MS 1000
 #define DEFAULT_SETPOINT_TEMP 37.0
 #define DEFAULT_HIGH_HYSTERESIS 2.0
 #define DEFAULT_LOW_HYSTERESIS 1.0
 #define DEFAULT_PUMP_PRE_RUN_TIME 4.0
 #define DEFAULT_PUMP_POST_RUN_TIME 5.0
 #define DEFAULT_TEMP_UNIT_CELSIUS true
+
+// if (app_watchdog_feed_current_task() != ESP_OK)
+
+
+// Structure to hold the hot tub settings for NVS storage.
+typedef struct {
+    bool tempUnitCelsius;
+    float setpointTemp;
+    float highHysteresis;
+    float lowHysteresis;
+    float pumpPreRunTime;
+    float pumpPostRunTime;
+} hotTub_nvs_save_t;
+
+
+
 
 // gpio_set_level
 // // Pump state enumeration
@@ -86,6 +104,10 @@ static SemaphoreHandle_t s_mutex;
 static HotTubController_t hottub_ctl;
 static void lock_state(void);
 static void unlock_state(void);
+static void hottub_status_get_callback(cJSON *root);
+bool json_service_register_command(const char *, json_cmd_callback_t, uint8_t );
+
+
 
 esp_err_t hot_tub_controller_init(void);
 esp_err_t hot_tub_controller_snapshot(HotTubController_t *state);
@@ -121,8 +143,13 @@ esp_err_t hot_tub_controller_gpio_set_level(int gpio_num, int level);
 esp_err_t hot_tub_controller_settings_load_from_nvs(void);
 esp_err_t hot_tub_controller_settings_save_to_nvs(void);
 esp_err_t hot_tub_controller_publish_status(void);
+static esp_err_t hot_tub_controller_to_json(cJSON *json, const HotTubController_t *state);
+char **hot_tub_controller_split_command_type(const char *command_type);
 
-    
+esp_err_t hot_tub_controller_register_callbacks();
+
+
+
 //  esp_err_t hot_tub_controller_publish_status(void);
 
 
@@ -193,9 +220,46 @@ esp_err_t hot_tub_controller_init(void)
         }
     }
 
+    // Register the "hot_tub_controller" command with the JSON service
+    // json_service_register_command("hottub.status.get", hottub_status_get_callback, 0);
+    
+    hot_tub_controller_register_callbacks();
+
     return ESP_OK;
+
 } // end of hot_tub_controller_init()
 //-----------------------------------------------------------------------------
+
+esp_err_t hot_tub_controller_register_callbacks()
+{
+    // if (!callback) {
+    //     return ESP_ERR_INVALID_ARG;
+    // }
+
+    // Register the callback for the "hottub.status.get" command
+    if (!json_service_register_command("hottub.status.get", hottub_status_get_callback, CORE_0)) {
+        return ESP_FAIL;
+    }
+
+    return ESP_OK;
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -216,14 +280,15 @@ esp_err_t hot_tub_controller_publish_status(void)
 {
     HotTubController_t *snapshot = malloc(sizeof(HotTubController_t));
 
-    if (!snapshot) { return ESP_ERR_INVALID_ARG; }
+    if (!snapshot) { return ESP_ERR_NO_MEM; }
 
     lock_state();
     *snapshot = hottub_ctl;
     unlock_state();
 
+
     cJSON *json = cJSON_CreateObject();
-    esp_err_t err = hottub_ctl_to_json(json, snapshot);
+    esp_err_t err = hot_tub_controller_to_json(json, snapshot);
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "Failed to convert snapshot to JSON: %s", esp_err_to_name(err));
         cJSON_Delete(json);
@@ -256,7 +321,7 @@ esp_err_t hot_tub_controller_publish_status(void)
 
 
 
-esp_err_t hottub_ctl_to_json(cJSON *json, const HotTubController_t *state)
+static esp_err_t hot_tub_controller_to_json(cJSON *json, const HotTubController_t *state)
 {
     if (!json || !state) return ESP_ERR_INVALID_ARG;
 
@@ -363,14 +428,14 @@ void hot_tub_controller_set_pump(pump_state_t targetSpeed) {
 //     time_t lastUpdateTime;
 //     sim_mode_t simulationMode;
 
-typedef struct {
-    bool tempUnitCelsius;
-    float setpointTemp;
-    float highHysteresis;
-    float lowHysteresis;
-    float pumpPreRunTime;
-    float pumpPostRunTime;
-} hotTub_nvs_save_t;
+// typedef struct {
+//     bool tempUnitCelsius;
+//     float setpointTemp;
+//     float highHysteresis;
+//     float lowHysteresis;
+//     float pumpPreRunTime;
+//     float pumpPostRunTime;
+// } hotTub_nvs_save_t;
 
 
 
@@ -893,6 +958,132 @@ void hot_tub_controller_set_pump_post_run_time(float time)
     unlock_state();
 }
 //-----------------------------------------------------------------------------
+
+
+// split the command type string into its components (e.g., "hot.tub.controller" -> ["hot", "tub", "controller"])
+// and return the values
+char **hot_tub_controller_split_command_type(const char *command_type) {
+    if (!command_type) return NULL;
+
+    // Count the number of components
+    int count = 1;
+    for (const char *p = command_type; *p; p++) {
+        if (*p == '.') count++;
+    }
+
+    // Allocate memory for the array of strings
+    char **components = malloc((count + 1) * sizeof(char *));
+    if (!components) return NULL;
+
+    // Split the string into components
+    const char *start = command_type;
+    int index = 0;
+    for (const char *p = command_type; ; p++) {
+        if (*p == '.' || *p == '\0') {
+            size_t len = p - start;
+            components[index] = malloc(len + 1);
+            if (!components[index]) {
+                // Free previously allocated memory on failure
+                for (int j = 0; j < index; j++) {
+                    free(components[j]);
+                }
+                free(components);
+                return NULL;
+            }
+            strncpy(components[index], start, len);
+            components[index][len] = '\0';
+            index++;
+            if (*p == '\0') break;
+            start = p + 1;
+        }
+    }
+    components[index] = NULL; // Null-terminate the array
+
+    return components;
+}
+
+
+/**
+ * @brief Callback function to handle the "hot_tub_controller" command received via JSON service.
+ *
+ * @param root The cJSON object containing the command and its data.
+ */
+ static void hottub_status_get_callback(cJSON *root) {
+    
+    // cJSON  *id_item = cJSON_GetObjectItemCaseSensitive(root, "id");
+    // cJSON  *type_item = cJSON_GetObjectItemCaseSensitive(root, "type");
+    // cJSON  *cmd = cJSON_GetObjectItemCaseSensitive(root, "cmd");
+
+    // const uint32_t id = cJSON_IsNumber(id_item) ? id_item->valueint : 0;
+    // const char *type_str = cJSON_IsString(type_item) && type_item->valuestring != NULL ? type_item->valuestring : NULL;
+    // const char *cmd_str = cJSON_IsString(cmd) && cmd->valuestring != NULL ? cmd->valuestring : NULL;
+    
+    // ESP_LOGD(TAG, "hot tub controller envelope: id=%d, type=%s, cmd=%s", 
+    //          id,
+    //          type_str ? type_str : "null",
+    //          cmd_str ? cmd_str : "null");
+    
+    HotTubController_t snapshot;
+    cJSON *hot_tub_controller_json = cJSON_CreateObject();    
+    // esp_err_t err_snapshot = hot_tub_controller_snapshot(&snapshot);
+    esp_err_t err = hot_tub_controller_to_json(hot_tub_controller_json, &snapshot);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to convert snapshot to JSON: %s", esp_err_to_name(err));
+        cJSON_Delete(hot_tub_controller_json);
+        return;
+    }       
+    cJSON_AddStringToObject(root, "status", "ok");
+    cJSON_AddItemToObject(root, "response", cJSON_Duplicate(hot_tub_controller_json, 1));
+    cJSON  *type_item = cJSON_GetObjectItemCaseSensitive(root, "type");
+    cJSON_SetValuestring(type_item, "res");
+    if (hot_tub_controller_json) { cJSON_Delete(hot_tub_controller_json); }
+
+} // End of hottub_status_get_callback
+//-----------------------------------------------------------------------------
+// {"id":1,"type":"req","cmd":"hottub.status.get","params":""}
+// "hot.tub.controller"
+
+// // Register the "system_status" command with the JSON service
+// json_service_register_command("system.status.get", system_status_callback, 0);
+
+// Register the "hot_tub_controller" command with the JSON service
+// json_service_register_command("hot.tub.controller", hot_tub_controller_callback, 0);
+
+
+static void hottub_heater_get_callback(cJSON *root) {
+    // Implement the callback logic for getting heater status
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
