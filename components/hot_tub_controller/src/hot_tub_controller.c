@@ -17,6 +17,8 @@
 #include "freertos/semphr.h"
 
 #include "nvs_flash.h"
+#include "hot_tub_globals.h"
+#include "hot_tub_callbacks.h"
 #include "hot_tub_controller.h"
 
 static const char *TAG = "hot_tub_controller";
@@ -43,15 +45,15 @@ static const char *NVS_HOTTUB_SETTINGS_NAMESPACE = "hottub_settings";
 // if (app_watchdog_feed_current_task() != ESP_OK)
 
 
-// Structure to hold the hot tub settings for NVS storage.
-typedef struct {
-    bool tempUnitCelsius;
-    float setpointTemp;
-    float highHysteresis;
-    float lowHysteresis;
-    float pumpPreRunTime;
-    float pumpPostRunTime;
-} hotTub_nvs_save_t;
+// // Structure to hold the hot tub settings for NVS storage.
+// typedef struct {
+//     bool tempUnitCelsius;
+//     float setpointTemp;
+//     float highHysteresis;
+//     float lowHysteresis;
+//     float pumpPreRunTime;
+//     float pumpPostRunTime;
+// } hotTub_nvs_save_t;
 
 
 
@@ -83,7 +85,7 @@ typedef struct {
 //     bool tempUnitCelsius;
 //     bool pumpOnLight;
 //     bool heaterOnLight;
-    
+  
 //     float waterTemp;
 //     float airTemp;
 //     float humidity;
@@ -95,7 +97,7 @@ typedef struct {
 //     pump_state_t pumpState;
 //     time_t lastUpdateTime;
 //     sim_mode_t simulationMode;
-// } HotTubController_t;
+// } HotTubController_t;  
 
 
 void hottub_ctl_init(void);
@@ -104,7 +106,6 @@ static SemaphoreHandle_t s_mutex;
 static HotTubController_t hottub_ctl;
 static void lock_state(void);
 static void unlock_state(void);
-static void hottub_status_get_callback(cJSON *root);
 bool json_service_register_command(const char *, json_cmd_callback_t, uint8_t );
 
 
@@ -133,20 +134,55 @@ float hot_tub_controller_get_high_hysteresis(void);
 void hot_tub_controller_set_high_hysteresis(float temp);
 float hot_tub_controller_get_low_hysteresis(void);
 void hot_tub_controller_set_low_hysteresis(float temp);
+pump_state_t hot_tub_controller_pump_state_get(pump_state_t *state);
 void hot_tub_controller_set_pump(pump_state_t targetSpeed); 
 float hot_tub_controller_get_pump_pre_run_time(void);
 void hot_tub_controller_set_pump_pre_run_time(float time);
 float hot_tub_controller_get_pump_post_run_time(void);
 void hot_tub_controller_set_pump_post_run_time(float time);
-esp_err_t hottub_ctl_to_json(cJSON *json, const HotTubController_t *state);
 esp_err_t hot_tub_controller_gpio_set_level(int gpio_num, int level);
 esp_err_t hot_tub_controller_settings_load_from_nvs(void);
 esp_err_t hot_tub_controller_settings_save_to_nvs(void);
 esp_err_t hot_tub_controller_publish_status(void);
-static esp_err_t hot_tub_controller_to_json(cJSON *json, const HotTubController_t *state);
-char **hot_tub_controller_split_command_type(const char *command_type);
+esp_err_t hot_tub_controller_to_json(cJSON *json, const HotTubController_t *state);
+// char **hot_tub_controller_split_command_type(const char *command_type);
 
-esp_err_t hot_tub_controller_register_callbacks();
+// esp_err_t hot_tub_controller_register_callbacks();
+// static void hottub_callback_response(cJSON *root, cJSON *response);
+
+// static void hottub_auto_mode_get_callback(cJSON *root);
+// static void hottub_auto_mode_set_callback(cJSON *root);
+
+
+// JSON service callback functions 
+extern void hottub_status_get_callback(cJSON *root);
+extern void hottub_auto_mode_get_callback(cJSON *root);
+extern void hottub_auto_mode_set_callback(cJSON *root);
+extern void hottub_heater_status_get_callback(cJSON *root);
+extern void hottub_heater_status_set_callback(cJSON *root);
+extern void hottub_temperature_unit_get_callback(cJSON *root);
+extern void hottub_temperature_unit_set_callback(cJSON *root);
+extern void hottub_water_temperature_get_callback(cJSON *root);
+extern void hottub_water_temperature_set_callback(cJSON *root);
+extern void hottub_setpoint_temperature_get_callback(cJSON *root);
+extern void hottub_setpoint_temperature_set_callback(cJSON *root);
+extern void hottub_high_hysteresis_get_callback(cJSON *root);
+extern void hottub_high_hysteresis_set_callback(cJSON *root);
+extern void hottub_low_hysteresis_get_callback(cJSON *root);
+extern void hottub_low_hysteresis_set_callback(cJSON *root);
+extern void hottub_pump_state_get_callback(cJSON *root);
+extern void hottub_pump_state_set_callback(cJSON *root);
+extern void hottub_pump_pre_run_time_get_callback(cJSON *root);
+extern void hottub_pump_pre_run_time_set_callback(cJSON *root);
+extern void hottub_pump_post_run_time_get_callback(cJSON *root);
+extern void hottub_pump_post_run_time_set_callback(cJSON *root);
+
+
+
+
+    
+
+
 
 
 
@@ -235,11 +271,92 @@ esp_err_t hot_tub_controller_register_callbacks()
     // if (!callback) {
     //     return ESP_ERR_INVALID_ARG;
     // }
-
+    
     // Register the callback for the "hottub.status.get" command
     if (!json_service_register_command("hottub.status.get", hottub_status_get_callback, CORE_0)) {
         return ESP_FAIL;
     }
+
+    // Register the callback for the "hottub.automode.get" command
+    if (!json_service_register_command("hottub.auto.mode.get", hottub_auto_mode_get_callback, CORE_0)) {
+        return ESP_FAIL;
+    }
+
+    // Register the callback for the "hottub.automode.set" command
+    if (!json_service_register_command("hottub.auto.mode.set", hottub_auto_mode_set_callback, CORE_0)) {
+        return ESP_FAIL;
+    }
+
+    if (!json_service_register_command("hottub.heater.status.get", hottub_heater_status_get_callback, CORE_0)) {
+        return ESP_FAIL;
+    }
+
+    if (!json_service_register_command("hottub.heater.status.set", hottub_heater_status_set_callback, CORE_0)) {
+        return ESP_FAIL;
+    }
+
+    if (!json_service_register_command("hottub.temperature.unit.get", hottub_temperature_unit_get_callback, CORE_0)) {
+        return ESP_FAIL;
+    }
+
+    if (!json_service_register_command("hottub.temperature.unit.set", hottub_temperature_unit_set_callback, CORE_0)) {
+        return ESP_FAIL;
+    }  
+    
+    if (!json_service_register_command("hottub.water.temperature.get", hottub_water_temperature_get_callback, CORE_0)) {
+        return ESP_FAIL;
+    }
+
+    if (!json_service_register_command("hottub.setpoint.temperature.get", hottub_setpoint_temperature_get_callback, CORE_0)) {
+        return ESP_FAIL;
+    }
+
+    if (!json_service_register_command("hottub.setpoint.temperature.set", hottub_setpoint_temperature_set_callback, CORE_0)) {
+        return ESP_FAIL;
+    }
+
+    if (!json_service_register_command("hottub.high.hysteresis.get", hottub_high_hysteresis_get_callback, CORE_0)) {
+        return ESP_FAIL;
+    }
+
+    if (!json_service_register_command("hottub.high.hysteresis.set", hottub_high_hysteresis_set_callback, CORE_0)) {
+        return ESP_FAIL;
+    }
+
+    if (!json_service_register_command("hottub.low.hysteresis.get", hottub_low_hysteresis_get_callback, CORE_0)) {
+        return ESP_FAIL;
+    }
+
+    if (!json_service_register_command("hottub.low.hysteresis.set", hottub_low_hysteresis_set_callback, CORE_0)) {
+        return ESP_FAIL;
+    }
+
+    if (!json_service_register_command("hottub.pump.state.get", hottub_pump_state_get_callback, CORE_0)) {
+        return ESP_FAIL;
+    }
+
+    if (!json_service_register_command("hottub.pump.state.set", hottub_pump_state_set_callback, CORE_0)) {
+        return ESP_FAIL;
+    }
+
+    if (!json_service_register_command("hottub.pump.pre.run.time.get", hottub_pump_pre_run_time_get_callback, CORE_0)) {
+        return ESP_FAIL;
+    }
+
+    if (!json_service_register_command("hottub.pump.pre.run.time.set", hottub_pump_pre_run_time_set_callback, CORE_0)) {
+        return ESP_FAIL;
+    }
+
+    if (!json_service_register_command("hottub.pump.post.run.time.get", hottub_pump_post_run_time_get_callback, CORE_0)) {
+        return ESP_FAIL;
+    }
+
+    if (!json_service_register_command("hottub.pump.post.run.time.set", hottub_pump_post_run_time_set_callback, CORE_0)) {
+        return ESP_FAIL;
+    }
+
+
+
 
     return ESP_OK;
 }
@@ -321,7 +438,7 @@ esp_err_t hot_tub_controller_publish_status(void)
 
 
 
-static esp_err_t hot_tub_controller_to_json(cJSON *json, const HotTubController_t *state)
+esp_err_t hot_tub_controller_to_json(cJSON *json, const HotTubController_t *state)
 {
     if (!json || !state) return ESP_ERR_INVALID_ARG;
 
@@ -359,8 +476,20 @@ esp_err_t hot_tub_controller_gpio_set_level(int gpio_num, int level)
 
 
 
-
-
+/**
+ * @brief Get the current pump state.
+ *
+ * @param state Pointer to a variable where the current pump state will be stored.
+ * @return The current pump state (PUMP_OFF, PUMP_LOW, PUMP_HIGH).
+ */
+pump_state_t hot_tub_controller_pump_state_get(pump_state_t *state) {
+    if (!state) return PUMP_OFF; // Return a default value if the pointer is NULL
+    lock_state();
+    *state = hottub_ctl.pumpState;
+    unlock_state();
+    return *state;  
+}// End of hot_tub_controller_pump_state_get
+//-----------------------------------------------------------------------------
 
 
 
@@ -960,362 +1089,32 @@ void hot_tub_controller_set_pump_post_run_time(float time)
 //-----------------------------------------------------------------------------
 
 
-// split the command type string into its components (e.g., "hot.tub.controller" -> ["hot", "tub", "controller"])
-// and return the values
-char **hot_tub_controller_split_command_type(const char *command_type) {
-    if (!command_type) return NULL;
-
-    // Count the number of components
-    int count = 1;
-    for (const char *p = command_type; *p; p++) {
-        if (*p == '.') count++;
-    }
-
-    // Allocate memory for the array of strings
-    char **components = malloc((count + 1) * sizeof(char *));
-    if (!components) return NULL;
-
-    // Split the string into components
-    const char *start = command_type;
-    int index = 0;
-    for (const char *p = command_type; ; p++) {
-        if (*p == '.' || *p == '\0') {
-            size_t len = p - start;
-            components[index] = malloc(len + 1);
-            if (!components[index]) {
-                // Free previously allocated memory on failure
-                for (int j = 0; j < index; j++) {
-                    free(components[j]);
-                }
-                free(components);
-                return NULL;
-            }
-            strncpy(components[index], start, len);
-            components[index][len] = '\0';
-            index++;
-            if (*p == '\0') break;
-            start = p + 1;
-        }
-    }
-    components[index] = NULL; // Null-terminate the array
-
-    return components;
-}
 
 
-/**
- * @brief Callback function to handle the "hot_tub_controller" command received via JSON service.
- *
- * @param root The cJSON object containing the command and its data.
- */
- static void hottub_status_get_callback(cJSON *root) {
+
+
+// typedef struct {
+//     char *key_name;
+//     cJSON *key_value;
+// } param_tupple_t;
+
+
+// typedef struct {
+//     bool heaterOn;
+//     bool autoMode;
+//     bool tempUnitCelsius;
+//     bool pumpOnLight;
+//     bool heaterOnLight;
     
-    // cJSON  *id_item = cJSON_GetObjectItemCaseSensitive(root, "id");
-    // cJSON  *type_item = cJSON_GetObjectItemCaseSensitive(root, "type");
-    // cJSON  *cmd = cJSON_GetObjectItemCaseSensitive(root, "cmd");
-
-    // const uint32_t id = cJSON_IsNumber(id_item) ? id_item->valueint : 0;
-    // const char *type_str = cJSON_IsString(type_item) && type_item->valuestring != NULL ? type_item->valuestring : NULL;
-    // const char *cmd_str = cJSON_IsString(cmd) && cmd->valuestring != NULL ? cmd->valuestring : NULL;
-    
-    // ESP_LOGD(TAG, "hot tub controller envelope: id=%d, type=%s, cmd=%s", 
-    //          id,
-    //          type_str ? type_str : "null",
-    //          cmd_str ? cmd_str : "null");
-    
-    HotTubController_t snapshot;
-    cJSON *hot_tub_controller_json = cJSON_CreateObject();    
-    // esp_err_t err_snapshot = hot_tub_controller_snapshot(&snapshot);
-    esp_err_t err = hot_tub_controller_to_json(hot_tub_controller_json, &snapshot);
-    if (err != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to convert snapshot to JSON: %s", esp_err_to_name(err));
-        cJSON_Delete(hot_tub_controller_json);
-        return;
-    }       
-    cJSON_AddStringToObject(root, "status", "ok");
-    cJSON_AddItemToObject(root, "response", cJSON_Duplicate(hot_tub_controller_json, 1));
-    cJSON  *type_item = cJSON_GetObjectItemCaseSensitive(root, "type");
-    cJSON_SetValuestring(type_item, "res");
-    if (hot_tub_controller_json) { cJSON_Delete(hot_tub_controller_json); }
-
-} // End of hottub_status_get_callback
-//-----------------------------------------------------------------------------
-// {"id":1,"type":"req","cmd":"hottub.status.get","params":""}
-// "hot.tub.controller"
-
-// // Register the "system_status" command with the JSON service
-// json_service_register_command("system.status.get", system_status_callback, 0);
-
-// Register the "hot_tub_controller" command with the JSON service
-// json_service_register_command("hot.tub.controller", hot_tub_controller_callback, 0);
-
-
-static void hottub_heater_get_callback(cJSON *root) {
-    // Implement the callback logic for getting heater status
-}
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-// /**
-//  * @brief Initialize hot tub control module
-//  */
-// void hottub_ctl_init(void) {
-//     ESP_LOGI(TAG, "Control Initialized");
-
-//     // Create mutex for hot tub control structure
-//     hottub_mutex = xSemaphoreCreateMutex();
-
-//     // Create a 1-element queue for the latest sensor temperature.
-//     if (s_sensor_temperature_q == NULL) {
-//         s_sensor_temperature_q = xQueueCreate(1, sizeof(int32_t));
-//         if (s_sensor_temperature_q == NULL) {
-//             ESP_LOGE(TAG, "Failed to create sensor temperature queue");
-//         }
-//     }
-
-//     // Load settings from NVS
-//     // get_hottub_nvs_settings();  // Already loaded in main.c
-
-//     ESP_LOGI(TAG, "Hot Tub Settings Loaded: Setpoint=%.2f, Low Hysteresis=%.2f, High Hysteresis=%.2f, Temp Unit Celsius=%d",
-//              hottub_ctl.setpoint,
-//              hottub_ctl.low_hysteresis,
-//              hottub_ctl.high_hysteresis,
-//              hottub_ctl.temp_unit_celsius); 
-
-//     vTaskDelay(pdMS_TO_TICKS(1000));         
-
-//     // xTaskCreate(hottub_ctl_task, "hottub_ctl_task", 4096, NULL, configMAX_PRIORITIES - 1, &s_rx_task_handle);
-//     xTaskCreatePinnedToCore(
-//         hottub_ctl_task,
-//         "hottub_ctl_task",
-//         4096,
-//         NULL,
-//         configMAX_PRIORITIES - 10,
-//         NULL,
-//         1
-//     );    
-
-// } // end of hottub_ctl_init()
-// /* ***************************************************************************** */
-
-
-
-
-
-
-
-
-
-
-
-// /**
-//  * @brief Hot tub control task
-//  * 
-//  * @param arg Task argument (unused)
-//  * 
-//  * @return void
-//  * 
-//  * Description:
-//  * This task runs in an infinite loop, performing the following actions every second:
-//  */
-// static void hottub_ctl_task(void *arg) {
-//     hottub_ctl_t snapshot;
-//     ESP_LOGI(TAG, "Hot Tub Control Task Started");
-    
-//     // Track ownership: Did the auto-controller start the pump for heating?
-//     static bool auto_started_pump = false;
-    
-//     while (1) {
-        
-//         // Run sim step
-//         // run_simulation_step();
-
-//         // Acquire mutex to update state and take a snapshot
-//         if (xSemaphoreTake(hottub_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
-
-//             // Apply latest sensor temperature sample (if any) before hysteresis.
-//             // This allows external sensor updates to override the current temperature.
-//             if (s_sensor_temperature_q != NULL) {
-//                 int32_t rx_temp = 0;
-//                 if (xQueueReceive(s_sensor_temperature_q, &rx_temp, 0) == pdTRUE) {
-//                     hottub_ctl.temperature = rx_temp;
-//                 }
-//             }
-            
-//             // Automatic temperature control logic
-//             if(hottub_ctl.auto_temp) {
-//                 // Ensure Hysteresis values are safe
-//                 int low_hys = (hottub_ctl.low_hysteresis > 0) ? hottub_ctl.low_hysteresis : 1;
-//                 int high_hys = (hottub_ctl.high_hysteresis > 0) ? hottub_ctl.high_hysteresis : 1;
-
-//                 // Ensure Delay values are safe
-//                 int pre_delay = (hottub_ctl.pre_pump_delay >= 0) ? hottub_ctl.pre_pump_delay : 0;
-//                 int post_delay = (hottub_ctl.post_pump_delay >= 0) ? hottub_ctl.post_pump_delay : 0;
-
-//                 bool needs_heat = (hottub_ctl.temperature < hottub_ctl.setpoint - low_hys);
-//                 bool heat_satisfied = (hottub_ctl.temperature > hottub_ctl.setpoint + high_hys);
-
-//                 // --- HEATING LOGIC ---
-//                 if (needs_heat) {
-//                     if (hottub_ctl.heater_on) {
-//                          // Already heating, keep going.
-//                     } else {
-//                         // We need to start heating. Check if pump is running.
-//                         bool pump_is_running = (hottub_ctl.pump_state != PUMP_OFF);
-
-//                         if (pump_is_running) {
-//                              // Pump is running.
-//                              // Logic: If WE started it (auto_started_pump) and timer is ticking, we wait.
-//                              //        If USER started it (pump_running check passed but auto_started_pump might be false), 
-//                              //        OR if timer is finished, we heat immediately.
-                             
-//                              if (auto_started_pump && pre_pump_timer > 0) {
-//                                   // Wait for our pre-pump timer to finish.
-//                                   ESP_LOGD(TAG, "Waiting for pre-pump delay: %d", pre_pump_timer);
-//                              } else {
-//                                   // Ready to heat.
-//                                   // If user started pump manually, 'auto_started_pump' is false. 
-//                                   // We turn heater ON and do NOT claim 'auto_started_pump' (so we don't shut it off later).
-//                                   // If we started it, timer is 0 now.
-//                                   hottub_ctl.heater_on = true;
-//                                   ESP_LOGI(TAG, "Heater turned ON");
-//                              }
-//                         } else {
-//                              // Pump is OFF. Start sequence.
-//                              hottub_ctl.pump_state = PUMP_LOW; // Start pump
-//                              auto_started_pump = true;         // Claim ownership
-//                              pre_pump_timer = pre_delay;       // Start delay
-//                              ESP_LOGI(TAG, "Pump started for heating. Pre-delay: %d s", pre_delay);
-//                         }
-//                     }
-//                 } 
-//                 // --- COOLING / SATISFIED LOGIC ---
-//                 else if (heat_satisfied) {
-//                     if (hottub_ctl.heater_on) {
-//                         // Turn Heater OFF first
-//                         hottub_ctl.heater_on = false;
-//                         ESP_LOGI(TAG, "Heater turned OFF");
-
-//                         // If we own the pump, engage cooldown.
-//                         if (auto_started_pump) {
-//                             post_pump_timer = post_delay;
-//                             ESP_LOGI(TAG, "Starting post-heat cool down: %d s", post_delay);
-//                         } else {
-//                             // Manual mode: Leave pump running.
-//                             ESP_LOGI(TAG, "Pump left ON (User Manual Mode)");
-//                         }
-//                     }
-//                 }
-                
-//                 // --- PUMP SHUTDOWN LOGIC (runs every loop) ---
-//                 // Shut down the pump if:
-//                 // 1. Heater is OFF (safety)
-//                 // 2. WE started it (auto_started_pump)
-//                 // 3. Post-heat delay has expired (post_pump_timer == 0)
-//                 // 4. We do NOT currently need heat (prevents shutdown during pre-heat delay)
-//                 if (!hottub_ctl.heater_on && auto_started_pump && post_pump_timer == 0 && !needs_heat && pre_pump_timer == 0) {
-//                     hottub_ctl.pump_state = PUMP_OFF;
-//                     auto_started_pump = false;
-//                     ESP_LOGI(TAG, "Pump turned OFF (Cool down complete)");
-//                 }
-//                 // Else (In Deadband): Do nothing, maintain state.
-                
-//                 // --- SAFETY INTERLOCK (runs every loop) ---
-//                 // CRITICAL: Ensure pump is NEVER off when heater is on
-//                 if (hottub_ctl.heater_on && hottub_ctl.pump_state == PUMP_OFF) {
-//                     ESP_LOGE(TAG, "SAFETY VIOLATION: Heater ON with pump OFF! Forcing pump to LOW.");
-//                     hottub_ctl.pump_state = PUMP_LOW;
-//                     auto_started_pump = true; // Claim ownership for safety
-//                 }
-//             } else {
-//                 // Auto temp is disabled - clean up any auto-started equipment
-//                 if (auto_started_pump) {
-//                     // Turn off heater if it's on
-//                     if (hottub_ctl.heater_on) {
-//                         hottub_ctl.heater_on = false;
-//                         ESP_LOGI(TAG, "Heater turned OFF (auto_temp disabled)");
-//                     }
-//                     // Turn off pump if we started it
-//                     if (hottub_ctl.pump_state != PUMP_OFF) {
-//                         hottub_ctl.pump_state = PUMP_OFF;
-//                         ESP_LOGI(TAG, "Pump turned OFF (auto_temp disabled)");
-//                     }
-//                     auto_started_pump = false;
-//                     pre_pump_timer = 0;
-//                     post_pump_timer = 0;
-//                 }
-//             }
-            
-//             // Decrement timers after logic
-//             if (pre_pump_timer > 0) pre_pump_timer--;
-//             if (post_pump_timer > 0) post_pump_timer--;
-            
-//             // Update timestamp
-//             struct tm now_time;
-//             if (ntp_utils_time_get_local(&now_time) == ESP_OK) {
-//                 // Format current time into hottub_ctl.timestamp
-//                 if (strftime(hottub_ctl.timestamp, sizeof(hottub_ctl.timestamp), "%Y-%m-%d %H:%M:%S", &now_time) == 0) {
-//                     strncpy(hottub_ctl.timestamp, "Failed to format current time", sizeof(hottub_ctl.timestamp) - 1);
-//                     hottub_ctl.timestamp[sizeof(hottub_ctl.timestamp) - 1] = '\0';
-//                 }
-//             } else {
-//                 // ESP_LOGW(TAG, "Failed to get local time"); 
-//             }
-
-//             // Take a snapshot for JSON generation
-//             memcpy(&snapshot, &hottub_ctl, sizeof(hottub_ctl_t));
-
-//             xSemaphoreGive(hottub_mutex);
-//         } else {
-//             ESP_LOGE(TAG, "Failed to acquire mutex in control task");
-//             vTaskDelay(pdMS_TO_TICKS(100));
-//             continue;
-//         }
-
-//         // Create JSON string with CRC and send over UART (using the snapshot)
-//         char *json_str = hottub_ctl_to_json_string(&snapshot);
-//         if (json_str != NULL) {
-//             // If uart_ctl_send_json() expects a cJSON* object, parse the string back:
-//             cJSON *json_to_send = cJSON_Parse(json_str);
-//             if (json_to_send != NULL) {
-                
-// // ***************************************************************************
-// // ***************************************************************************
-
-
-
-
-
-
+//     float waterTemp;
+//     float airTemp;
+//     float humidity;
+//     float setpointTemp;
+//     float highHysteresis;
+//     float lowHysteresis;
+//     float pumpPreRunTime;
+//     float pumpPostRunTime;
+//     pump_state_t pumpState;
+//     time_t lastUpdateTime;
+//     sim_mode_t simulationMode;
+// } HotTubController_t;
