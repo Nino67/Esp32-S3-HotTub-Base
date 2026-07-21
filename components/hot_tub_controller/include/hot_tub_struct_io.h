@@ -1,0 +1,38 @@
+#pragma once
+
+#ifndef HOT_TUB_STRUCT_IO_H
+#define HOT_TUB_STRUCT_IO_H
+
+#include "esp_err.h"
+#include "hot_tub_controller.h"
+
+
+bool hot_tub_controller_is_heater_on(void);
+esp_err_t hot_tub_controller_set_heater_on(bool on);
+bool hot_tub_controller_is_auto_mode(void);
+esp_err_t hot_tub_controller_set_auto_mode(bool on);
+bool hot_tub_controller_is_temp_unit_celsius(void);
+esp_err_t hot_tub_controller_set_temp_unit_celsius(bool on);
+bool hot_tub_controller_is_pump_on_light(void);
+esp_err_t hot_tub_controller_set_pump_on_light(bool on);
+bool hot_tub_controller_is_heater_on_light(void);
+esp_err_t hot_tub_controller_set_heater_on_light(bool on);
+float hot_tub_controller_get_water_temp(void);
+float hot_tub_controller_get_air_temp(void);
+float hot_tub_controller_get_humidity(void);
+float hot_tub_controller_get_setpoint_temp(void);
+void hot_tub_controller_set_setpoint_temp(float temp);
+float hot_tub_controller_get_high_hysteresis(void);
+void hot_tub_controller_set_high_hysteresis(float temp);
+float hot_tub_controller_get_low_hysteresis(void);
+void hot_tub_controller_set_low_hysteresis(float temp);
+pump_state_t hot_tub_controller_pump_state_get(pump_state_t *state);
+void hot_tub_controller_set_pump(pump_state_t targetSpeed); 
+float hot_tub_controller_get_pump_pre_run_time(void);
+void hot_tub_controller_set_pump_pre_run_time(float time);
+float hot_tub_controller_get_pump_post_run_time(void);
+void hot_tub_controller_set_pump_post_run_time(float time);
+
+
+
+#endif // HOT_TUB_STRUCT_IO_H

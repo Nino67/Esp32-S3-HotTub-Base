@@ -32,6 +32,9 @@ extern void hot_tub_controller_set_pump_pre_run_time(float time);
 extern float hot_tub_controller_get_pump_post_run_time(void);
 extern void hot_tub_controller_set_pump_post_run_time(float time);
 
+extern void lock_state(void);
+extern void unlock_state(void);
+
 
 
 /**
