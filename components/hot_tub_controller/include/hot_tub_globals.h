@@ -70,22 +70,8 @@ typedef struct {
 // } hotTub_nvs_save_t;
 
 
-
-// Structure to hold the hot tub settings for NVS storage.
-typedef struct {
-    bool tempUnitCelsius;
-    float setpointTemp;
-    float highHysteresis;
-    float lowHysteresis;
-    float pumpPreRunTime;
-    float pumpPostRunTime;
-} hotTub_nvs_settings_t;
-
-
-
-
-static SemaphoreHandle_t s_mutex;
-static HotTubController_t hottub_ctl;
+extern SemaphoreHandle_t s_mutex;
+extern HotTubController_t hottub_ctl;
 void lock_state(void);
 void unlock_state(void);
 

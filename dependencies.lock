@@ -36,7 +36,7 @@ dependencies:
     source:
       path: /home/nino/Desktop/Esp32-S3-Hot-Tub/managed_components/joltwallet__littlefs
       type: local
-    version: 1.22.2
+    version: 1.22.3
 direct_dependencies:
 - espressif/cjson
 - espressif/ds18b20
@@ -44,6 +44,6 @@ direct_dependencies:
 - espressif/onewire_bus
 - idf
 - joltwallet/littlefs
-manifest_hash: 4170aee288080d5643e59eb4da186b066260c81ba8983420ac9f290563abeb17
+manifest_hash: fd6d431fc8560ae36bcc64924c5a003b9a9cc7b0fb6117d656a9de7b82d5c215
 target: esp32s3
 version: 2.0.0

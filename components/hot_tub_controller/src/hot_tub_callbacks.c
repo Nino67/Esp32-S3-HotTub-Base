@@ -3,37 +3,11 @@
 #include "esp_log.h"
 #include "esp_err.h"
 #include "hot_tub_globals.h"
+#include "hot_tub_struct_io.h"
 #include "hot_tub_controller.h"
+#include "hot_tub_callbacks.h"
 
 static const char *TAG = "hot_tub_callbacks";
-
-// Forward declaration
-extern bool hot_tub_controller_is_heater_on(void);
-extern esp_err_t hot_tub_controller_set_heater_on(bool on);
-extern bool hot_tub_controller_is_auto_mode(void);
-extern esp_err_t hot_tub_controller_set_auto_mode(bool on);
-extern bool hot_tub_controller_is_temp_unit_celsius(void);
-extern esp_err_t hot_tub_controller_set_temp_unit_celsius(bool on);
-extern float hot_tub_controller_get_water_temp(void);
-extern float hot_tub_controller_get_air_temp(void);
-extern float hot_tub_controller_get_humidity(void);
-extern float hot_tub_controller_get_setpoint_temp(void);
-extern void hot_tub_controller_set_setpoint_temp(float temp);
-extern float hot_tub_controller_get_setpoint_temp(void);
-extern void hot_tub_controller_set_setpoint_temp(float temp);
-extern float hot_tub_controller_get_high_hysteresis(void);
-extern void hot_tub_controller_set_high_hysteresis(float temp);
-extern float hot_tub_controller_get_low_hysteresis(void);
-extern void hot_tub_controller_set_low_hysteresis(float temp);
-extern pump_state_t hot_tub_controller_pump_state_get(pump_state_t *state);
-extern void hot_tub_controller_set_pump(pump_state_t targetSpeed); 
-extern float hot_tub_controller_get_pump_pre_run_time(void);
-extern void hot_tub_controller_set_pump_pre_run_time(float time);
-extern float hot_tub_controller_get_pump_post_run_time(void);
-extern void hot_tub_controller_set_pump_post_run_time(float time);
-
-extern void lock_state(void);
-extern void unlock_state(void);
 
 
 
@@ -96,7 +70,7 @@ void hottub_callback_response(cJSON *root, cJSON *response) {
  void hottub_status_get_callback(cJSON *root) {
     HotTubController_t snapshot;
     cJSON *response = cJSON_CreateObject();    
-    if (hot_tub_controller_snapshot(&snapshot) != ESP_OK) {
+    if (hot_tub_controller_snapshot_get(&snapshot) != ESP_OK) {
         ESP_LOGE(TAG, "Failed to snapshot hot tub controller state");
         cJSON_Delete(response);
         return;

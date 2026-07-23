@@ -6,7 +6,8 @@
 #include "esp_err.h"
 #include "hot_tub_controller.h"
 
-
+esp_err_t hot_tub_controller_snapshot_get(HotTubController_t *);
+esp_err_t hot_tub_controller_snapshot_set(const HotTubController_t *state);
 bool hot_tub_controller_is_heater_on(void);
 esp_err_t hot_tub_controller_set_heater_on(bool on);
 bool hot_tub_controller_is_auto_mode(void);

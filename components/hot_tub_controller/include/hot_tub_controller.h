@@ -59,7 +59,7 @@
 void hot_tub_controller_task(void *arg);
 esp_err_t hot_tub_controller_init(void);
 esp_err_t ntp_time_sync_init(void);
-esp_err_t hot_tub_controller_snapshot(HotTubController_t *);
+// esp_err_t hot_tub_controller_snapshot_get(HotTubController_t *);
 esp_err_t hot_tub_controller_to_json(cJSON *json, const HotTubController_t *state);
 esp_err_t hot_tub_controller_publish_status(void);
 esp_err_t hot_tub_controller_settings_save_to_nvs(void);

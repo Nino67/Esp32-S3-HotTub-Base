@@ -18,7 +18,6 @@
 // #include "esp_timer.h"
 // #include "driver/temperature_sensor.h"
 #include "cJSON.h"
-#
 #include "json_service.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
@@ -28,7 +27,42 @@
 // #include "hot_tub_callbacks.h"
 // #include "hot_tub_controller.h"
 
-static const char *TAG = "hot_tub_struct_io";
+SemaphoreHandle_t s_mutex = NULL;
+HotTubController_t hottub_ctl = {0};
+
+
+/**
+ * @brief Take a snapshot of the current hot tub controller state.
+ *
+ * @param state Pointer to a HotTubController_t structure to store the snapshot.
+ * @return ESP_OK on success, or an error code on failure.
+ */
+esp_err_t hot_tub_controller_snapshot_get(HotTubController_t *state)
+{
+    if (!state) {return ESP_ERR_INVALID_ARG;}
+    
+    lock_state();
+    *state = hottub_ctl;
+    unlock_state();
+    
+    return ESP_OK;
+} // end of hot_tub_controller_snapshot_get()
+//-----------------------------------------------------------------------------
+
+
+esp_err_t hot_tub_controller_snapshot_set(const HotTubController_t *state)
+{
+    if (!state) {return ESP_ERR_INVALID_ARG;}
+    
+    lock_state();
+    hottub_ctl = *state;
+    unlock_state();
+    
+    return ESP_OK;
+} // end of hot_tub_controller_snapshot_set()
+
+
+
 
 
 /**
@@ -386,9 +420,9 @@ float hot_tub_controller_get_pump_pre_run_time(void)
 //-----------------------------------------------------------------------------
 
 /**
- * @brief Get the current pump post-run time.
+ * @brief Set the current pump pre-run time.
  *
- * @return The current pump post-run time in seconds.
+ * @param time The new pump pre-run time in seconds.
  */
 void hot_tub_controller_set_pump_pre_run_time(float time)
 {
@@ -398,13 +432,10 @@ void hot_tub_controller_set_pump_pre_run_time(float time)
 }
 //-----------------------------------------------------------------------------
 
-
-
-
 /**
- * @brief Set the current pump post-run time.
+ * @brief Get the current pump post-run time.
  *
- * @param time The new pump post-run time in seconds.
+ * @return The current pump post-run time in seconds.
  */
 float hot_tub_controller_get_pump_post_run_time(void)
 {
