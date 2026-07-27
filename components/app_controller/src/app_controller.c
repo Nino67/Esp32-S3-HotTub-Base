@@ -6,7 +6,6 @@
 
 #include "ble_service.h"
 #include "app_watchdog.h"
-// #include "hot_tub_device_state.h"
 #include "ota_manager.h"
 #include "nvs_storage.h"
 #include "web_server.h"
@@ -44,8 +43,7 @@ esp_err_t app_start(void)
 
     ESP_RETURN_ON_ERROR(nvs_storage_init(), TAG, "storage init failed");
     ESP_RETURN_ON_ERROR(app_watchdog_feed_current_task(), TAG, "watchdog feed failed after storage init");
-    // ESP_RETURN_ON_ERROR(hot_tub_device_state_init(), TAG, "device state init failed");
-    // ESP_RETURN_ON_ERROR(app_watchdog_feed_current_task(), TAG, "watchdog feed failed after device state init");
+
     ESP_RETURN_ON_ERROR(ota_manager_note_boot(), TAG, "ota boot check failed");
     ESP_RETURN_ON_ERROR(app_watchdog_feed_current_task(), TAG, "watchdog feed failed after ota boot check");
 
@@ -58,12 +56,16 @@ esp_err_t app_start(void)
 
     ESP_RETURN_ON_ERROR(wifi_manager_start(&credentials), TAG, "wifi start failed");
     ESP_RETURN_ON_ERROR(app_watchdog_feed_current_task(), TAG, "watchdog feed failed after wifi start");
+
     ESP_RETURN_ON_ERROR(web_server_start(), TAG, "web server start failed");
     ESP_RETURN_ON_ERROR(app_watchdog_feed_current_task(), TAG, "watchdog feed failed after web server start");
+
     ESP_RETURN_ON_ERROR(ble_service_init(), TAG, "ble start failed");
     ESP_RETURN_ON_ERROR(app_watchdog_feed_current_task(), TAG, "watchdog feed failed after ble init");
+
     ESP_RETURN_ON_ERROR(ota_manager_mark_app_ready(), TAG, "ota validation failed");
     ESP_RETURN_ON_ERROR(app_watchdog_feed_current_task(), TAG, "watchdog feed failed after app ready");
+
     ESP_RETURN_ON_ERROR(rgb_led_heartbeat(), TAG, "rgb led heartbeat start failed");
     ESP_RETURN_ON_ERROR(app_watchdog_feed_current_task(), TAG, "watchdog feed failed after rgb heartbeat start");
 
@@ -71,7 +73,7 @@ esp_err_t app_start(void)
 
     ESP_RETURN_ON_ERROR(hot_tub_controller_init(), TAG, "hot tub controller init failed");
     
-    ESP_RETURN_ON_ERROR(hot_tub_controller_publish_status(), TAG, "hot tub controller publish status failed");
+    // ESP_RETURN_ON_ERROR(hot_tub_controller_publish_status(), TAG, "hot tub controller publish status failed");
     
 
     return ESP_OK;

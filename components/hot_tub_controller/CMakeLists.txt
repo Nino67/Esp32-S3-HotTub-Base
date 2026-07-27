@@ -8,6 +8,7 @@ idf_component_register(SRCS "src/hot_tub_controller.c"
                                 esp_timer
                                 esp_system
                                 nvs_flash
+                                ntp_time_sync
                                 espressif__cjson
                                 json_service)
 

@@ -194,3 +194,5 @@ void hot_tub_device_state_set_id(int id)
     s_state.id = id;
     unlock_state();
 }
+
+ 

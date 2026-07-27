@@ -228,6 +228,24 @@ void hottub_water_temperature_get_callback(cJSON *root) {
 //-----------------------------------------------------------------------------
 
 
+void hottub_water_temperature_set_callback(cJSON *root) {
+    param_tupple_t param;
+
+    if (parse_json_param(root, &param.key_name, &param.key_value) != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to parse JSON params");
+        return;
+    }
+    cJSON *water_temp_item = param.key_value;
+    float water_temp = (float)water_temp_item->valuedouble;
+    hot_tub_controller_set_water_temp(water_temp);
+
+    cJSON *response = cJSON_CreateObject();
+    cJSON_AddNumberToObject(response, "water.temperature.set", water_temp);
+    hottub_callback_response(root, response);
+} // End of hottub_water_temperature_set_callback
+//----------------------------------------------------------------------------- 
+
+
 /**
  * @brief Callback function to handle the "hottub.air.temperature.get" command received via JSON service.
  *
@@ -241,7 +259,25 @@ void hottub_air_temperature_get_callback(cJSON *root) {
     cJSON_AddNumberToObject(response, "air.temperature.get", air_temp);
     hottub_callback_response(root, response);
 } // End of hottub_air_temperature_get_callback
-//-----------------------------------------------------------------------------
+//----------------------------------------------------------------------------- 
+
+
+void hottub_air_temperature_set_callback(cJSON *root) {
+    param_tupple_t param;
+
+    if (parse_json_param(root, &param.key_name, &param.key_value) != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to parse JSON params");
+        return;
+    }
+    cJSON *air_temp_item = param.key_value;
+    float air_temp = (float)air_temp_item->valuedouble;
+    hot_tub_controller_set_air_temp(air_temp);
+
+    cJSON *response = cJSON_CreateObject();
+    cJSON_AddNumberToObject(response, "air.temperature.set", air_temp);
+    hottub_callback_response(root, response);
+} // End of hottub_air_temperature_set_callback
+//----------------------------------------------------------------------------- 
 
 
 /**
@@ -257,7 +293,24 @@ void hottub_humidity_get_callback(cJSON *root) {
     cJSON_AddNumberToObject(response, "humidity.get", humidity);
     hottub_callback_response(root, response);
 } // End of hottub_humidity_get_callback
-//-----------------------------------------------------------------------------
+//----------------------------------------------------------------------------- 
+
+
+void hottub_humidity_set_callback(cJSON *root) {
+    param_tupple_t param;
+
+    if (parse_json_param(root, &param.key_name, &param.key_value) != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to parse JSON params");
+        return;
+    }
+    cJSON *humidity_item = param.key_value;
+    float humidity = (float)humidity_item->valuedouble;
+    hot_tub_controller_set_humidity(humidity);
+
+    cJSON *response = cJSON_CreateObject();
+    cJSON_AddNumberToObject(response, "humidity.set", humidity);
+    hottub_callback_response(root, response);
+} // End of hottub_humidity_set_callback
 
 
 /**

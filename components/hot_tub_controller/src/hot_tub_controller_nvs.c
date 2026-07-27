@@ -13,25 +13,6 @@ static const char *TAG = "hot_tub_controller_nvs";
 static const char *NVS_HOTTUB_SETTINGS_NAMESPACE = "hottub_settings";
 
 
-
-
-
-// /**
-//  * @brief Structure to hold the hot tub settings for NVS storage.
-//  */
-// typedef struct {
-//     bool tempUnitCelsius;
-//     float setpointTemp;
-//     float highHysteresis;
-//     float lowHysteresis;
-//     float pumpPreRunTime;
-//     float pumpPostRunTime;
-// } hotTub_nvs_settings_t;
-
-
-
-
-
 /**
  * @brief Save the current hot tub settings to NVS.
  *

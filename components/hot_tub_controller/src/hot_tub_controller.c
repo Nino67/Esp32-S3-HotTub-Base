@@ -18,6 +18,7 @@
 #include "driver/gpio.h"
 
 #include "nvs_flash.h"
+#include "ntp_time_sync.h"
 #include "hot_tub_globals.h"
 #include "hot_tub_callbacks.h"
 #include "hot_tub_controller.h"
@@ -37,11 +38,25 @@ static const char *TAG = "hot_tub_controller";
 #define PUMP_DEAD_TIME_MS 2000
 
 #define DEFAULT_HOTTUB_TIMING_LOOP_DELAY_MS 1000
-#define DEFAULT_SETPOINT_TEMP 37.0
-#define DEFAULT_HIGH_HYSTERESIS 2.0
-#define DEFAULT_LOW_HYSTERESIS 2.0
-#define DEFAULT_PUMP_PRE_RUN_TIME 4.0
-#define DEFAULT_PUMP_POST_RUN_TIME 5.0
+
+#define DEFAULT_SETPOINT_TEMP 36.0
+#define DEFAULT_SETPOINT_TEMP_MIN 20.0
+#define DEFAULT_SETPOINT_TEMP_MAX 40.0
+
+#define DEFAULT_HIGH_HYSTERESIS 1.0
+#define DEFAULT_HIGH_HYSTERESIS_MIN 0.1
+#define DEFAULT_HIGH_HYSTERESIS_MAX 5.0
+#define DEFAULT_LOW_HYSTERESIS 1.0
+#define DEFAULT_LOW_HYSTERESIS_MIN 0.1
+#define DEFAULT_LOW_HYSTERESIS_MAX 5.0
+
+#define DEFAULT_PUMP_PRE_RUN_TIME 2.0
+#define DEFAULT_PUMP_PRE_RUN_TIME_MIN 1.0
+#define DEFAULT_PUMP_PRE_RUN_TIME_MAX 20.0
+#define DEFAULT_PUMP_POST_RUN_TIME 2.0
+#define DEFAULT_PUMP_POST_RUN_TIME_MIN 1.0
+#define DEFAULT_PUMP_POST_RUN_TIME_MAX 20.0
+
 #define DEFAULT_TEMP_UNIT_CELSIUS true
 
 
@@ -50,13 +65,363 @@ esp_err_t hot_tub_controller_init(void);
 extern bool json_service_register_command(const char *, json_cmd_callback_t, uint8_t );
 
 esp_err_t hot_tub_controller_gpio_set_level(gpio_num_t gpio_num, bool level);
-// esp_err_t hot_tub_controller_settings_load_from_nvs(void);
-// esp_err_t hot_tub_controller_settings_save_to_nvs(void);
 esp_err_t hot_tub_controller_publish_status(void);
 esp_err_t hot_tub_controller_to_json(cJSON *json, const HotTubController_t *state);
 
 esp_err_t hot_tub_controller_settings_save_to_nvs(void);
 esp_err_t hot_tub_controller_settings_load_from_nvs(void);
+
+
+esp_err_t hot_tub_controller_snapshot_get(HotTubController_t *);
+bool hot_tub_controller_is_heater_on(void);
+void hot_tub_controller_set_low_hysteresis(float low_hysteresis);
+void hot_tub_controller_set_high_hysteresis(float high_hysteresis);
+void hot_tub_controller_set_pump_pre_run_time(float pre_run_time);
+void hot_tub_controller_set_pump_post_run_time(float post_run_time);
+
+esp_err_t hot_tub_controller_verify_hysteresis(HotTubController_t *state);
+esp_err_t hot_tub_controller_verify_pump_delay_times(HotTubController_t *state);
+
+esp_err_t hot_tub_controller_load_saved_settings(void);
+
+static float hottub_controller_temperature_filter(float new_temp, float prev_temp, float alpha);
+
+esp_err_t ntp_utils_time_get_local(struct tm *out_time);
+
+
+
+/**
+ * @brief Load saved hot tub settings from NVS or set defaults if not found.
+ *
+ * This function checks if the NVS is initialized and attempts to load the saved settings
+ * for the hot tub controller. If no settings are found, it sets default values and saves them to NVS.
+ *
+ * @return ESP_OK on success, or an error code on failure.
+ */
+esp_err_t hot_tub_controller_load_saved_settings(void) {
+    // check if NVS is initialized
+    if (nvs_flash_init() != ESP_OK) {
+        ESP_LOGW(TAG, "NVS not initialized, initializing now...");
+        if (nvs_flash_init() != ESP_OK) {
+            ESP_LOGE(TAG, "Failed to initialize NVS");
+            return ESP_FAIL;
+        }
+    }
+
+    // Load settings from NVS, if not found, save default values
+    esp_err_t err = hot_tub_controller_settings_load_from_nvs();
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "No settings found in NVS, saving defaults...");
+        // // Set default values
+        hot_tub_controller_set_setpoint_temp(DEFAULT_SETPOINT_TEMP);
+        hot_tub_controller_set_high_hysteresis(DEFAULT_HIGH_HYSTERESIS);
+        hot_tub_controller_set_low_hysteresis(DEFAULT_LOW_HYSTERESIS);
+        hot_tub_controller_set_pump_pre_run_time(DEFAULT_PUMP_PRE_RUN_TIME);
+        hot_tub_controller_set_pump_post_run_time(DEFAULT_PUMP_POST_RUN_TIME);
+        hot_tub_controller_set_temp_unit_celsius(DEFAULT_TEMP_UNIT_CELSIUS);
+
+        if (hot_tub_controller_settings_save_to_nvs() != ESP_OK) {
+            ESP_LOGE(TAG, "Failed to save default settings to NVS");
+            return ESP_FAIL;
+        }
+    }
+    return ESP_OK;
+} // end of hot_tub_controller_load_saved_settings()
+//-----------------------------------------------------------------------------
+
+
+/**
+ * @brief Verify that the hysteresis values in the hot tub controller state are within safe limits.
+ *
+ * @param state Pointer to the HotTubController_t structure containing the current state.
+ * @return ESP_OK if the hysteresis values are valid, or an error code if they are not.
+ */
+esp_err_t hot_tub_controller_verify_hysteresis(HotTubController_t *state) {
+    
+    if (!state) {
+        ESP_LOGE(TAG, "Invalid argument: state is NULL");
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    if (state->lowHysteresis < DEFAULT_LOW_HYSTERESIS_MIN || state->lowHysteresis > DEFAULT_LOW_HYSTERESIS_MAX) {
+        ESP_LOGW(TAG, "Low hysteresis value %.2f is out of range [%.2f, %.2f], using default %.2f.", state->lowHysteresis, DEFAULT_LOW_HYSTERESIS_MIN, DEFAULT_LOW_HYSTERESIS_MAX, DEFAULT_LOW_HYSTERESIS);
+        state->lowHysteresis = DEFAULT_LOW_HYSTERESIS;
+    }
+
+    if (state->highHysteresis < DEFAULT_HIGH_HYSTERESIS_MIN || state->highHysteresis > DEFAULT_HIGH_HYSTERESIS_MAX) {
+        ESP_LOGW(TAG, "High hysteresis value %.2f is out of range [%.2f, %.2f], using default %.2f.", state->highHysteresis, DEFAULT_HIGH_HYSTERESIS_MIN, DEFAULT_HIGH_HYSTERESIS_MAX, DEFAULT_HIGH_HYSTERESIS);
+        state->highHysteresis = DEFAULT_HIGH_HYSTERESIS;
+    }
+
+    return ESP_OK;
+} // end of hot_tub_controller_verify_hysteresis()
+//-----------------------------------------------------------------------------
+
+
+/**
+ * @brief Verify that the pump pre-run and post-run times in the hot tub controller state are within safe limits.
+ *
+ * @param state Pointer to the HotTubController_t structure containing the current state.
+ * @return ESP_OK if the pump delay times are valid, or an error code if they are not.
+ */
+esp_err_t hot_tub_controller_verify_pump_delay_times(HotTubController_t *state) {
+    
+    if (!state) {
+        ESP_LOGE(TAG, "Invalid argument: state is NULL");
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    if (state->pumpPreRunTime < DEFAULT_PUMP_PRE_RUN_TIME_MIN || state->pumpPreRunTime > DEFAULT_PUMP_PRE_RUN_TIME_MAX) {
+        ESP_LOGW(TAG, "Pump pre-run time %.2f is out of range [%.2f, %.2f], using default %.2f.", state->pumpPreRunTime, DEFAULT_PUMP_PRE_RUN_TIME_MIN, DEFAULT_PUMP_PRE_RUN_TIME_MAX, DEFAULT_PUMP_PRE_RUN_TIME);
+        state->pumpPreRunTime = DEFAULT_PUMP_PRE_RUN_TIME;
+    }
+
+    if (state->pumpPostRunTime < DEFAULT_PUMP_POST_RUN_TIME_MIN || state->pumpPostRunTime > DEFAULT_PUMP_POST_RUN_TIME_MAX) {
+        ESP_LOGW(TAG, "Pump post-run time %.2f is out of range [%.2f, %.2f], using default %.2f.", state->pumpPostRunTime, DEFAULT_PUMP_POST_RUN_TIME_MIN, DEFAULT_PUMP_POST_RUN_TIME_MAX, DEFAULT_PUMP_POST_RUN_TIME);
+        state->pumpPostRunTime = DEFAULT_PUMP_POST_RUN_TIME;
+    }
+
+    return ESP_OK;
+} // end of hot_tub_controller_verify_pump_delay_times()
+//-----------------------------------------------------------------------------
+
+/**
+ * @brief Apply a simple low-pass filter to the temperature readings.
+ *
+ * This function smooths out the temperature readings by applying an exponential moving average filter.
+ *
+ * @param new_temp The new temperature reading.
+ * @param prev_temp The previous filtered temperature value.
+ * @param alpha The smoothing factor (0 < alpha < 1). A higher alpha gives more weight to the new reading.
+ * @return The filtered temperature value.
+ */
+static float hottub_controller_temperature_filter(float new_temp, float prev_temp, float alpha) 
+{
+    return alpha * new_temp + (1.0f - alpha) * prev_temp;
+} // end of hottub_controller_temperature_filter()
+
+
+
+
+
+
+
+/**
+ * @brief Main loop for the hot tub controller task.
+ *
+ * This function runs in a FreeRTOS task and continuously monitors the hot tub's state,
+ * controlling the heater and pump based on the current temperature, setpoint, and hysteresis values.
+ *
+ * @param arg Pointer to any arguments passed to the task (not used).
+ * @return ESP_OK on successful execution, or an error code on failure.
+ */
+esp_err_t hot_tub_controller_main_loop(void *arg)
+{
+    HotTubController_t snapshot;
+
+    // Track ownership: Did the auto-controller start the pump for heating?
+    static bool auto_started_pump = false;
+
+    // Timers for pump delays (in seconds)
+    static int pre_pump_timer = 0;
+    static int post_pump_timer = 0;
+     
+    esp_err_t err = ESP_OK;
+
+    while (1) 
+    {
+        // Clear the snapshot structure
+        memset(&snapshot, 0, sizeof(snapshot));
+
+        // Take a snapshot of the current state
+        err = hot_tub_controller_snapshot_get(&snapshot);
+        if (err != ESP_OK) {
+            err = hot_tub_controller_settings_load_from_nvs();
+            if (err != ESP_OK) {
+                ESP_LOGE(TAG, "Failed to reload settings from NVS.");
+            }
+         }   
+
+        // get the current water temperature
+        // hot_tub_controller_set_water_temp(_water_temp_sensor_read());    
+
+        // Apply a simple low-pass filter to the water temperature reading
+        // float water_temp = hottub_controller_temperature_filter(_water_temp_sensor_read(), snapshot.waterTemp, 0.1f);
+
+        
+        // --- AUTO TEMPERATURE CONTROL LOGIC ---
+        if(snapshot.autoMode) 
+        {
+
+            // Verify hysteresis values are within safe limits
+            err = hot_tub_controller_verify_hysteresis(&snapshot);
+            if (err != ESP_OK) {
+                ESP_LOGE(TAG, "Failed to verify hysteresis: %s", esp_err_to_name(err));
+            }
+                    
+            // Verify pump delay times are within safe limits
+            err = hot_tub_controller_verify_pump_delay_times(&snapshot);
+            if (err != ESP_OK) {
+                ESP_LOGE(TAG, "Failed to verify pump delay times: %s", esp_err_to_name(err));
+            }
+
+            bool needs_heat = (snapshot.waterTemp < snapshot.setpointTemp - snapshot.lowHysteresis);
+            bool heat_satisfied = (snapshot.waterTemp > snapshot.setpointTemp + snapshot.highHysteresis);
+
+            // --- HEATING LOGIC ---
+            if (needs_heat) 
+            {
+                if (snapshot.heaterOn) 
+                {
+                    // Already heating, keep going.
+                } 
+                else  
+                {
+                    // We need to start heating. Check if pump is running.
+                    if (snapshot.pumpState != PUMP_OFF) 
+                    {
+                        // Pump is running.
+                        // Logic: If WE started it (auto_started_pump) and timer is ticking, we wait.
+                        //        If USER started it (pump_running check passed but auto_started_pump might be false), 
+                        //        OR if timer is finished, we heat immediately.
+                        if (auto_started_pump && pre_pump_timer > 0) 
+                        {
+                            // Wait for our pre-pump timer to finish.
+                            ESP_LOGI(TAG, "Waiting for pre-pump delay: %d", pre_pump_timer);
+                        } 
+                        else 
+                        {
+                            // Ready to heat.
+                            // If user started pump manually, 'auto_started_pump' is false. 
+                            // We turn heater ON and do NOT claim 'auto_started_pump' (so we don't shut it off later).
+                            // If we started it, timer is 0 now.
+                            snapshot.heaterOn = true;
+                            ESP_LOGI(TAG, "Heater turned ON");
+                        } // End of if (auto_started_pump && pre_pump_timer > 0)
+
+                    } 
+                    else // Pump is OFF. We need to start it first. 
+                    {
+                        // Pump is OFF. Start sequence.
+                        snapshot.pumpState = PUMP_LOW; // Start pump
+                        auto_started_pump = true;      // Claim ownership
+                        pre_pump_timer = snapshot.pumpPreRunTime;    // Start delay
+                        ESP_LOGI(TAG, "Pump started for heating. Pre-delay: %d s", pre_pump_timer);
+                    } // End of if (snapshot.heaterOn)
+                } // End of if (snapshot.pumpState != PUMP_OFF)
+            } // End of if(needs_heat)
+            //---------------------------------------------------------------------
+            // --- COOLING / SATISFIED LOGIC ---
+            else if (heat_satisfied) 
+            {
+                if (snapshot.heaterOn) 
+                {
+                    // Turn Heater OFF first
+                    snapshot.heaterOn = false;
+                    ESP_LOGI(TAG, "Heater turned OFF");
+
+                    // If we own the pump, engage cooldown.
+                    if (auto_started_pump) 
+                    {
+                        post_pump_timer = snapshot.pumpPostRunTime;
+                        ESP_LOGI(TAG, "Starting post-heat cool down: %d s", snapshot.pumpPostRunTime);
+                    } 
+                    else 
+                    {
+                        // Manual mode: Leave pump running.
+                        ESP_LOGI(TAG, "Pump left ON (User Manual Mode)");
+                    }
+                }
+            } // End of else if(heat_satisfied) 
+            //---------------------------------------------------------------------
+            // --- PUMP SHUTDOWN LOGIC (runs every loop) ---
+            // Shut down the pump if:
+            // 1. Heater is OFF (safety)
+            // 2. WE started it (auto_started_pump)
+            // 3. Post-heat delay has expired (post_pump_timer == 0)
+            // 4. We do NOT currently need heat (prevents shutdown during pre-heat delay)
+            if (!snapshot.heaterOn && auto_started_pump && post_pump_timer == 0 && !needs_heat && pre_pump_timer == 0) 
+            {
+                snapshot.pumpState = PUMP_OFF;
+                auto_started_pump = false;
+                ESP_LOGI(TAG, "Pump turned OFF (Cool down complete)");
+            }
+            // Else (In Deadband): Do nothing, maintain state.
+            
+            // --- SAFETY INTERLOCK (runs every loop) ---
+            // CRITICAL: Ensure pump is NEVER off when heater is on
+            if (snapshot.heaterOn && snapshot.pumpState == PUMP_OFF) 
+            {
+                ESP_LOGE(TAG, "SAFETY VIOLATION: Heater ON with pump OFF! Forcing pump to LOW.");
+                snapshot.pumpState = PUMP_LOW;
+                auto_started_pump = true; // Claim ownership for safety
+            }
+        } 
+        else // Else of if(snapshot.autoMode) 
+        {
+            // Auto temp is disabled - clean up any auto-started equipment
+            if (auto_started_pump) 
+            {
+                // Turn off heater if it's on
+                if (snapshot.heaterOn) 
+                {
+                    snapshot.heaterOn = false;
+                    ESP_LOGI(TAG, "Heater turned OFF (auto_temp disabled)");
+                }
+                // Turn off pump if we started it
+                if (snapshot.pumpState != PUMP_OFF) 
+                {
+                    snapshot.pumpState = PUMP_OFF;
+                    ESP_LOGI(TAG, "Pump turned OFF (auto_temp disabled)");
+                }
+                auto_started_pump = false;
+                pre_pump_timer = 0;
+                post_pump_timer = 0;
+
+            } // End of if(auto_started_pump)
+        } // End of else (autoMode disabled)
+        
+        // Decrement timers after logic
+        if (pre_pump_timer > 0) pre_pump_timer--;
+        if (post_pump_timer > 0) post_pump_timer--;
+        
+        // if (ntp_utils_time_get_local(&now_tm) == ESP_OK) {
+
+        // Update timestamp
+        struct tm now_time;
+        if (ntp_utils_time_get_local(&now_time) == ESP_OK) 
+        {
+            // Convert struct tm to time_t
+            time_t now_epoch = mktime(&now_time);
+            snapshot.lastUpdateTime = now_epoch;
+        } 
+        else 
+        {
+            ESP_LOGW(TAG, "Failed to get local time"); 
+            snapshot.lastUpdateTime = time(NULL); // Fallback to system time
+        }
+
+        // Save the updated snapshot back to the controller state
+        err = hot_tub_controller_snapshot_set(&snapshot);
+        if (err != ESP_OK) {
+            ESP_LOGE(TAG, "Failed to save hot tub controller snapshot: %s", esp_err_to_name(err));
+        }
+
+        // Call to update the GPIOs based on the new state
+        err = hot_tub_controller_gpio_update(&snapshot);
+        if (err != ESP_OK) {
+            ESP_LOGE(TAG, "Failed to update GPIOs: %s", esp_err_to_name(err));
+        }   
+
+        vTaskDelay(pdMS_TO_TICKS(DEFAULT_HOTTUB_TIMING_LOOP_DELAY_MS));
+    
+    } // End of while(1) loop 
+
+    return ESP_OK;
+} // end of hot_tub_controller_main_loop()
+//-----------------------------------------------------------------------------
+
+
 
 
 
@@ -74,90 +439,22 @@ esp_err_t hot_tub_controller_init(void)
 {
     esp_err_t err;
 
+    // Create a mutex for thread-safe access to the hot tub controller state
     if (!s_mutex) 
     {
         s_mutex = xSemaphoreCreateMutex();
         if (!s_mutex) { return ESP_ERR_NO_MEM; }
     }
 
+    // Initialize the hottub_ctl structure to zero values
     lock_state();
     memset(&hottub_ctl, 0, sizeof(hottub_ctl));
     unlock_state();
-
-
-    // Log the whole current HotTubController_t hottub_ctl settings
-    ESP_LOGE(TAG, "After memset() HotTubController_t settings:");
-    ESP_LOGI(TAG, "heaterOn: %d", hottub_ctl.heaterOn);
-    ESP_LOGI(TAG, "autoMode: %d", hottub_ctl.autoMode);
-    ESP_LOGI(TAG, "tempUnitCelsius: %d", hottub_ctl.tempUnitCelsius);
-    ESP_LOGI(TAG, "pumpOnLight: %d", hottub_ctl.pumpOnLight);
-    ESP_LOGI(TAG, "heaterOnLight: %d", hottub_ctl.heaterOnLight);
-    ESP_LOGI(TAG, "waterTemp: %.2f", hottub_ctl.waterTemp);
-    ESP_LOGI(TAG, "airTemp: %.2f", hottub_ctl.airTemp);
-    ESP_LOGI(TAG, "humidity: %.2f", hottub_ctl.humidity);
-    ESP_LOGI(TAG, "setpointTemp: %.2f", hottub_ctl.setpointTemp);
-    ESP_LOGI(TAG, "highHysteresis: %.2f", hottub_ctl.highHysteresis);
-    ESP_LOGI(TAG, "lowHysteresis: %.2f", hottub_ctl.lowHysteresis);
-    ESP_LOGI(TAG, "pumpPreRunTime: %.2f", hottub_ctl.pumpPreRunTime);
-    ESP_LOGI(TAG, "pumpPostRunTime: %.2f", hottub_ctl.pumpPostRunTime);
-    ESP_LOGI(TAG, "pumpState: %d", hottub_ctl.pumpState);
-    ESP_LOGI(TAG, "lastUpdateTime: %ld", hottub_ctl.lastUpdateTime);
-    ESP_LOGI(TAG, "simulationMode: %d", hottub_ctl.simulationMode);   
-
-    hot_tub_controller_settings_save_to_nvs();
-    
-    // check if NVS is initialized
-    if (nvs_flash_init() != ESP_OK) {
-        ESP_LOGW(TAG, "NVS not initialized, initializing now...");
-        if (nvs_flash_init() != ESP_OK) {
-            ESP_LOGE(TAG, "Failed to initialize NVS");
-            return ESP_FAIL;
-        }
-    }
-
-    err = hot_tub_controller_settings_load_from_nvs();
+   
+    err = hot_tub_controller_load_saved_settings();
     if (err != ESP_OK) {
-        ESP_LOGW(TAG, "No settings found in NVS, saving defaults...");
-        // // Set default values
-        // hot_tub_controller_set_setpoint_temp(DEFAULT_SETPOINT_TEMP);
-        // hot_tub_controller_set_high_hysteresis(DEFAULT_HIGH_HYSTERESIS);
-        // hot_tub_controller_set_low_hysteresis(DEFAULT_LOW_HYSTERESIS);
-        // hot_tub_controller_set_pump_pre_run_time(DEFAULT_PUMP_PRE_RUN_TIME);
-        // hot_tub_controller_set_pump_post_run_time(DEFAULT_PUMP_POST_RUN_TIME);
-        // hot_tub_controller_set_temp_unit_celsius(DEFAULT_TEMP_UNIT_CELSIUS);
-
-        if (hot_tub_controller_settings_save_to_nvs() != ESP_OK) {
-            ESP_LOGE(TAG, "Failed to save default settings to NVS");
-            return ESP_FAIL;
-        }
+        ESP_LOGE(TAG, "Failed to load saved settings: %s", esp_err_to_name(err));
     }
-
-    // display current settings
-    HotTubController_t snapshot;
-    if (hot_tub_controller_snapshot_get(&snapshot) != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to take snapshot of current state");
-        return ESP_FAIL;
-    }   
-    
-    // Log the whole current HotTubController_t hottub_ctl settings
-    ESP_LOGE(TAG, "Current after nvs read HotTubController_t settings:");
-    ESP_LOGI(TAG, "heaterOn: %d", hottub_ctl.heaterOn);
-    ESP_LOGI(TAG, "autoMode: %d", hottub_ctl.autoMode);
-    ESP_LOGI(TAG, "tempUnitCelsius: %d", hottub_ctl.tempUnitCelsius);
-    ESP_LOGI(TAG, "pumpOnLight: %d", hottub_ctl.pumpOnLight);
-    ESP_LOGI(TAG, "heaterOnLight: %d", hottub_ctl.heaterOnLight);
-    ESP_LOGI(TAG, "waterTemp: %.2f", hottub_ctl.waterTemp);
-    ESP_LOGI(TAG, "airTemp: %.2f", hottub_ctl.airTemp);
-    ESP_LOGI(TAG, "humidity: %.2f", hottub_ctl.humidity);
-    ESP_LOGI(TAG, "setpointTemp: %.2f", hottub_ctl.setpointTemp);
-    ESP_LOGI(TAG, "highHysteresis: %.2f", hottub_ctl.highHysteresis);
-    ESP_LOGI(TAG, "lowHysteresis: %.2f", hottub_ctl.lowHysteresis);
-    ESP_LOGI(TAG, "pumpPreRunTime: %.2f", hottub_ctl.pumpPreRunTime);
-    ESP_LOGI(TAG, "pumpPostRunTime: %.2f", hottub_ctl.pumpPostRunTime);
-    ESP_LOGI(TAG, "pumpState: %d", hottub_ctl.pumpState);
-    ESP_LOGI(TAG, "lastUpdateTime: %ld", hottub_ctl.lastUpdateTime);
-    ESP_LOGI(TAG, "simulationMode: %d", hottub_ctl.simulationMode);   
-
 
     // Register the JSON service callbacks
     err = hot_tub_controller_register_callbacks();
@@ -170,7 +467,6 @@ esp_err_t hot_tub_controller_init(void)
 
 } // end of hot_tub_controller_init()
 //-----------------------------------------------------------------------------
-
 
 
 /**
@@ -214,6 +510,26 @@ esp_err_t hot_tub_controller_register_callbacks()
         return ESP_FAIL;
     }
 
+    if(!json_service_register_command("hottub.water.temperature.set", hottub_water_temperature_set_callback, CORE_0)) {
+        return ESP_FAIL;
+    }
+
+    if (!json_service_register_command("hottub.air.temperature.get", hottub_air_temperature_get_callback, CORE_0)) {
+        return ESP_FAIL;
+    }
+
+    if (!json_service_register_command("hottub.air.temperature.set", hottub_air_temperature_set_callback, CORE_0)) {
+        return ESP_FAIL;
+    }
+
+    if (!json_service_register_command("hottub.humidity.get", hottub_humidity_get_callback, CORE_0)) {
+        return ESP_FAIL;
+    }
+
+    if (!json_service_register_command("hottub.humidity.set", hottub_humidity_set_callback, CORE_0)) {
+        return ESP_FAIL;
+    }
+    
     if (!json_service_register_command("hottub.setpoint.temperature.get", hottub_setpoint_temperature_get_callback, CORE_0)) {
         return ESP_FAIL;
     }
@@ -264,25 +580,6 @@ esp_err_t hot_tub_controller_register_callbacks()
     return ESP_OK;
 } // end of hot_tub_controller_register_callbacks()
 //-----------------------------------------------------------------------------
-
-
-// /**
-//  * @brief Take a snapshot of the current hot tub controller state.
-//  *
-//  * @param state Pointer to a HotTubController_t structure to store the snapshot.
-//  * @return ESP_OK on success, or an error code on failure.
-//  */
-// esp_err_t hot_tub_controller_snapshot_get(HotTubController_t *state)
-// {
-//     if (!state) {return ESP_ERR_INVALID_ARG;}
-//     lock_state();
-//     *state = hottub_ctl;
-//     unlock_state();
-//     // Figure out what to do with *state
-    
-//     return ESP_OK;
-// } // end of hot_tub_controller_snapshot_get()
-// //-----------------------------------------------------------------------------
 
 
 /**
@@ -408,6 +705,8 @@ esp_err_t hot_tub_controller_gpio_set_level(gpio_num_t gpio_num, bool level) {
  * ONLY this function should be used to control the pump hardware to avoid damage.
  */
 void hot_tub_controller_set_pump(pump_state_t targetSpeed) {
+    // wrap to avoid multiple variable accesses and ensure safe state transitions
+    
     static pump_state_t currentSpeed = PUMP_OFF;
     
     // If already there, do nothing
@@ -420,7 +719,7 @@ void hot_tub_controller_set_pump(pump_state_t targetSpeed) {
     // Mandatory dead-time delay to let the motor arcs quench
     // (Crucial when switching directly between Low and High)
     if (currentSpeed != PUMP_OFF && targetSpeed != PUMP_OFF) {
-        vTaskDelay(pdMS_TO_TICKS(PUMP_DEAD_TIME_MS)); // 1.5 second pause
+        vTaskDelay(pdMS_TO_TICKS(PUMP_DEAD_TIME_MS)); // 2 second pause
     }
 
     // Safely engage the new target
@@ -444,105 +743,6 @@ void hot_tub_controller_set_pump(pump_state_t targetSpeed) {
 
 
 
-// /**
-//  * @brief Structure to hold the hot tub settings for NVS storage.
-//  */
-// typedef struct {
-//     bool tempUnitCelsius;
-//     float setpointTemp;
-//     float highHysteresis;
-//     float lowHysteresis;
-//     float pumpPreRunTime;
-//     float pumpPostRunTime;
-// } hotTub_nvs_settings_t;
-
-
-
-// /**
-//  * @brief Save the current hot tub settings to NVS.
-//  *
-//  * @return ESP_OK on success, or an error code on failure.
-//  */
-// esp_err_t hot_tub_controller_settings_save_to_nvs(void)
-// {
-//     // Implement NVS save logic here
-//     const char *TAG = "hot_tub_controller_nvs";
-//     const char *nvs_namespace = NVS_HOTTUB_SETTINGS_NAMESPACE;
-//     const char *nvs_key = "settings";
-//     const hotTub_nvs_settings_t nvs_data = {
-//         .tempUnitCelsius = hot_tub_controller_is_temp_unit_celsius(),
-//         .setpointTemp = hot_tub_controller_get_setpoint_temp(),
-//         .highHysteresis = hot_tub_controller_get_high_hysteresis(),
-//         .lowHysteresis = hot_tub_controller_get_low_hysteresis(),
-//         .pumpPreRunTime = hot_tub_controller_get_pump_pre_run_time(),
-//         .pumpPostRunTime = hot_tub_controller_get_pump_post_run_time(),
-//     };
-
-//     nvs_handle_t nvs_handle;
-//     esp_err_t err = nvs_open(nvs_namespace, NVS_READWRITE, &nvs_handle);
-//     if (err != ESP_OK) {
-//         ESP_LOGE(TAG, "Failed to open NVS handle!");
-//         return err;
-//     }
-    
-//     err = nvs_set_blob(nvs_handle, nvs_key, &nvs_data, sizeof(nvs_data));
-//     if (err != ESP_OK) {
-//         ESP_LOGE(TAG, "Failed to write settings to NVS!");
-//         nvs_close(nvs_handle);
-//         return err;
-//     }
-    
-//     err = nvs_commit(nvs_handle);
-//     nvs_close(nvs_handle);
-//     if (err != ESP_OK) {
-//         ESP_LOGE(TAG, "Failed to commit settings to NVS!");
-//         return err;
-//     }
-  
-//     return ESP_OK;
-
-// } // end of hot_tub_controller_settings_save_to_nvs()
-// //-----------------------------------------------------------------------------
-
-
-// /**
-//  * @brief Load the hot tub settings from NVS.
-//  *
-//  * @return ESP_OK on success, or an error code on failure.
-//  */
-// esp_err_t hot_tub_controller_settings_load_from_nvs(void)
-// {
-//     const char *TAG = "hot_tub_controller_nvs";
-//     ESP_LOGI(TAG, "Loading hot tub settings from NVS...");
-//     const char *nvs_namespace = NVS_HOTTUB_SETTINGS_NAMESPACE;
-//     const char *nvs_key = "settings";
-//     hotTub_nvs_settings_t nvs_data;
-
-//     nvs_handle_t nvs_handle;
-//     esp_err_t err = nvs_open(nvs_namespace, NVS_READONLY, &nvs_handle);
-//     if (err != ESP_OK) {
-//         ESP_LOGE(TAG, "Failed to open NVS handle!");
-//         return err;
-//     }
-//     size_t required_size = sizeof(nvs_data);
-//     err = nvs_get_blob(nvs_handle, nvs_key, &nvs_data, &required_size);
-//     if (err != ESP_OK) {
-//         ESP_LOGE(TAG, "Failed to read settings from NVS!");
-//         nvs_close(nvs_handle);
-//         return err;
-//     }
-//     nvs_close(nvs_handle);
-
-//     // Apply loaded settings to the controller
-//     hot_tub_controller_set_temp_unit_celsius(nvs_data.tempUnitCelsius);
-//     hot_tub_controller_set_setpoint_temp(nvs_data.setpointTemp);
-//     hot_tub_controller_set_high_hysteresis(nvs_data.highHysteresis);
-//     hot_tub_controller_set_low_hysteresis(nvs_data.lowHysteresis);
-//     hot_tub_controller_set_pump_pre_run_time(nvs_data.pumpPreRunTime);
-//     hot_tub_controller_set_pump_post_run_time(nvs_data.pumpPostRunTime);
-
-//     return ESP_OK;
-// } // end of hot_tub_controller_settings_load_from_nvs()
 
 
 
@@ -552,43 +752,3 @@ void hot_tub_controller_set_pump(pump_state_t targetSpeed) {
 
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-// // typedef struct {
-// //     char *key_name;
-// //     cJSON *key_value;
-// // } param_tupple_t;
-
-
-// // typedef struct {
-// //     bool heaterOn;
-// //     bool autoMode;
-// //     bool tempUnitCelsius;
-// //     bool pumpOnLight;
-// //     bool heaterOnLight;
-    
-// //     float waterTemp;
-// //     float airTemp;
-// //     float humidity;
-// //     float setpointTemp;
-// //     float highHysteresis;
-// //     float lowHysteresis;
-// //     float pumpPreRunTime;
-// //     float pumpPostRunTime;
-// //     pump_state_t pumpState;
-// //     time_t lastUpdateTime;
-// //     sim_mode_t simulationMode;
-// // } HotTubController_t;
