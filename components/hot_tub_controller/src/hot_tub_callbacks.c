@@ -9,6 +9,7 @@
 
 static const char *TAG = "hot_tub_callbacks";
 
+void get_current_time(char *strftime_buf, size_t buf_size);
 
 
 /**
@@ -75,12 +76,17 @@ void hottub_callback_response(cJSON *root, cJSON *response) {
         cJSON_Delete(response);
         return;
     }
+
+    // Update the lastUpdateTime field with the current time
+    get_current_time(snapshot.lastUpdateTime, sizeof(snapshot.lastUpdateTime));
+
     esp_err_t err = hot_tub_controller_to_json(response, &snapshot);
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "Failed to convert snapshot to JSON: %s", esp_err_to_name(err));
         cJSON_Delete(response);
         return;
-    }       
+    }
+           
     hottub_callback_response(root, response);
 } // End of hottub_status_get_callback
 //-----------------------------------------------------------------------------
@@ -557,7 +563,23 @@ void hottub_pump_post_run_time_set_callback(cJSON *root) {
 } // End of hottub_pump_post_run_time_set_callback
 //-----------------------------------------------------------------------------
 
+// #include <time.h>
+// #include <sys/time.h>
+// #include "esp_log.h"
 
+// static const char *TAG = "time";
+
+void get_current_time(char *strftime_buf, size_t buf_size)
+{
+    time_t now;
+    struct tm timeinfo;
+
+    time(&now);                          // seconds since Unix epoch
+    localtime_r(&now, &timeinfo);        // convert to broken-down local time
+
+    strftime(strftime_buf, buf_size, "%Y-%m-%d %H:%M:%S", &timeinfo);
+    ESP_LOGI(TAG, "Current time: %s", strftime_buf);
+}
 
 
 // // Register the "system_status" command with the JSON service

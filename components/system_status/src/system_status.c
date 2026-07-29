@@ -28,15 +28,16 @@ bool json_service_register_command(const char *cmd_string,
                                    uint8_t target_core);
 
 
-// bool crc32_json_wrapper(const cJSON *json_obj,
-//                         char *output,
-//                         size_t output_size,
-//                         size_t *output_len);
 
 char *json_service_crc32_envelope_encode(const cJSON *json);
 
 
-
+/**
+ * @brief Read the internal temperature of the ESP32-S3 chip.
+ *
+ * @param out_temp Pointer to a float variable to store the temperature in Celsius.
+ * @return ESP_OK on success, or an error code on failure.
+ */
 static esp_err_t system_status_read_temperature(float *out_temp)
 {
     if (out_temp == NULL) {
@@ -89,20 +90,31 @@ static esp_err_t system_status_read_temperature(float *out_temp)
     }
 
     return temperature_sensor_get_celsius(s_temp_sensor, out_temp);
-}
+} // End of system_status_read_temperature
+//-----------------------------------------------------------------------------
 
+
+/**
+ * @brief Load the reset reason into the system status structure.
+ */
 static void system_status_load_reset_reason(void)
 {
     esp_reset_reason_t reason = esp_reset_reason();
     s_system_status.reset_reason = (uint32_t)reason;
 }
+//-----------------------------------------------------------------------------
 
+
+/**
+ * @brief Update the free heap size for both cores and PSRAM in the system status structure.
+ */
 static void system_status_update_core_heap(void)
 {
     s_system_status.core_0_free_heap_bytes = heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
     s_system_status.core_1_free_heap_bytes = heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
     s_system_status.psram_free_bytes = heap_caps_get_free_size(MALLOC_CAP_SPIRAM);
 }
+//-----------------------------------------------------------------------------
 
 static void system_status_update_task_stack(void)
 {

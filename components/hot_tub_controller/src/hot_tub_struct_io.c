@@ -459,6 +459,38 @@ void hot_tub_controller_set_pump_post_run_time(float time)
 }
 //-----------------------------------------------------------------------------
 
+/**
+ * @brief Get the last update time of the hot tub controller state.
+ *
+ * @param buffer Pointer to a character array where the last update time will be stored.
+ * @param buffer_size Size of the buffer to ensure no overflow occurs.
+ */
+void hot_tub_controller_get_last_update_time(char *buffer, size_t buffer_size)
+{
+    lock_state();
+    strncpy(buffer, hottub_ctl.lastUpdateTime, buffer_size);
+    unlock_state();
+} 
+//----------------------------------------------------------------------------- 
+
+/**
+ * @brief Set the last update time of the hot tub controller state.
+ *
+ * @param time_str Pointer to a string representing the last update time.
+ */
+void hot_tub_controller_set_last_update_time(const char *time_str)
+{
+    lock_state();
+    strncpy(hottub_ctl.lastUpdateTime, time_str, sizeof(hottub_ctl.lastUpdateTime) - 1);
+    hottub_ctl.lastUpdateTime[sizeof(hottub_ctl.lastUpdateTime) - 1] = '\0'; // Ensure null-termination
+    unlock_state();
+} 
+//-----------------------------------------------------------------------------
+
+
+
+
+
 
 /**
  * @brief Lock the hot tub controller state for thread-safe access.

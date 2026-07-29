@@ -36,7 +36,9 @@ float hot_tub_controller_get_pump_pre_run_time(void);
 void hot_tub_controller_set_pump_pre_run_time(float time);
 float hot_tub_controller_get_pump_post_run_time(void);
 void hot_tub_controller_set_pump_post_run_time(float time);
-
+void hot_tub_controller_get_last_update_time(char *buffer, size_t buffer_size);
+void hot_tub_controller_set_last_update_time(const char *time_str);
+    
 
 
 #endif // HOT_TUB_STRUCT_IO_H

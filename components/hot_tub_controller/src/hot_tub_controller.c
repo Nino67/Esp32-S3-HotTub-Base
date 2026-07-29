@@ -19,74 +19,33 @@
 
 #include "nvs_flash.h"
 #include "ntp_time_sync.h"
+
 #include "hot_tub_globals.h"
 #include "hot_tub_callbacks.h"
 #include "hot_tub_controller.h"
 #include "hot_tub_struct_io.h"
 
-
 static const char *TAG = "hot_tub_controller";
-// static const char *NVS_HOTTUB_SETTINGS_NAMESPACE = "hottub_settings";
-
-
-#define TIME_BUFFER_SIZE 32
-#define CORE_0 0
-#define CORE_1 1
-// GPIO pin definitions for pump control
-#define GPIO_PUMP_LOW 25
-#define GPIO_PUMP_HIGH 26
-#define PUMP_DEAD_TIME_MS 2000
-
-#define DEFAULT_HOTTUB_TIMING_LOOP_DELAY_MS 1000
-
-#define DEFAULT_SETPOINT_TEMP 36.0
-#define DEFAULT_SETPOINT_TEMP_MIN 20.0
-#define DEFAULT_SETPOINT_TEMP_MAX 40.0
-
-#define DEFAULT_HIGH_HYSTERESIS 1.0
-#define DEFAULT_HIGH_HYSTERESIS_MIN 0.1
-#define DEFAULT_HIGH_HYSTERESIS_MAX 5.0
-#define DEFAULT_LOW_HYSTERESIS 1.0
-#define DEFAULT_LOW_HYSTERESIS_MIN 0.1
-#define DEFAULT_LOW_HYSTERESIS_MAX 5.0
-
-#define DEFAULT_PUMP_PRE_RUN_TIME 2.0
-#define DEFAULT_PUMP_PRE_RUN_TIME_MIN 1.0
-#define DEFAULT_PUMP_PRE_RUN_TIME_MAX 20.0
-#define DEFAULT_PUMP_POST_RUN_TIME 2.0
-#define DEFAULT_PUMP_POST_RUN_TIME_MIN 1.0
-#define DEFAULT_PUMP_POST_RUN_TIME_MAX 20.0
-
-#define DEFAULT_TEMP_UNIT_CELSIUS true
-
 
 // Function prototypes
-esp_err_t hot_tub_controller_init(void);
 extern bool json_service_register_command(const char *, json_cmd_callback_t, uint8_t );
-
+esp_err_t hot_tub_controller_init(void);
 esp_err_t hot_tub_controller_gpio_set_level(gpio_num_t gpio_num, bool level);
 esp_err_t hot_tub_controller_publish_status(void);
 esp_err_t hot_tub_controller_to_json(cJSON *json, const HotTubController_t *state);
-
 esp_err_t hot_tub_controller_settings_save_to_nvs(void);
 esp_err_t hot_tub_controller_settings_load_from_nvs(void);
-
-
 esp_err_t hot_tub_controller_snapshot_get(HotTubController_t *);
 bool hot_tub_controller_is_heater_on(void);
 void hot_tub_controller_set_low_hysteresis(float low_hysteresis);
 void hot_tub_controller_set_high_hysteresis(float high_hysteresis);
 void hot_tub_controller_set_pump_pre_run_time(float pre_run_time);
 void hot_tub_controller_set_pump_post_run_time(float post_run_time);
-
 esp_err_t hot_tub_controller_verify_hysteresis(HotTubController_t *state);
 esp_err_t hot_tub_controller_verify_pump_delay_times(HotTubController_t *state);
-
 esp_err_t hot_tub_controller_load_saved_settings(void);
-
-static float hottub_controller_temperature_filter(float new_temp, float prev_temp, float alpha);
-
 esp_err_t ntp_utils_time_get_local(struct tm *out_time);
+static float hottub_controller_temperature_filter(float new_temp, float prev_temp, float alpha);
 
 
 
@@ -185,6 +144,7 @@ esp_err_t hot_tub_controller_verify_pump_delay_times(HotTubController_t *state) 
 } // end of hot_tub_controller_verify_pump_delay_times()
 //-----------------------------------------------------------------------------
 
+
 /**
  * @brief Apply a simple low-pass filter to the temperature readings.
  *
@@ -199,7 +159,7 @@ static float hottub_controller_temperature_filter(float new_temp, float prev_tem
 {
     return alpha * new_temp + (1.0f - alpha) * prev_temp;
 } // end of hottub_controller_temperature_filter()
-
+//-----------------------------------------------------------------------------
 
 
 
@@ -243,7 +203,7 @@ esp_err_t hot_tub_controller_main_loop(void *arg)
          }   
 
         // get the current water temperature
-        // hot_tub_controller_set_water_temp(_water_temp_sensor_read());    
+        // hot_tub_controller_get_water_temp();    
 
         // Apply a simple low-pass filter to the water temperature reading
         // float water_temp = hottub_controller_temperature_filter(_water_temp_sensor_read(), snapshot.waterTemp, 0.1f);
@@ -381,25 +341,26 @@ esp_err_t hot_tub_controller_main_loop(void *arg)
             } // End of if(auto_started_pump)
         } // End of else (autoMode disabled)
         
-        // Decrement timers after logic
+        // Decrement timers after logic 
+        // { later on need to isolate and actually use seconds }
         if (pre_pump_timer > 0) pre_pump_timer--;
         if (post_pump_timer > 0) post_pump_timer--;
         
         // if (ntp_utils_time_get_local(&now_tm) == ESP_OK) {
 
-        // Update timestamp
-        struct tm now_time;
-        if (ntp_utils_time_get_local(&now_time) == ESP_OK) 
-        {
-            // Convert struct tm to time_t
-            time_t now_epoch = mktime(&now_time);
-            snapshot.lastUpdateTime = now_epoch;
-        } 
-        else 
-        {
-            ESP_LOGW(TAG, "Failed to get local time"); 
-            snapshot.lastUpdateTime = time(NULL); // Fallback to system time
-        }
+        // // Update timestamp
+        // struct tm now_time;
+        // if (ntp_utils_time_get_local(&now_time) == ESP_OK) 
+        // {
+        //     // Convert struct tm to time_t
+        //     time_t now_epoch = mktime(&now_time);
+        //     snapshot.lastUpdateTime = now_epoch;
+        // } 
+        // else 
+        // {
+        //     ESP_LOGW(TAG, "Failed to get local time"); 
+        //     snapshot.lastUpdateTime = time(NULL); // Fallback to system time
+        // }
 
         // Save the updated snapshot back to the controller state
         err = hot_tub_controller_snapshot_set(&snapshot);
@@ -407,11 +368,11 @@ esp_err_t hot_tub_controller_main_loop(void *arg)
             ESP_LOGE(TAG, "Failed to save hot tub controller snapshot: %s", esp_err_to_name(err));
         }
 
-        // Call to update the GPIOs based on the new state
-        err = hot_tub_controller_gpio_update(&snapshot);
-        if (err != ESP_OK) {
-            ESP_LOGE(TAG, "Failed to update GPIOs: %s", esp_err_to_name(err));
-        }   
+        // // Call to update the GPIOs based on the new state
+        // err = hot_tub_controller_gpio_update(&snapshot);
+        // if (err != ESP_OK) {
+        //     ESP_LOGE(TAG, "Failed to update GPIOs: %s", esp_err_to_name(err));
+        // }   
 
         vTaskDelay(pdMS_TO_TICKS(DEFAULT_HOTTUB_TIMING_LOOP_DELAY_MS));
     
@@ -657,7 +618,7 @@ esp_err_t hot_tub_controller_to_json(cJSON *json, const HotTubController_t *stat
     cJSON_AddNumberToObject(json, "lowHysteresis", state->lowHysteresis);
     cJSON_AddNumberToObject(json, "pumpPreRunTime", state->pumpPreRunTime);
     cJSON_AddNumberToObject(json, "pumpPostRunTime", state->pumpPostRunTime);
-    cJSON_AddStringToObject(json, "lastUpdateTime", asctime(localtime(&state->lastUpdateTime)));
+    cJSON_AddStringToObject(json, "lastUpdateTime", state->lastUpdateTime);
     return ESP_OK;
 } // end of hot_tub_controller_to_json()
 //-----------------------------------------------------------------------------

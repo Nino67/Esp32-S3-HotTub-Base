@@ -10,6 +10,40 @@
 #include "freertos/semphr.h"
 
 
+// Defines shared with other components, 
+// such as the system_status component, 
+// and hot_tub_controller component to avoid conflicts.
+#define TIME_BUFFER_SIZE 32
+#define CORE_0 0
+#define CORE_1 1
+// GPIO pin definitions for pump control
+#define GPIO_PUMP_LOW 25
+#define GPIO_PUMP_HIGH 26
+#define PUMP_DEAD_TIME_MS 2000
+
+#define DEFAULT_HOTTUB_TIMING_LOOP_DELAY_MS 1000
+
+#define DEFAULT_SETPOINT_TEMP 36.0
+#define DEFAULT_SETPOINT_TEMP_MIN 20.0
+#define DEFAULT_SETPOINT_TEMP_MAX 40.0
+
+#define DEFAULT_HIGH_HYSTERESIS 1.0
+#define DEFAULT_HIGH_HYSTERESIS_MIN 0.1
+#define DEFAULT_HIGH_HYSTERESIS_MAX 5.0
+#define DEFAULT_LOW_HYSTERESIS 1.0
+#define DEFAULT_LOW_HYSTERESIS_MIN 0.1
+#define DEFAULT_LOW_HYSTERESIS_MAX 5.0
+
+#define DEFAULT_PUMP_PRE_RUN_TIME 2.0
+#define DEFAULT_PUMP_PRE_RUN_TIME_MIN 1.0
+#define DEFAULT_PUMP_PRE_RUN_TIME_MAX 20.0
+#define DEFAULT_PUMP_POST_RUN_TIME 2.0
+#define DEFAULT_PUMP_POST_RUN_TIME_MIN 1.0
+#define DEFAULT_PUMP_POST_RUN_TIME_MAX 20.0
+
+#define DEFAULT_TEMP_UNIT_CELSIUS true
+
+
 
 // Pump state enumeration
 typedef enum {
@@ -47,7 +81,7 @@ typedef struct {
     float pumpPreRunTime;
     float pumpPostRunTime;
     pump_state_t pumpState;
-    time_t lastUpdateTime;
+    char lastUpdateTime[TIME_BUFFER_SIZE];
     sim_mode_t simulationMode;
 } HotTubController_t;
 
