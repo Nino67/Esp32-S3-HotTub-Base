@@ -527,6 +527,46 @@ void hottub_filtered_water_temp_set_callback(cJSON *root) {
 //-----------------------------------------------------------------------------
 
 /**
+ * @brief Callback function to handle the "hottub.low.pass.filter.alpha.get" command received via JSON service.
+ *
+ * @param root The cJSON object containing the command and its data.
+ *
+ * @note Ex: command received: {"id":1,"type":"req","cmd":"hottub.low.pass.filter.alpha.get","params":""}
+ */
+void hottub_low_pass_filter_alpha_get_callback(cJSON *root) {
+    float low_pass_filter_alpha = hot_tub_controller_get_low_pass_filter_alpha();
+    cJSON *response = cJSON_CreateObject();
+    cJSON_AddNumberToObject(response, "low.pass.filter.alpha.get", low_pass_filter_alpha);
+    hottub_callback_response(root, response);
+} // End of hottub_low_pass_filter_alpha_get_callback
+//-----------------------------------------------------------------------------
+
+/**
+ * @brief Callback function to handle the "hottub.low.pass.filter.alpha.set" command received via JSON service.
+ *
+ * @param root The cJSON object containing the command and its data.
+ *
+ * @note Ex: command received: {"id":1,"type":"req","cmd":"hottub.low.pass.filter.alpha.set","params":{"low.pass.filter.alpha.set":0.5}}
+ */
+void hottub_low_pass_filter_alpha_set_callback(cJSON *root) {
+    param_tupple_t param;
+
+    if (parse_json_param(root, &param.key_name, &param.key_value) != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to parse JSON params");
+        return;
+    }
+    cJSON *low_pass_filter_alpha_item = param.key_value;
+    float low_pass_filter_alpha = (float)low_pass_filter_alpha_item->valuedouble;
+    hot_tub_controller_set_low_pass_filter_alpha(low_pass_filter_alpha);
+
+    // Create a response JSON object
+    cJSON *response = cJSON_CreateObject();
+    cJSON_AddNumberToObject(response, "low.pass.filter.alpha.set", low_pass_filter_alpha);
+    hottub_callback_response(root, response);
+} // End of hottub_low_pass_filter_alpha_set_callback
+//-----------------------------------------------------------------------------
+
+/**
  * @brief Callback function to handle the "hottub.safety.switch.get" command received via JSON service.
  *
  * @param root The cJSON object containing the command and its data.

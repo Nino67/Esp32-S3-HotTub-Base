@@ -76,12 +76,17 @@ esp_err_t hot_tub_controller_load_saved_settings(void) {
         // // Set default values
         
         hot_tub_controller_set_setpoint_temp(DEFAULT_SETPOINT_TEMP);
+        hot_tub_controller_set_low_pass_filter_alpha(DEFAULT_LOW_PASS_FILTER_ALPHA);
         hot_tub_controller_set_high_hysteresis(DEFAULT_HIGH_HYSTERESIS);
         hot_tub_controller_set_low_hysteresis(DEFAULT_LOW_HYSTERESIS);
         hot_tub_controller_set_pump_pre_run_time(DEFAULT_PUMP_PRE_RUN_TIME);
         hot_tub_controller_set_pump_post_run_time(DEFAULT_PUMP_POST_RUN_TIME);
         hot_tub_controller_set_temp_unit_celsius(DEFAULT_TEMP_UNIT_CELSIUS);
+        hot_tub_controller_set_auto_mode(DEFAULT_AUTO_MODE);
 
+
+
+        
         if (hot_tub_controller_settings_save_to_nvs() != ESP_OK) {
             ESP_LOGE(TAG, "Failed to save default settings to NVS");
             return ESP_FAIL;
@@ -592,6 +597,14 @@ esp_err_t hot_tub_controller_register_callbacks()
         return ESP_FAIL;
     }
 
+    if (!json_service_register_command("hottub.low.pass.filter.alpha.get", hottub_low_pass_filter_alpha_get_callback, CORE_0)) {
+        return ESP_FAIL;
+    }
+
+    if (!json_service_register_command("hottub.low.pass.filter.alpha.set", hottub_low_pass_filter_alpha_set_callback, CORE_0)) {
+        return ESP_FAIL;
+    }
+
     return ESP_OK;
 } // end of hot_tub_controller_register_callbacks()
 //-----------------------------------------------------------------------------
@@ -670,6 +683,7 @@ esp_err_t hot_tub_controller_to_json(cJSON *json, const HotTubController_t *stat
     cJSON_AddNumberToObject(json, "airTemp", state->airTemp);
     cJSON_AddNumberToObject(json, "humidity", state->humidity);
     cJSON_AddNumberToObject(json, "setpointTemp", state->setpointTemp);
+    cJSON_AddNumberToObject(json, "lowPassFilterAlpha", state->lowPassFilterAlpha);
     cJSON_AddNumberToObject(json, "highHysteresis", state->highHysteresis);
     cJSON_AddNumberToObject(json, "lowHysteresis", state->lowHysteresis);
     cJSON_AddNumberToObject(json, "pumpState", state->pumpState);

@@ -59,6 +59,15 @@ esp_err_t hot_tub_controller_settings_save_to_nvs(void)
 } // end of hot_tub_controller_settings_save_to_nvs()
 //-----------------------------------------------------------------------------
 
+esp_err_t hot_tub_struct_io_save_settings_to_nvs(void)
+{
+    return hot_tub_controller_settings_save_to_nvs();
+}
+
+
+
+//-----------------------------------------------------------------------------
+
 
 
 /**

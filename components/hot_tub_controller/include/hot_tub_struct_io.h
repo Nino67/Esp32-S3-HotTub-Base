@@ -6,6 +6,7 @@
 #include "esp_err.h"
 #include "hot_tub_controller.h"
 
+esp_err_t hot_tub_struct_io_save_settings_to_nvs(void);
 esp_err_t hot_tub_controller_snapshot_get(HotTubController_t *);
 esp_err_t hot_tub_controller_snapshot_set(const HotTubController_t *state);
 bool hot_tub_controller_is_heater_on(void);

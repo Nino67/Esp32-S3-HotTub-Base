@@ -47,6 +47,8 @@ void hottub_filtered_water_temp_get_callback(cJSON *root) ;
 void hottub_filtered_water_temp_set_callback(cJSON *root) ;
 void hottub_air_temp_get_callback(cJSON *root) ;
 void hottub_air_temp_set_callback(cJSON *root) ;
+void hottub_low_pass_filter_alpha_get_callback(cJSON *root);
+void hottub_low_pass_filter_alpha_set_callback(cJSON *root);
 
     
 

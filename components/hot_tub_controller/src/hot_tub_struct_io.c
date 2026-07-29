@@ -24,12 +24,15 @@
 
 #include "nvs_flash.h"
 #include "hot_tub_globals.h"
+#include "hot_tub_controller_nvs.h"
+#include "hot_tub_struct_io.h"
 // #include "hot_tub_callbacks.h"
 // #include "hot_tub_controller.h"
 
+static const char *TAG = "hot_tub_struct_io";
+
 SemaphoreHandle_t s_mutex = NULL;
 HotTubController_t hottub_ctl = {0};
-
 
 /**
  * @brief Take a snapshot of the current hot tub controller state.
@@ -57,7 +60,12 @@ esp_err_t hot_tub_controller_snapshot_set(const HotTubController_t *state)
     lock_state();
     hottub_ctl = *state;
     unlock_state();
-    
+
+    if (hot_tub_struct_io_save_settings_to_nvs() != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to save settings to NVS");
+        return ESP_FAIL;
+    }
+   
     return ESP_OK;
 } // end of hot_tub_controller_snapshot_set()
 
@@ -92,6 +100,12 @@ esp_err_t hot_tub_controller_set_heater_on(bool on)
     lock_state();
     hottub_ctl.heaterOn = on;
     unlock_state();
+
+    if (hot_tub_struct_io_save_settings_to_nvs() != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to save settings to NVS");
+        return ESP_FAIL;
+    }
+
     return ESP_OK;
 }
 //------------------------------------------------------------------------------
@@ -125,9 +139,14 @@ esp_err_t hot_tub_controller_set_auto_mode(bool on)
     lock_state();
     hottub_ctl.autoMode = on;
     unlock_state();
+
+    if (hot_tub_struct_io_save_settings_to_nvs() != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to save settings to NVS");
+        return ESP_FAIL;
+    }
+
     return ESP_OK;
 } //-----------------------------------------------------------------------------
-
 
 
 /**
@@ -145,7 +164,6 @@ bool hot_tub_controller_is_temp_unit_celsius(void)
 //-----------------------------------------------------------------------------
 
 
-
 /**
  * @brief Set the temperature unit.
  *
@@ -157,6 +175,12 @@ esp_err_t hot_tub_controller_set_temp_unit_celsius(bool on)
     lock_state();
     hottub_ctl.tempUnitCelsius = on;
     unlock_state();
+
+    if (hot_tub_struct_io_save_settings_to_nvs() != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to save settings to NVS");
+        return ESP_FAIL;
+    }
+
     return ESP_OK;
 }   
 //-----------------------------------------------------------------------------
@@ -189,10 +213,15 @@ esp_err_t hot_tub_controller_set_pump_on_light(bool on)
     lock_state();
     hottub_ctl.pumpOnLight = on;
     unlock_state();
+    if (hot_tub_struct_io_save_settings_to_nvs() != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to save settings to NVS");
+        return ESP_FAIL;
+    }
+
     return ESP_OK;
 } //-----------------------------------------------------------------------------
 
-
+    
 
 /**
  * @brief Get the current heater on light state.
@@ -221,8 +250,14 @@ esp_err_t hot_tub_controller_set_heater_on_light(bool on)
     lock_state();
     hottub_ctl.heaterOnLight = on;
     unlock_state();
+ 
+    if (hot_tub_struct_io_save_settings_to_nvs() != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to save settings to NVS");
+        return ESP_FAIL;
+    }
+
     return ESP_OK;
-} 
+}
 //-----------------------------------------------------------------------------
 
 
@@ -250,6 +285,11 @@ void hot_tub_controller_set_water_temp(float temp)
     lock_state();
     hottub_ctl.waterTemp = temp;
     unlock_state();
+
+    if (hot_tub_struct_io_save_settings_to_nvs() != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to save settings to NVS");
+    }
+
 }
 //-----------------------------------------------------------------------------
 
@@ -277,10 +317,12 @@ void hot_tub_controller_set_filtered_water_temp(float temp)
     lock_state();
     hottub_ctl.filteredWaterTemp = temp;
     unlock_state();
+ 
+    if (hot_tub_struct_io_save_settings_to_nvs() != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to save settings to NVS");
+    }
 }
 //----------------------------------------------------------------------------- 
-
-
 
 
 /**
@@ -307,6 +349,10 @@ void hot_tub_controller_set_air_temp(float temp)
     lock_state();
     hottub_ctl.airTemp = temp;
     unlock_state();
+
+    if (hot_tub_struct_io_save_settings_to_nvs() != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to save settings to NVS");
+    }
 }
 //-----------------------------------------------------------------------------
 
@@ -337,6 +383,10 @@ void hot_tub_controller_set_humidity(float humidity)
     lock_state();
     hottub_ctl.humidity = humidity;
     unlock_state();
+
+    if (hot_tub_struct_io_save_settings_to_nvs() != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to save settings to NVS");
+    }
 }   
 //-----------------------------------------------------------------------------
 
@@ -367,10 +417,11 @@ void hot_tub_controller_set_setpoint_temp(float temp)
     lock_state();
     hottub_ctl.setpointTemp = temp;
     unlock_state();
-}   
+    if (hot_tub_struct_io_save_settings_to_nvs() != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to save settings to NVS");
+    }
+}
 //-----------------------------------------------------------------------------
-
-
 
 
 /**
@@ -397,6 +448,10 @@ void hot_tub_controller_set_high_hysteresis(float temp)
     lock_state();
     hottub_ctl.highHysteresis = temp;
     unlock_state();
+
+    if (hot_tub_struct_io_save_settings_to_nvs() != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to save settings to NVS");
+    }
 }
 //-----------------------------------------------------------------------------
 
@@ -425,6 +480,10 @@ void hot_tub_controller_set_low_hysteresis(float temp)
     lock_state();
     hottub_ctl.lowHysteresis = temp;
     unlock_state();
+   
+    if (hot_tub_struct_io_save_settings_to_nvs() != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to save settings to NVS");
+    }
 }
 //-----------------------------------------------------------------------------
 
@@ -452,6 +511,10 @@ void hot_tub_controller_set_pump_pre_run_time(float time)
     lock_state();
     hottub_ctl.pumpPreRunTime = time;
     unlock_state();
+    
+    if (hot_tub_struct_io_save_settings_to_nvs() != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to save settings to NVS");
+    }
 }
 //-----------------------------------------------------------------------------
 
@@ -479,6 +542,10 @@ void hot_tub_controller_set_pump_post_run_time(float time)
     lock_state();
     hottub_ctl.pumpPostRunTime = time;
     unlock_state();
+    
+    if (hot_tub_struct_io_save_settings_to_nvs() != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to save settings to NVS");
+    }
 }
 //-----------------------------------------------------------------------------
 
@@ -535,7 +602,11 @@ void hot_tub_controller_set_safety_switch(bool state)
     lock_state();
     hottub_ctl.safetySwitch = state;
     unlock_state();
-} 
+
+    if (hot_tub_struct_io_save_settings_to_nvs() != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to save settings to NVS");
+    }
+}
 //-----------------------------------------------------------------------------
 
 /**
@@ -559,11 +630,56 @@ float hot_tub_controller_get_low_pass_filter_alpha(void)
  */
 void hot_tub_controller_set_low_pass_filter_alpha(float alpha)
 {
+    
+    if (alpha < 0.0f || alpha > 1.0f) {
+        ESP_LOGE(TAG, "Invalid low-pass filter alpha value: %f. Must be between 0.0 and 1.0. Setting to default %f", alpha, DEFAULT_LOW_PASS_FILTER_ALPHA);
+        alpha = DEFAULT_LOW_PASS_FILTER_ALPHA;
+    }
     lock_state();
     hottub_ctl.lowPassFilterAlpha = alpha;
     unlock_state();
+
+    if (hot_tub_struct_io_save_settings_to_nvs() != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to save settings to NVS");
+    }
 }
 //-----------------------------------------------------------------------------
+
+
+/**
+ * @brief Get the current simulation mode.
+ *
+ * @return The current simulation mode (SIM_MODE_OFF, SIM_MODE_ON, etc.).
+ */
+sim_mode_t hot_tub_controller_get_simulation_mode(void)
+{
+    lock_state();
+    sim_mode_t mode = hottub_ctl.simulationMode;
+    unlock_state();
+    return mode;
+}
+//-----------------------------------------------------------------------------
+
+
+/**
+ * @brief Set the current simulation mode.
+ *
+ * @param mode The new simulation mode 
+ *
+ * @note (SIM_NONE, SIM_MANUAL, SIM_PHYSICS, SIM_TRIANGLE).
+ */
+void hot_tub_controller_set_simulation_mode(sim_mode_t mode)
+{
+    lock_state();
+    hottub_ctl.simulationMode = mode;
+    unlock_state();
+
+    if (hot_tub_struct_io_save_settings_to_nvs() != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to save settings to NVS");
+    }
+}
+//-----------------------------------------------------------------------------
+
 
 /**
  * @brief Lock the hot tub controller state for thread-safe access.
