@@ -86,7 +86,7 @@ void hottub_callback_response(cJSON *root, cJSON *response) {
         cJSON_Delete(response);
         return;
     }
-           
+
     hottub_callback_response(root, response);
 } // End of hottub_status_get_callback
 //-----------------------------------------------------------------------------
@@ -486,7 +486,93 @@ void hottub_pump_state_set_callback(cJSON *root) {
 } // End of hottub_pump_state_set_callback
 //-----------------------------------------------------------------------------
 
+/**
+ * @brief Callback function to handle the "hottub.filtered.water.temp.get" command received via JSON service.
+ *
+ * @param root The cJSON object containing the command and its data.
+ *
+ * @note Ex: command received: {"id":1,"type":"req","cmd":"hottub.filtered.water.temp.get","params":""}
+ */
+void hottub_filtered_water_temp_get_callback(cJSON *root) {
+    float filtered_water_temp = hot_tub_controller_get_filtered_water_temp();
+    cJSON *response = cJSON_CreateObject();
+    cJSON_AddNumberToObject(response, "filtered.water.temp.get", filtered_water_temp);
+    hottub_callback_response(root, response);
+} // End of hottub_filtered_water_temp_get_callback
+//-----------------------------------------------------------------------------
 
+/**
+ * @brief Callback function to handle the "hottub.filtered.water.temp.set" command received via JSON service.
+ *
+ * @param root The cJSON object containing the command and its data.
+ *
+ * @note Ex: command received: {"id":1,"type":"req","cmd":"hottub.filtered.water.temp.set","params":{"filtered.water.temp.set":25.0}}
+ */
+void hottub_filtered_water_temp_set_callback(cJSON *root) {
+    param_tupple_t param;
+
+    if (parse_json_param(root, &param.key_name, &param.key_value) != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to parse JSON params");
+        return;
+    }
+    cJSON *filtered_water_temp_item = param.key_value;
+    float filtered_water_temp = (float)filtered_water_temp_item->valuedouble;
+    hot_tub_controller_set_filtered_water_temp(filtered_water_temp);
+
+    // Create a response JSON object
+    cJSON *response = cJSON_CreateObject();
+    cJSON_AddNumberToObject(response, "filtered.water.temp.set", filtered_water_temp);
+    hottub_callback_response(root, response);
+} // End of hottub_filtered_water_temp_set_callback
+//-----------------------------------------------------------------------------
+
+/**
+ * @brief Callback function to handle the "hottub.safety.switch.get" command received via JSON service.
+ *
+ * @param root The cJSON object containing the command and its data.
+ *
+ * @note Ex: command received: {"id":1,"type":"req","cmd":"hottub.safety.switch.get","params":""}
+ */
+void hottub_safety_switch_get_callback(cJSON *root) {
+    bool safety_switch = hot_tub_controller_get_safety_switch();
+    cJSON *response = cJSON_CreateObject();
+    cJSON_AddBoolToObject(response, "safety.switch.get", safety_switch);
+    hottub_callback_response(root, response);
+} // End of hottub_safety_switch_get_callback
+//-----------------------------------------------------------------------------
+
+/**
+ * @brief Callback function to handle the "hottub.safety.switch.set" command received via JSON service.
+ *
+ * @param root The cJSON object containing the command and its data.
+ *
+ * @note Ex: command received: {"id":1,"type":"req","cmd":"hottub.safety.switch.set","params":{"safety.switch.set":true}}
+ */
+void hottub_safety_switch_set_callback(cJSON *root) {
+    param_tupple_t param;
+
+    if (parse_json_param(root, &param.key_name, &param.key_value) != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to parse JSON params");
+        return;
+    }
+    cJSON *safety_switch_item = param.key_value;
+    bool safety_switch = cJSON_IsTrue(safety_switch_item);
+    hot_tub_controller_set_safety_switch(safety_switch);
+
+    // Create a response JSON object
+    cJSON *response = cJSON_CreateObject();
+    cJSON_AddBoolToObject(response, "safety.switch.set", safety_switch);
+    hottub_callback_response(root, response);
+} // End of hottub_safety_switch_set_callback
+//-----------------------------------------------------------------------------
+
+/**
+ * @brief Callback function to handle the "hottub.pump.pre.run.time.get" command received via JSON service.
+ *
+ * @param root The cJSON object containing the command and its data.
+ *
+ * @note Ex: command received: {"id":1,"type":"req","cmd":"hottub.pump.pre.run.time.get","params":""}
+ */
 void hottub_pump_pre_run_time_get_callback(cJSON *root) {
     float pre_run_time = hot_tub_controller_get_pump_pre_run_time();
     cJSON *response = cJSON_CreateObject();

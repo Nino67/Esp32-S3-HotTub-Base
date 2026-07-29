@@ -15,7 +15,6 @@
 
 
 
-
 esp_err_t hot_tub_controller_register_callbacks();
 void hottub_callback_response(cJSON *root, cJSON *response);
 
@@ -44,6 +43,10 @@ void hottub_pump_pre_run_time_get_callback(cJSON *root);
 void hottub_pump_pre_run_time_set_callback(cJSON *root);
 void hottub_pump_post_run_time_get_callback(cJSON *root);
 void hottub_pump_post_run_time_set_callback(cJSON *root);
+void hottub_filtered_water_temp_get_callback(cJSON *root) ;
+void hottub_filtered_water_temp_set_callback(cJSON *root) ;
+void hottub_air_temp_get_callback(cJSON *root) ;
+void hottub_air_temp_set_callback(cJSON *root) ;
 
     
 

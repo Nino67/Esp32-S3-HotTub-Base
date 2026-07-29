@@ -19,6 +19,8 @@
 // GPIO pin definitions for pump control
 #define GPIO_PUMP_LOW 25
 #define GPIO_PUMP_HIGH 26
+#define GPIO_DS18B20 4 // TODO: set this to the actual GPIO pin used for the DS18B20 data line
+#define LOW_PASS_FILTER_ALPHA 0.1f // Alpha value for low-pass filter (0 < alpha < 1)
 #define PUMP_DEAD_TIME_MS 2000
 
 #define DEFAULT_HOTTUB_TIMING_LOOP_DELAY_MS 1000
@@ -34,6 +36,7 @@
 #define DEFAULT_LOW_HYSTERESIS_MIN 0.1
 #define DEFAULT_LOW_HYSTERESIS_MAX 5.0
 
+#define DEFAULT_SAFETY_SWITCH_STATE false
 #define DEFAULT_PUMP_PRE_RUN_TIME 2.0
 #define DEFAULT_PUMP_PRE_RUN_TIME_MIN 1.0
 #define DEFAULT_PUMP_PRE_RUN_TIME_MAX 20.0
@@ -43,6 +46,11 @@
 
 #define DEFAULT_TEMP_UNIT_CELSIUS true
 
+// Safety switch states
+typedef enum {
+    SAFETY_SWITCH_OFF = false,
+    SAFETY_SWITCH_ON = true
+} safety_switch_t;
 
 
 // Pump state enumeration
@@ -66,6 +74,7 @@ typedef enum {
  * @brief Structure to hold the state of the hot tub controller.
  */
 typedef struct {
+    bool safetySwitch;
     bool heaterOn;
     bool autoMode;
     bool tempUnitCelsius;
@@ -73,9 +82,11 @@ typedef struct {
     bool heaterOnLight;
     
     float waterTemp;
+    float filteredWaterTemp;
     float airTemp;
     float humidity;
     float setpointTemp;
+    float lowPassFilterAlpha;
     float highHysteresis;
     float lowHysteresis;
     float pumpPreRunTime;

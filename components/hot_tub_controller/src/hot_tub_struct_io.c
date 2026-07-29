@@ -253,6 +253,33 @@ void hot_tub_controller_set_water_temp(float temp)
 }
 //-----------------------------------------------------------------------------
 
+/**
+ * @brief Get the current filtered water temperature.
+ *
+ * @return The current filtered water temperature in degrees.
+ */
+float hot_tub_controller_get_filtered_water_temp(void)
+{
+    lock_state();
+    float temp = hottub_ctl.filteredWaterTemp;
+    unlock_state();
+    return temp;
+}
+//----------------------------------------------------------------------------- 
+
+/**
+ * @brief Set the current filtered water temperature.
+ *
+ * @param temp The new filtered water temperature in degrees.
+ */
+void hot_tub_controller_set_filtered_water_temp(float temp)
+{
+    lock_state();
+    hottub_ctl.filteredWaterTemp = temp;
+    unlock_state();
+}
+//----------------------------------------------------------------------------- 
+
 
 
 
@@ -373,9 +400,6 @@ void hot_tub_controller_set_high_hysteresis(float temp)
 }
 //-----------------------------------------------------------------------------
 
-
-
-
 /**
  * @brief Get the current low hysteresis value.
  *
@@ -403,7 +427,6 @@ void hot_tub_controller_set_low_hysteresis(float temp)
     unlock_state();
 }
 //-----------------------------------------------------------------------------
-
 
 /**
  * @brief Get the current pump pre-run time.
@@ -487,10 +510,60 @@ void hot_tub_controller_set_last_update_time(const char *time_str)
 } 
 //-----------------------------------------------------------------------------
 
+/**
+ * @brief Get the current safety switch state.
+ *
+ * @return true if the safety switch is on, false otherwise.
+ */
+bool hot_tub_controller_get_safety_switch(void)
+{
+    lock_state();
+    bool state = hottub_ctl.safetySwitch;
+    unlock_state();
+    return state;
+}
+//-----------------------------------------------------------------------------
 
+/**
+ * @brief Set the current safety switch state.
+ *
+ * @param state true to turn the safety switch on, false to turn it off.
+ * @return true if the operation was successful, false otherwise.
+ */
+void hot_tub_controller_set_safety_switch(bool state)
+{
+    lock_state();
+    hottub_ctl.safetySwitch = state;
+    unlock_state();
+} 
+//-----------------------------------------------------------------------------
 
+/**
+ * @brief Get the current low-pass filter alpha value.
+ *
+ * @return The current low-pass filter alpha value.
+ */
+float hot_tub_controller_get_low_pass_filter_alpha(void)
+{
+    lock_state();
+    float alpha = hottub_ctl.lowPassFilterAlpha;
+    unlock_state();
+    return alpha;
+}
+//-----------------------------------------------------------------------------
 
-
+/**
+ * @brief Set the current low-pass filter alpha value.
+ *
+ * @param alpha The new low-pass filter alpha value.
+ */
+void hot_tub_controller_set_low_pass_filter_alpha(float alpha)
+{
+    lock_state();
+    hottub_ctl.lowPassFilterAlpha = alpha;
+    unlock_state();
+}
+//-----------------------------------------------------------------------------
 
 /**
  * @brief Lock the hot tub controller state for thread-safe access.
@@ -503,7 +576,6 @@ void lock_state(void)
     }
 } // End of lock_state
 //-----------------------------------------------------------------------------
-
 
 /**
  * @brief Unlock the hot tub controller state after thread-safe access.

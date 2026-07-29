@@ -20,6 +20,8 @@ bool hot_tub_controller_is_heater_on_light(void);
 esp_err_t hot_tub_controller_set_heater_on_light(bool on);
 float hot_tub_controller_get_water_temp(void);
 void hot_tub_controller_set_water_temp(float temp);
+float hot_tub_controller_get_filtered_water_temp(void);
+void hot_tub_controller_set_filtered_water_temp(float temp);
 float hot_tub_controller_get_air_temp(void);
 void hot_tub_controller_set_air_temp(float temp);
 float hot_tub_controller_get_humidity(void);
@@ -38,7 +40,11 @@ float hot_tub_controller_get_pump_post_run_time(void);
 void hot_tub_controller_set_pump_post_run_time(float time);
 void hot_tub_controller_get_last_update_time(char *buffer, size_t buffer_size);
 void hot_tub_controller_set_last_update_time(const char *time_str);
-    
+float hot_tub_controller_get_low_pass_filter_alpha(void);
+void hot_tub_controller_set_low_pass_filter_alpha(float alpha);
+bool hot_tub_controller_get_safety_switch(void);
+void hot_tub_controller_set_safety_switch(bool state);
+
 
 
 #endif // HOT_TUB_STRUCT_IO_H

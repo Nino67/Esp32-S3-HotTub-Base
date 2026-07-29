@@ -11,7 +11,7 @@
 // #include "esp_timer.h"
 // #include "driver/temperature_sensor.h"
 #include "cJSON.h"
-#
+
 #include "json_service.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
@@ -19,17 +19,19 @@
 
 #include "nvs_flash.h"
 #include "ntp_time_sync.h"
-
+#include "app_watchdog.h"
 #include "hot_tub_globals.h"
 #include "hot_tub_callbacks.h"
 #include "hot_tub_controller.h"
 #include "hot_tub_struct_io.h"
+#include "hot_tub_ds18b20.h"
 
 static const char *TAG = "hot_tub_controller";
 
 // Function prototypes
 extern bool json_service_register_command(const char *, json_cmd_callback_t, uint8_t );
 esp_err_t hot_tub_controller_init(void);
+void hot_tub_controller_main_task(void *arg);
 esp_err_t hot_tub_controller_gpio_set_level(gpio_num_t gpio_num, bool level);
 esp_err_t hot_tub_controller_publish_status(void);
 esp_err_t hot_tub_controller_to_json(cJSON *json, const HotTubController_t *state);
@@ -72,6 +74,7 @@ esp_err_t hot_tub_controller_load_saved_settings(void) {
     if (err != ESP_OK) {
         ESP_LOGW(TAG, "No settings found in NVS, saving defaults...");
         // // Set default values
+        
         hot_tub_controller_set_setpoint_temp(DEFAULT_SETPOINT_TEMP);
         hot_tub_controller_set_high_hysteresis(DEFAULT_HIGH_HYSTERESIS);
         hot_tub_controller_set_low_hysteresis(DEFAULT_LOW_HYSTERESIS);
@@ -175,7 +178,7 @@ static float hottub_controller_temperature_filter(float new_temp, float prev_tem
  * @param arg Pointer to any arguments passed to the task (not used).
  * @return ESP_OK on successful execution, or an error code on failure.
  */
-esp_err_t hot_tub_controller_main_loop(void *arg)
+void hot_tub_controller_main_task(void *arg)
 {
     HotTubController_t snapshot;
 
@@ -203,12 +206,15 @@ esp_err_t hot_tub_controller_main_loop(void *arg)
          }   
 
         // get the current water temperature
-        // hot_tub_controller_get_water_temp();    
+        float water_temp = snapshot.waterTemp;
+        if (hot_tub_ds18b20_read_temperature(&water_temp) == ESP_OK) {
+            snapshot.waterTemp = hottub_controller_temperature_filter(water_temp, snapshot.waterTemp, 0.1f);
+            // snapshot.waterTemp = water_temp;
+            ESP_LOGI(TAG, "Current water temperature: %.2f", snapshot.waterTemp);
+        } else {
+            ESP_LOGW(TAG, "DS18B20 read failed, keeping previous waterTemp %.2f", snapshot.waterTemp);
+        }
 
-        // Apply a simple low-pass filter to the water temperature reading
-        // float water_temp = hottub_controller_temperature_filter(_water_temp_sensor_read(), snapshot.waterTemp, 0.1f);
-
-        
         // --- AUTO TEMPERATURE CONTROL LOGIC ---
         if(snapshot.autoMode) 
         {
@@ -373,12 +379,16 @@ esp_err_t hot_tub_controller_main_loop(void *arg)
         // if (err != ESP_OK) {
         //     ESP_LOGE(TAG, "Failed to update GPIOs: %s", esp_err_to_name(err));
         // }   
+        
+        if (app_watchdog_feed_current_task() != ESP_OK)
+        {
+            ESP_LOGW(TAG, "hot tub controller main task failed to feed watchdog");
+        }
 
         vTaskDelay(pdMS_TO_TICKS(DEFAULT_HOTTUB_TIMING_LOOP_DELAY_MS));
     
     } // End of while(1) loop 
 
-    return ESP_OK;
 } // end of hot_tub_controller_main_loop()
 //-----------------------------------------------------------------------------
 
@@ -417,11 +427,38 @@ esp_err_t hot_tub_controller_init(void)
         ESP_LOGE(TAG, "Failed to load saved settings: %s", esp_err_to_name(err));
     }
 
+    err = hot_tub_ds18b20_init();
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to initialize DS18B20 sensor: %s", esp_err_to_name(err));
+    }
+
     // Register the JSON service callbacks
     err = hot_tub_controller_register_callbacks();
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "Failed to register hot tub controller callbacks: %s", esp_err_to_name(err));
         return err;
+    }
+
+
+    TaskHandle_t task_handle = NULL;
+    BaseType_t result = xTaskCreatePinnedToCore(
+                            hot_tub_controller_main_task,
+                            "hot_tub_controller_main_task",
+                            4096,
+                            NULL,
+                            6,
+                            &task_handle,
+                            0);
+    if (result != pdPASS) {
+        ESP_LOGE(TAG, "Failed to create hot tub controller main task");
+        return ESP_ERR_NO_MEM;
+    }
+
+    if (app_watchdog_register_task(task_handle, "hot_tub_controller_main_task") != ESP_OK)
+    {
+        ESP_LOGE(TAG, "Failed to register hot tub controller main task with watchdog");
+        vTaskDelete(task_handle);
+        return ESP_FAIL;
     }
 
     return ESP_OK;
@@ -538,6 +575,23 @@ esp_err_t hot_tub_controller_register_callbacks()
     if (!json_service_register_command("hottub.pump.post.run.time.set", hottub_pump_post_run_time_set_callback, CORE_0)) {
         return ESP_FAIL;
     }
+
+    if (!json_service_register_command("hottub.filtered.water.temp.get", hottub_filtered_water_temp_get_callback, CORE_0)) {
+        return ESP_FAIL;
+    }
+
+    if (!json_service_register_command("hottub.filtered.water.temp.set", hottub_filtered_water_temp_set_callback, CORE_0)) {
+        return ESP_FAIL;
+    }
+
+    if (!json_service_register_command("hottub.air.temp.get", hottub_air_temperature_get_callback, CORE_0)) {
+        return ESP_FAIL;
+    }
+
+    if (!json_service_register_command("hottub.air.temp.set", hottub_air_temperature_set_callback, CORE_0)) {
+        return ESP_FAIL;
+    }
+
     return ESP_OK;
 } // end of hot_tub_controller_register_callbacks()
 //-----------------------------------------------------------------------------
@@ -604,6 +658,7 @@ esp_err_t hot_tub_controller_to_json(cJSON *json, const HotTubController_t *stat
 {
     if (!json || !state) return ESP_ERR_INVALID_ARG;
 
+    cJSON_AddBoolToObject(json, "safetySwitch", state->safetySwitch);
     cJSON_AddBoolToObject(json, "heaterOn", state->heaterOn);
     cJSON_AddBoolToObject(json, "autoMode", state->autoMode);
     cJSON_AddBoolToObject(json, "tempUnitCelsius", state->tempUnitCelsius);
@@ -611,14 +666,18 @@ esp_err_t hot_tub_controller_to_json(cJSON *json, const HotTubController_t *stat
     cJSON_AddBoolToObject(json, "heaterOnLight", state->heaterOnLight);
     
     cJSON_AddNumberToObject(json, "waterTemp", state->waterTemp);
+    cJSON_AddNumberToObject(json, "filteredWaterTemp", state->filteredWaterTemp);
     cJSON_AddNumberToObject(json, "airTemp", state->airTemp);
     cJSON_AddNumberToObject(json, "humidity", state->humidity);
     cJSON_AddNumberToObject(json, "setpointTemp", state->setpointTemp);
     cJSON_AddNumberToObject(json, "highHysteresis", state->highHysteresis);
     cJSON_AddNumberToObject(json, "lowHysteresis", state->lowHysteresis);
+    cJSON_AddNumberToObject(json, "pumpState", state->pumpState);
     cJSON_AddNumberToObject(json, "pumpPreRunTime", state->pumpPreRunTime);
     cJSON_AddNumberToObject(json, "pumpPostRunTime", state->pumpPostRunTime);
+    cJSON_AddNumberToObject(json, "simulationMode", state->simulationMode);
     cJSON_AddStringToObject(json, "lastUpdateTime", state->lastUpdateTime);
+
     return ESP_OK;
 } // end of hot_tub_controller_to_json()
 //-----------------------------------------------------------------------------
