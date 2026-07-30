@@ -6,9 +6,11 @@
 #include "hot_tub_struct_io.h"
 #include "hot_tub_controller.h"
 #include "hot_tub_callbacks.h"
+#include "json_service.h"
 
 static const char *TAG = "hot_tub_callbacks";
 
+extern bool json_service_register_command(const char *, json_cmd_callback_t, uint8_t );
 void get_current_time(char *strftime_buf, size_t buf_size);
 
 
@@ -253,6 +255,88 @@ void hottub_water_temperature_set_callback(cJSON *root) {
 
 
 /**
+ * @brief Callback function to handle the "hottub.filtered.water.temp.get" command received via JSON service.
+ *
+ * @param root The cJSON object containing the command and its data.
+ *
+ * @note Ex: command received: {"id":1,"type":"req","cmd":"hottub.filtered.water.temp.get","params":""}
+ */
+void hottub_filtered_water_temp_get_callback(cJSON *root) {
+    float filtered_water_temp = hot_tub_controller_get_filtered_water_temp();
+    cJSON *response = cJSON_CreateObject();
+    cJSON_AddNumberToObject(response, "filtered.water.temp.get", filtered_water_temp);
+    hottub_callback_response(root, response);
+} // End of hottub_filtered_water_temp_get_callback
+//-----------------------------------------------------------------------------
+
+
+/**
+ * @brief Callback function to handle the "hottub.filtered.water.temp.set" command received via JSON service.
+ *
+ * @param root The cJSON object containing the command and its data.
+ *
+ * @note Ex: command received: {"id":1,"type":"req","cmd":"hottub.filtered.water.temp.set","params":{"filtered.water.temp.set":37.5}}
+ */
+void hottub_simulation_mode_get_callback(cJSON *root) {
+    sim_mode_t sim_mode = hot_tub_controller_get_simulation_mode();
+    cJSON *response = cJSON_CreateObject();
+    cJSON_AddNumberToObject(response, "simulation.mode.get", (int)sim_mode);
+    hottub_callback_response(root, response);
+} // End of hottub_simulation_mode_get_callback
+//----------------------------------------------------------------------------- 
+
+
+/**
+ * @brief Callback function to handle the "hottub.simulation.mode.set" command received via JSON service.
+ *
+ * @param root The cJSON object containing the command and its data.
+ *
+ * @note Ex: command received: {"id":1,"type":"req","cmd":"hottub.simulation.mode.set","params":{"simulation.mode.set":1}}
+ */
+void hottub_simulation_mode_set_callback(cJSON *root) {
+    param_tupple_t param;
+
+    if (parse_json_param(root, &param.key_name, &param.key_value) != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to parse JSON params");
+        return;
+    }
+    cJSON *sim_mode_item = param.key_value;
+    sim_mode_t sim_mode = (sim_mode_t)sim_mode_item->valueint;
+    hot_tub_controller_set_simulation_mode(sim_mode);
+
+    cJSON *response = cJSON_CreateObject();
+    cJSON_AddNumberToObject(response, "simulation.mode.set", (int)sim_mode);
+    hottub_callback_response(root, response);
+} // End of hottub_simulation_mode_set_callback
+//----------------------------------------------------------------------------- 
+
+
+/**
+ * @brief Callback function to handle the "hottub.filtered.water.temp.set" command received via JSON service.
+ *
+ * @param root The cJSON object containing the command and its data.
+ *
+ * @note Ex: command received: {"id":1,"type":"req","cmd":"hottub.filtered.water.temp.set","params":{"filtered.water.temp.set":37.5}}
+ */
+void hottub_filtered_water_temp_set_callback(cJSON *root) {
+    param_tupple_t param;
+
+    if (parse_json_param(root, &param.key_name, &param.key_value) != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to parse JSON params");
+        return;
+    }
+    cJSON *filtered_water_temp_item = param.key_value;
+    float filtered_water_temp = (float)filtered_water_temp_item->valuedouble;
+    hot_tub_controller_set_filtered_water_temp(filtered_water_temp);
+
+    cJSON *response = cJSON_CreateObject();
+    cJSON_AddNumberToObject(response, "filtered.water.temp.set", filtered_water_temp);
+    hottub_callback_response(root, response);
+} // End of hottub_filtered_water_temp_set_callback
+//-----------------------------------------------------------------------------
+
+
+/**
  * @brief Callback function to handle the "hottub.air.temperature.get" command received via JSON service.
  *
  * @param root The cJSON object containing the command and its data.
@@ -486,45 +570,6 @@ void hottub_pump_state_set_callback(cJSON *root) {
 } // End of hottub_pump_state_set_callback
 //-----------------------------------------------------------------------------
 
-/**
- * @brief Callback function to handle the "hottub.filtered.water.temp.get" command received via JSON service.
- *
- * @param root The cJSON object containing the command and its data.
- *
- * @note Ex: command received: {"id":1,"type":"req","cmd":"hottub.filtered.water.temp.get","params":""}
- */
-void hottub_filtered_water_temp_get_callback(cJSON *root) {
-    float filtered_water_temp = hot_tub_controller_get_filtered_water_temp();
-    cJSON *response = cJSON_CreateObject();
-    cJSON_AddNumberToObject(response, "filtered.water.temp.get", filtered_water_temp);
-    hottub_callback_response(root, response);
-} // End of hottub_filtered_water_temp_get_callback
-//-----------------------------------------------------------------------------
-
-/**
- * @brief Callback function to handle the "hottub.filtered.water.temp.set" command received via JSON service.
- *
- * @param root The cJSON object containing the command and its data.
- *
- * @note Ex: command received: {"id":1,"type":"req","cmd":"hottub.filtered.water.temp.set","params":{"filtered.water.temp.set":25.0}}
- */
-void hottub_filtered_water_temp_set_callback(cJSON *root) {
-    param_tupple_t param;
-
-    if (parse_json_param(root, &param.key_name, &param.key_value) != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to parse JSON params");
-        return;
-    }
-    cJSON *filtered_water_temp_item = param.key_value;
-    float filtered_water_temp = (float)filtered_water_temp_item->valuedouble;
-    hot_tub_controller_set_filtered_water_temp(filtered_water_temp);
-
-    // Create a response JSON object
-    cJSON *response = cJSON_CreateObject();
-    cJSON_AddNumberToObject(response, "filtered.water.temp.set", filtered_water_temp);
-    hottub_callback_response(root, response);
-} // End of hottub_filtered_water_temp_set_callback
-//-----------------------------------------------------------------------------
 
 /**
  * @brief Callback function to handle the "hottub.low.pass.filter.alpha.get" command received via JSON service.
@@ -540,6 +585,7 @@ void hottub_low_pass_filter_alpha_get_callback(cJSON *root) {
     hottub_callback_response(root, response);
 } // End of hottub_low_pass_filter_alpha_get_callback
 //-----------------------------------------------------------------------------
+
 
 /**
  * @brief Callback function to handle the "hottub.low.pass.filter.alpha.set" command received via JSON service.
@@ -566,6 +612,7 @@ void hottub_low_pass_filter_alpha_set_callback(cJSON *root) {
 } // End of hottub_low_pass_filter_alpha_set_callback
 //-----------------------------------------------------------------------------
 
+
 /**
  * @brief Callback function to handle the "hottub.safety.switch.get" command received via JSON service.
  *
@@ -580,6 +627,7 @@ void hottub_safety_switch_get_callback(cJSON *root) {
     hottub_callback_response(root, response);
 } // End of hottub_safety_switch_get_callback
 //-----------------------------------------------------------------------------
+
 
 /**
  * @brief Callback function to handle the "hottub.safety.switch.set" command received via JSON service.
@@ -605,6 +653,7 @@ void hottub_safety_switch_set_callback(cJSON *root) {
     hottub_callback_response(root, response);
 } // End of hottub_safety_switch_set_callback
 //-----------------------------------------------------------------------------
+
 
 /**
  * @brief Callback function to handle the "hottub.pump.pre.run.time.get" command received via JSON service.
@@ -689,12 +738,15 @@ void hottub_pump_post_run_time_set_callback(cJSON *root) {
 } // End of hottub_pump_post_run_time_set_callback
 //-----------------------------------------------------------------------------
 
-// #include <time.h>
-// #include <sys/time.h>
-// #include "esp_log.h"
 
-// static const char *TAG = "time";
-
+/**
+ * @brief Get the current local time and format it as a string.
+ *
+ * @param strftime_buf Buffer to hold the formatted time string.
+ * @param buf_size Size of the buffer.
+ *
+ * @note The time is formatted as "YYYY-MM-DD HH:MM:SS".
+ */
 void get_current_time(char *strftime_buf, size_t buf_size)
 {
     time_t now;
@@ -706,12 +758,91 @@ void get_current_time(char *strftime_buf, size_t buf_size)
     strftime(strftime_buf, buf_size, "%Y-%m-%d %H:%M:%S", &timeinfo);
     ESP_LOGI(TAG, "Current time: %s", strftime_buf);
 }
+//-----------------------------------------------------------------------------
 
 
-// // Register the "system_status" command with the JSON service
-// json_service_register_command("system.status.get", system_status_callback, 0);
 
-// // Register the "hot_tub_controller" command with the JSON service
+/**
+ * @brief Array of callback functions for the hot tub controller commands.
+ *
+ * Each entry in the array consists of a command string and its corresponding callback function.
+ * The array is terminated with a sentinel value (NULL, NULL).
+ */
+callbacks_t hot_tub_callbacks[] = {
+    {"hottub.status.get", hottub_status_get_callback},
+    {"hottub.automode.get", hottub_auto_mode_get_callback},
+    {"hottub.automode.set", hottub_auto_mode_set_callback},
+    {"hottub.heater.status.get", hottub_heater_status_get_callback},
+    {"hottub.heater.status.set", hottub_heater_status_set_callback},
+    {"hottub.temperature.unit.get", hottub_temperature_unit_get_callback},
+    {"hottub.temperature.unit.set", hottub_temperature_unit_set_callback},
+    {"hottub.water.temperature.get", hottub_water_temperature_get_callback},
+    {"hottub.water.temperature.set", hottub_water_temperature_set_callback},
+    {"hottub.filtered.water.temp.get", hottub_filtered_water_temp_get_callback},
+    {"hottub.filtered.water.temp.set", hottub_filtered_water_temp_set_callback},
+    {"hottub.simulation.mode.get", hottub_simulation_mode_get_callback},
+    {"hottub.simulation.mode.set", hottub_simulation_mode_set_callback},
+    {"hottub.air.temperature.get", hottub_air_temperature_get_callback},
+    {"hottub.air.temperature.set", hottub_air_temperature_set_callback},
+    {"hottub.humidity.get", hottub_humidity_get_callback},
+    {"hottub.humidity.set", hottub_humidity_set_callback},
+    {"hottub.setpoint.temperature.get", hottub_setpoint_temperature_get_callback},
+    {"hottub.setpoint.temperature.set", hottub_setpoint_temperature_set_callback},
+    {"hottub.high.hysteresis.get", hottub_high_hysteresis_get_callback},
+    {"hottub.high.hysteresis.set", hottub_high_hysteresis_set_callback},
+    {"hottub.low.hysteresis.get", hottub_low_hysteresis_get_callback},
+    {"hottub.low.hysteresis.set", hottub_low_hysteresis_set_callback},
+    {"hottub.pump.state.get", hottub_pump_state_get_callback},
+    {"hottub.pump.state.set", hottub_pump_state_set_callback},
+    {"hottub.low.pass.filter.alpha.get", hottub_low_pass_filter_alpha_get_callback},
+    {"hottub.low.pass.filter.alpha.set", hottub_low_pass_filter_alpha_set_callback},
+    {"hottub.safety.switch.get", hottub_safety_switch_get_callback},
+    {"hottub.safety.switch.set", hottub_safety_switch_set_callback},
+    {"hottub.pump.pre.run.time.get", hottub_pump_pre_run_time_get_callback},
+    {"hottub.pump.pre.run.time.set", hottub_pump_pre_run_time_set_callback},
+    {"hottub.pump.post.run.time.get", hottub_pump_post_run_time_get_callback},
+    {"hottub.pump.post.run.time.set", hottub_pump_post_run_time_set_callback},
+    {NULL, NULL} // Sentinel value to mark the end of the array
+};
+//-----------------------------------------------------------------------------
+
+
+/**
+ * @brief Registry of callback functions for the hot tub controller commands.
+ *
+ * This structure holds the array of callbacks and the number of callbacks.
+ */
+static callbacks_registry_t hot_tub_controller_callbacks_registry = {
+    .callbacks = hot_tub_callbacks,
+    .num_callbacks = sizeof(hot_tub_callbacks) / sizeof(hot_tub_callbacks[0]) - 1 // Exclude the sentinel
+};
+//-----------------------------------------------------------------------------
+
+// Pointer to the registry of callback functions for the hot tub controller commands.
+callbacks_registry_t *hot_tub_controller_callbacks = &hot_tub_controller_callbacks_registry;
+
+/**
+ * @brief Register the callback functions for the,
+ * hot tub controller commands with the JSON service. 
+ */
+esp_err_t hot_tub_controller_register_callbacks()
+{
+    // loop through the hot_tub_controller_callbacks and register each command with the JSON service
+    for (size_t i = 0; i < hot_tub_controller_callbacks->num_callbacks; i++) 
+    {
+        const char *command = hot_tub_controller_callbacks->callbacks[i].command;
+        json_cmd_callback_t callback = hot_tub_controller_callbacks->callbacks[i].callback;
+
+        if (!json_service_register_command(command, callback, CORE_0)) {
+            return ESP_FAIL;
+        }
+    }
+
+    return ESP_OK;
+} // end of hot_tub_controller_register_callbacks()
+//-----------------------------------------------------------------------------
+
+
 // json_service_register_command("hottub.status.get", hottub_status_get_callback, 0);
 // json_service_register_command("hottub.automode.get", hottub_auto_mode_get_callback, 0);
 // json_service_register_command("hottub.automode.set", hottub_auto_mode_set_callback, 0);
@@ -719,4 +850,30 @@ void get_current_time(char *strftime_buf, size_t buf_size)
 // json_service_register_command("hottub.heater.status.set", hottub_heater_status_set_callback, 0);    
 // json_service_register_command("hottub.temperature.unit.get", hottub_temperature_unit_get_callback, 0);
 // json_service_register_command("hottub.temperature.unit.set", hottub_temperature_unit_set_callback, 0);
-
+// json_service_register_command("hottub.water.temperature.get", hottub_water_temperature_get_callback, 0);
+// json_service_register_command("hottub.water.temperature.set", hottub_water_temperature_set_callback, 0);
+// json_service_register_command("hottub.filtered.water.temp.get", hottub_filtered_water_temp_get_callback, 0);
+// json_service_register_command("hottub.filtered.water.temp.set", hottub_filtered_water_temp_set_callback, 0);
+// json_service_register_command("hottub.simulation.mode.get", hottub_simulation_mode_get_callback, 0);
+// json_service_register_command("hottub.simulation.mode.set", hottub_simulation_mode_set_callback, 0);
+// json_service_register_command("hottub.air.temperature.get", hottub_air_temperature_get_callback, 0);
+// json_service_register_command("hottub.air.temperature.set", hottub_air_temperature_set_callback, 0);
+// json_service_register_command("hottub.humidity.get", hottub_humidity_get_callback, 0);
+// json_service_register_command("hottub.humidity.set", hottub_humidity_set_callback, 0);
+// json_service_register_command("hottub.setpoint.temperature.get", hottub_setpoint_temperature_get_callback, 0);
+// json_service_register_command("hottub.setpoint.temperature.set", hottub_setpoint_temperature_set_callback, 0);
+// json_service_register_command("hottub.high.hysteresis.get", hottub_high_hysteresis_get_callback, 0);
+// json_service_register_command("hottub.high.hysteresis.set", hottub_high_hysteresis_set_callback, 0);
+// json_service_register_command("hottub.low.hysteresis.get", hottub_low_hysteresis_get_callback, 0);
+// json_service_register_command("hottub.low.hysteresis.set", hottub_low_hysteresis_set_callback, 0);
+// json_service_register_command("hottub.pump.state.get", hottub_pump_state_get_callback, 0);
+// json_service_register_command("hottub.pump.state.set", hottub_pump_state_set_callback, 0);
+// json_service_register_command("hottub.low.pass.filter.alpha.get", hottub_low_pass_filter_alpha_get_callback, 0);
+// json_service_register_command("hottub.low.pass.filter.alpha.set", hottub_low_pass_filter_alpha_set_callback, 0);
+// json_service_register_command("hottub.safety.switch.get", hottub_safety_switch_get_callback, 0);
+// json_service_register_command("hottub.safety.switch.set", hottub_safety_switch_set_callback, 0);
+// json_service_register_command("hottub.pump.pre.run.time.get", hottub_pump_pre_run_time_get_callback, 0);
+// json_service_register_command("hottub.pump.pre.run.time.set", hottub_pump_pre_run_time_set_callback, 0);
+// json_service_register_command("hottub.pump.post.run.time.get", hottub_pump_post_run_time_get_callback, 0);
+// json_service_register_command("hottub.pump.post.run.time.set", hottub_pump_post_run_time_set_callback, 0);
+// json_service_register_command("hottub.status.get", hottub_status_get_callback, 0);

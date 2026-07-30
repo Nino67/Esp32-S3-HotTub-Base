@@ -26,7 +26,7 @@
 #define DEFAULT_HOTTUB_TIMING_LOOP_DELAY_MS 1000
 
 #define DEFAULT_SAFETY_SWITCH_STATE false
-#define DEFAULT_SETPOINT_TEMP 36.0
+#define DEFAULT_SETPOINT_TEMP 30.0
 #define DEFAULT_SETPOINT_TEMP_MIN 20.0
 #define DEFAULT_SETPOINT_TEMP_MAX 40.0
 #define DEFAULT_LOW_PASS_FILTER_ALPHA 0.1f
@@ -49,6 +49,14 @@
 #define DEFAULT_PUMP_POST_RUN_TIME_MAX 20.0
 
 #define DEFAULT_TEMP_UNIT_CELSIUS true
+
+
+// Define a structure to hold component callback objects
+typedef struct {
+    const char *command;
+    void (*callback)(cJSON *root);
+} callbacks_t;
+
 
 // Safety switch states
 typedef enum {

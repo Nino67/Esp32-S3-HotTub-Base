@@ -13,7 +13,12 @@
 
 #include "hot_tub_globals.h"
 
+typedef struct {
+    callbacks_t *callbacks;
+    size_t num_callbacks;
+} callbacks_registry_t;
 
+extern callbacks_registry_t *hot_tub_controller_callbacks;
 
 esp_err_t hot_tub_controller_register_callbacks();
 void hottub_callback_response(cJSON *root, cJSON *response);
@@ -45,10 +50,12 @@ void hottub_pump_post_run_time_get_callback(cJSON *root);
 void hottub_pump_post_run_time_set_callback(cJSON *root);
 void hottub_filtered_water_temp_get_callback(cJSON *root) ;
 void hottub_filtered_water_temp_set_callback(cJSON *root) ;
-void hottub_air_temp_get_callback(cJSON *root) ;
-void hottub_air_temp_set_callback(cJSON *root) ;
 void hottub_low_pass_filter_alpha_get_callback(cJSON *root);
 void hottub_low_pass_filter_alpha_set_callback(cJSON *root);
+void hottub_safety_switch_get_callback(cJSON *root);
+void hottub_safety_switch_set_callback(cJSON *root);
+void hottub_simulation_mode_get_callback(cJSON *root);
+void hottub_simulation_mode_set_callback(cJSON *root);
 
     
 

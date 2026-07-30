@@ -429,19 +429,25 @@ esp_err_t web_server_start(void)
         .handler = index_handler,
     };
     httpd_uri_t app_js_uri = {
-        .uri = "/app.js",
+        .uri = "/js/app.js",
         .method = HTTP_GET,
         .handler = asset_handler,
     };
     httpd_uri_t crc_wrapper_uri = {
-        .uri = "/crc32_wrapper.js",
+        .uri = "/js/crc32_wrapper.js",
         .method = HTTP_GET,
         .handler = asset_handler,
     };
     httpd_uri_t styles_uri = {
-        .uri = "/styles.css",
+        .uri = "/css/styles.css",
         .method = HTTP_GET,
         .handler = asset_handler,
+    };
+    httpd_uri_t uplot_uri = {
+        .uri = "/vendor/uPlot.iife.min.js",
+        .method = HTTP_GET,
+        .handler = asset_handler,
+        .is_websocket = false,
     };
     httpd_uri_t ws_uri = {
         .uri = "/ws",
@@ -449,11 +455,12 @@ esp_err_t web_server_start(void)
         .handler = ws_handler,
         .is_websocket = true,
     };
-
+    
     ESP_RETURN_ON_ERROR(httpd_register_uri_handler(s_server, &index_uri), TAG, "index handler failed");
     ESP_RETURN_ON_ERROR(httpd_register_uri_handler(s_server, &app_js_uri), TAG, "js handler failed");
     ESP_RETURN_ON_ERROR(httpd_register_uri_handler(s_server, &crc_wrapper_uri), TAG, "crc wrapper handler failed");
     ESP_RETURN_ON_ERROR(httpd_register_uri_handler(s_server, &styles_uri), TAG, "css handler failed");
+    ESP_RETURN_ON_ERROR(httpd_register_uri_handler(s_server, &uplot_uri), TAG, "uPlot handler failed");
     ESP_RETURN_ON_ERROR(httpd_register_uri_handler(s_server, &ws_uri), TAG, "ws handler failed");
 
     return ESP_OK;

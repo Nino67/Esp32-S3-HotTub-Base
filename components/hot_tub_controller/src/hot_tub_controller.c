@@ -10,6 +10,7 @@
 // #include "esp_system.h"
 // #include "esp_timer.h"
 // #include "driver/temperature_sensor.h"
+#include "hot_tub_globals.h"
 #include "cJSON.h"
 
 #include "json_service.h"
@@ -20,13 +21,17 @@
 #include "nvs_flash.h"
 #include "ntp_time_sync.h"
 #include "app_watchdog.h"
-#include "hot_tub_globals.h"
 #include "hot_tub_callbacks.h"
 #include "hot_tub_controller.h"
 #include "hot_tub_struct_io.h"
 #include "hot_tub_ds18b20.h"
 
 static const char *TAG = "hot_tub_controller";
+
+#ifndef DEFAULT_HOTTUB_TIMING_LOOP_DELAY_MS
+#define DEFAULT_HOTTUB_TIMING_LOOP_DELAY_MS 1000
+#endif
+
 
 // Function prototypes
 extern bool json_service_register_command(const char *, json_cmd_callback_t, uint8_t );
@@ -71,6 +76,9 @@ esp_err_t hot_tub_controller_load_saved_settings(void) {
 
     // Load settings from NVS, if not found, save default values
     esp_err_t err = hot_tub_controller_settings_load_from_nvs();
+
+    err = ESP_ERR_NVS_NOT_FOUND; // Force default settings for testing
+
     if (err != ESP_OK) {
         ESP_LOGW(TAG, "No settings found in NVS, saving defaults...");
         // // Set default values
@@ -83,9 +91,13 @@ esp_err_t hot_tub_controller_load_saved_settings(void) {
         hot_tub_controller_set_pump_post_run_time(DEFAULT_PUMP_POST_RUN_TIME);
         hot_tub_controller_set_temp_unit_celsius(DEFAULT_TEMP_UNIT_CELSIUS);
         hot_tub_controller_set_auto_mode(DEFAULT_AUTO_MODE);
-
-
-
+        hot_tub_controller_set_safety_switch(DEFAULT_SAFETY_SWITCH_STATE);
+        hot_tub_controller_set_simulation_mode(DEFAULT_SIMULATION_MODE);
+        hot_tub_controller_set_pump(PUMP_OFF);
+        hot_tub_controller_set_heater_on(false);
+        hot_tub_controller_set_pump_on_light(false);
+        hot_tub_controller_set_heater_on_light(false);
+        
         
         if (hot_tub_controller_settings_save_to_nvs() != ESP_OK) {
             ESP_LOGE(TAG, "Failed to save default settings to NVS");
@@ -187,6 +199,14 @@ void hot_tub_controller_main_task(void *arg)
 {
     HotTubController_t snapshot;
 
+
+    TickType_t xLastWakeTime;
+    const TickType_t xFrequency = 1;
+    // BaseType_t xWasDelayed;
+
+    xLastWakeTime = xTaskGetTickCount ();
+
+
     // Track ownership: Did the auto-controller start the pump for heating?
     static bool auto_started_pump = false;
 
@@ -198,8 +218,11 @@ void hot_tub_controller_main_task(void *arg)
 
     while (1) 
     {
+        // Wait for the next cycle.
+        xTaskDelayUntil( &xLastWakeTime, xFrequency );
+
         // Clear the snapshot structure
-        memset(&snapshot, 0, sizeof(snapshot));
+        // memset(&snapshot, 0, sizeof(snapshot));
 
         // Take a snapshot of the current state
         err = hot_tub_controller_snapshot_get(&snapshot);
@@ -215,7 +238,7 @@ void hot_tub_controller_main_task(void *arg)
         if (hot_tub_ds18b20_read_temperature(&water_temp) == ESP_OK) {
             snapshot.waterTemp = hottub_controller_temperature_filter(water_temp, snapshot.waterTemp, 0.1f);
             // snapshot.waterTemp = water_temp;
-            ESP_LOGI(TAG, "Current water temperature: %.2f", snapshot.waterTemp);
+            // ESP_LOGI(TAG, "Current water temperature: %.2f", snapshot.waterTemp);
         } else {
             ESP_LOGW(TAG, "DS18B20 read failed, keeping previous waterTemp %.2f", snapshot.waterTemp);
         }
@@ -390,9 +413,8 @@ void hot_tub_controller_main_task(void *arg)
             ESP_LOGW(TAG, "hot tub controller main task failed to feed watchdog");
         }
 
-        vTaskDelay(pdMS_TO_TICKS(DEFAULT_HOTTUB_TIMING_LOOP_DELAY_MS));
     
-    } // End of while(1) loop 
+     } // End of while(1) loop 
 
 } // end of hot_tub_controller_main_loop()
 //-----------------------------------------------------------------------------
@@ -472,142 +494,30 @@ esp_err_t hot_tub_controller_init(void)
 //-----------------------------------------------------------------------------
 
 
-/**
- * @brief Register the callback functions for the,
- * hot tub controller commands with the JSON service. 
- */
-esp_err_t hot_tub_controller_register_callbacks()
-{
-    // Register the callback for the "hottub.status.get" command
-    if (!json_service_register_command("hottub.status.get", hottub_status_get_callback, CORE_0)) {
-        return ESP_FAIL;
-    }
 
-    // Register the callback for the "hottub.automode.get" command
-    if (!json_service_register_command("hottub.auto.mode.get", hottub_auto_mode_get_callback, CORE_0)) {
-        return ESP_FAIL;
-    }
+/********************************************************** */
+/**** NEEDS TO BE MOVED INTO hot_tub_callbacks.c ****/
+/********************************************************** */
+// /**
+//  * @brief Register the callback functions for the,
+//  * hot tub controller commands with the JSON service. 
+//  */
+// esp_err_t hot_tub_controller_register_callbacks()
+// {
+//     // loop through the hot_tub_controller_callbacks and register each command with the JSON service
+//     for (size_t i = 0; i < hot_tub_controller_callbacks->num_callbacks; i++) 
+//     {
+//         const char *command = hot_tub_controller_callbacks->callbacks[i].command;
+//         json_cmd_callback_t callback = hot_tub_controller_callbacks->callbacks[i].callback;
 
-    // Register the callback for the "hottub.automode.set" command
-    if (!json_service_register_command("hottub.auto.mode.set", hottub_auto_mode_set_callback, CORE_0)) {
-        return ESP_FAIL;
-    }
+//         if (!json_service_register_command(command, callback, CORE_0)) {
+//             return ESP_FAIL;
+//         }
+//     }
 
-    if (!json_service_register_command("hottub.heater.status.get", hottub_heater_status_get_callback, CORE_0)) {
-        return ESP_FAIL;
-    }
-
-    if (!json_service_register_command("hottub.heater.status.set", hottub_heater_status_set_callback, CORE_0)) {
-        return ESP_FAIL;
-    }
-
-    if (!json_service_register_command("hottub.temperature.unit.get", hottub_temperature_unit_get_callback, CORE_0)) {
-        return ESP_FAIL;
-    }
-
-    if (!json_service_register_command("hottub.temperature.unit.set", hottub_temperature_unit_set_callback, CORE_0)) {
-        return ESP_FAIL;
-    }  
-    
-    if (!json_service_register_command("hottub.water.temperature.get", hottub_water_temperature_get_callback, CORE_0)) {
-        return ESP_FAIL;
-    }
-
-    if(!json_service_register_command("hottub.water.temperature.set", hottub_water_temperature_set_callback, CORE_0)) {
-        return ESP_FAIL;
-    }
-
-    if (!json_service_register_command("hottub.air.temperature.get", hottub_air_temperature_get_callback, CORE_0)) {
-        return ESP_FAIL;
-    }
-
-    if (!json_service_register_command("hottub.air.temperature.set", hottub_air_temperature_set_callback, CORE_0)) {
-        return ESP_FAIL;
-    }
-
-    if (!json_service_register_command("hottub.humidity.get", hottub_humidity_get_callback, CORE_0)) {
-        return ESP_FAIL;
-    }
-
-    if (!json_service_register_command("hottub.humidity.set", hottub_humidity_set_callback, CORE_0)) {
-        return ESP_FAIL;
-    }
-    
-    if (!json_service_register_command("hottub.setpoint.temperature.get", hottub_setpoint_temperature_get_callback, CORE_0)) {
-        return ESP_FAIL;
-    }
-
-    if (!json_service_register_command("hottub.setpoint.temperature.set", hottub_setpoint_temperature_set_callback, CORE_0)) {
-        return ESP_FAIL;
-    }
-
-    if (!json_service_register_command("hottub.high.hysteresis.get", hottub_high_hysteresis_get_callback, CORE_0)) {
-        return ESP_FAIL;
-    }
-
-    if (!json_service_register_command("hottub.high.hysteresis.set", hottub_high_hysteresis_set_callback, CORE_0)) {
-        return ESP_FAIL;
-    }
-
-    if (!json_service_register_command("hottub.low.hysteresis.get", hottub_low_hysteresis_get_callback, CORE_0)) {
-        return ESP_FAIL;
-    }
-
-    if (!json_service_register_command("hottub.low.hysteresis.set", hottub_low_hysteresis_set_callback, CORE_0)) {
-        return ESP_FAIL;
-    }
-
-    if (!json_service_register_command("hottub.pump.state.get", hottub_pump_state_get_callback, CORE_0)) {
-        return ESP_FAIL;
-    }
-
-    if (!json_service_register_command("hottub.pump.state.set", hottub_pump_state_set_callback, CORE_0)) {
-        return ESP_FAIL;
-    }
-
-    if (!json_service_register_command("hottub.pump.pre.run.time.get", hottub_pump_pre_run_time_get_callback, CORE_0)) {
-        return ESP_FAIL;
-    }
-
-    if (!json_service_register_command("hottub.pump.pre.run.time.set", hottub_pump_pre_run_time_set_callback, CORE_0)) {
-        return ESP_FAIL;
-    }
-
-    if (!json_service_register_command("hottub.pump.post.run.time.get", hottub_pump_post_run_time_get_callback, CORE_0)) {
-        return ESP_FAIL;
-    }
-
-    if (!json_service_register_command("hottub.pump.post.run.time.set", hottub_pump_post_run_time_set_callback, CORE_0)) {
-        return ESP_FAIL;
-    }
-
-    if (!json_service_register_command("hottub.filtered.water.temp.get", hottub_filtered_water_temp_get_callback, CORE_0)) {
-        return ESP_FAIL;
-    }
-
-    if (!json_service_register_command("hottub.filtered.water.temp.set", hottub_filtered_water_temp_set_callback, CORE_0)) {
-        return ESP_FAIL;
-    }
-
-    if (!json_service_register_command("hottub.air.temp.get", hottub_air_temperature_get_callback, CORE_0)) {
-        return ESP_FAIL;
-    }
-
-    if (!json_service_register_command("hottub.air.temp.set", hottub_air_temperature_set_callback, CORE_0)) {
-        return ESP_FAIL;
-    }
-
-    if (!json_service_register_command("hottub.low.pass.filter.alpha.get", hottub_low_pass_filter_alpha_get_callback, CORE_0)) {
-        return ESP_FAIL;
-    }
-
-    if (!json_service_register_command("hottub.low.pass.filter.alpha.set", hottub_low_pass_filter_alpha_set_callback, CORE_0)) {
-        return ESP_FAIL;
-    }
-
-    return ESP_OK;
-} // end of hot_tub_controller_register_callbacks()
-//-----------------------------------------------------------------------------
+//     return ESP_OK;
+// } // end of hot_tub_controller_register_callbacks()
+// //-----------------------------------------------------------------------------
 
 
 /**

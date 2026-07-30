@@ -6,6 +6,8 @@
 #include "esp_err.h"
 #include "hot_tub_controller.h"
 
+
+
 esp_err_t hot_tub_struct_io_save_settings_to_nvs(void);
 esp_err_t hot_tub_controller_snapshot_get(HotTubController_t *);
 esp_err_t hot_tub_controller_snapshot_set(const HotTubController_t *state);
@@ -45,6 +47,10 @@ float hot_tub_controller_get_low_pass_filter_alpha(void);
 void hot_tub_controller_set_low_pass_filter_alpha(float alpha);
 bool hot_tub_controller_get_safety_switch(void);
 void hot_tub_controller_set_safety_switch(bool state);
+void hot_tub_controller_set_simulation_mode(sim_mode_t mode);
+sim_mode_t hot_tub_controller_get_simulation_mode(void);
+float hot_tub_controller_get_filtered_water_temp(void);
+void hot_tub_controller_set_filtered_water_temp(float temp);
 
 
 

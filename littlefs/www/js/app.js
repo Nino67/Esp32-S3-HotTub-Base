@@ -1,6 +1,6 @@
 
 
-import { createCrc32JsonWrapper, parseAndVerifyCrc32Wrapper } from '/crc32_wrapper.js';
+import { createCrc32JsonWrapper, parseAndVerifyCrc32Wrapper } from '/js/crc32_wrapper.js';
 
 const badge = document.getElementById('connBadge');
 const stateView = document.getElementById('stateView');
