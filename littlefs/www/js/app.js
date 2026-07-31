@@ -1,6 +1,8 @@
-
-
-import { createCrc32JsonWrapper, parseAndVerifyCrc32Wrapper } from '/js/crc32_wrapper.js';
+import { createCrc32JsonWrapper } from '/js/crc32_wrapper.js';
+import { createWebSocketClient } from '/js/ws_client.js';
+import { parseHotTubMessage } from '/js/message_parser.js';
+import { createAppState } from '/js/app_state.js';
+import { createChartManager } from '/js/chart_manager.js';
 
 const badge = document.getElementById('connBadge');
 const stateView = document.getElementById('stateView');
@@ -11,9 +13,13 @@ const otaStatus = document.getElementById('otaStatus');
 const otaProgressBar = document.getElementById('otaProgressBar');
 const sendBtn = document.getElementById('sendBtn');
 const otaBtn = document.getElementById('otaBtn');
+const chartContainer = document.getElementById('chartContainer');
 
-let socket;
+let client = null;
 let otaPollingInterval = null;
+const appState = createAppState({ latestRawMessage: null, latestPayload: null, latestHotTubState: null });
+const chartManager = createChartManager();
+let temperatureChartId = null;
 
 function setBadge(text, status) {
   badge.textContent = text;
@@ -39,8 +45,8 @@ function startOtaPolling() {
   }
 
   otaPollingInterval = setInterval(() => {
-    if (socket && socket.readyState === WebSocket.OPEN) {
-      // socket.send(JSON.stringify({ command: 'get_state' }));
+    if (client && client.readyState === WebSocket.OPEN) {
+      // reserved for future polling commands
     } else {
       stopOtaPolling();
     }
@@ -48,12 +54,7 @@ function startOtaPolling() {
 }
 
 function updateOtaState(state) {
-  if (state.ota_status) {
-    otaStatus.textContent = state.ota_status;
-  } else {
-    otaStatus.textContent = 'idle';
-  }
-
+  otaStatus.textContent = state.ota_status || 'idle';
   setOtaProgress(state.ota_progress ?? 0);
 
   if (state.ota_pending) {
@@ -63,22 +64,61 @@ function updateOtaState(state) {
   }
 }
 
+function renderParsedMessage(parsed, raw) {
+  receiveView.textContent = raw;
+  if (parsed.valid) {
+    stateView.textContent = JSON.stringify(parsed.state || parsed.payload, null, 2);
+  } else {
+    stateView.textContent = `CRC invalid: ${parsed.reason || `${parsed.computed} != ${parsed.expected}`}`;
+  }
+}
+
+function updateAppState(parsed, raw) {
+  if (!parsed.valid) {
+    return;
+  }
+
+  appState.setState({
+    latestRawMessage: raw,
+    latestPayload: parsed.payload,
+    latestHotTubState: parsed.state,
+  });
+}
+
+function initializeCharts() {
+  if (!chartContainer) {
+    return;
+  }
+
+  temperatureChartId = chartManager.createChart({
+    id: 'temperature-chart',
+    container: chartContainer,
+    title: 'Hot Tub Temperature',
+    seriesLabels: ['waterTemp', 'filteredWaterTemp', 'airTemp'],
+    maxPoints: 60,
+  });
+  chartContainer.classList.add('loaded');
+  chartContainer.style.display = 'block';
+  chartContainer.style.position = 'relative';
+  chartContainer.style.minHeight = '340px';
+}
+
 function hardwareInit() {
   setBadge('initializing', 'warn');
   sendBtn.disabled = true;
   otaStatus.textContent = 'idle';
   setOtaProgress(0);
+  initializeCharts();
 
-  // add event listener for button 'sendBtn' to send command to the server
   sendBtn.addEventListener('click', () => {
-    if (!socket || socket.readyState !== WebSocket.OPEN) {
+    if (!client || client.readyState !== WebSocket.OPEN) {
       sendView.textContent = 'Socket is not open. Waiting for connection...';
       return;
     }
 
     try {
       const wrapped = createCrc32JsonWrapper(commandInput.value);
-      socket.send(wrapped);
+      client.send(wrapped);
       sendView.textContent = wrapped;
       console.log('Sending:', wrapped);
     } catch (err) {
@@ -88,12 +128,12 @@ function hardwareInit() {
   });
 
   otaBtn.addEventListener('click', () => {
-    if (!socket || socket.readyState !== WebSocket.OPEN) {
+    if (!client || client.readyState !== WebSocket.OPEN) {
       sendView.textContent = 'Socket is not open. Waiting for connection...';
       return;
     }
 
-    const url = prompt('Nino Enter OTA binary URL (GitHub raw/release asset URL):', 
+    const url = prompt('Nino Enter OTA binary URL (GitHub raw/release asset URL):',
       'https://raw.githubusercontent.com/Nino67/Esp32-S3-HotTub-Base/main/firmware/hot_tub_controller.bin');
     if (!url) {
       return;
@@ -103,7 +143,7 @@ function hardwareInit() {
       id: 1,
       type: 'req',
       cmd: 'ota.manager.update.github',
-      params: {"url": url},
+      params: { url },
     };
 
     otaStatus.textContent = 'requested';
@@ -111,7 +151,7 @@ function hardwareInit() {
 
     try {
       const wrapped = createCrc32JsonWrapper(payload);
-      socket.send(wrapped);
+      client.send(wrapped);
       sendView.textContent = wrapped;
       console.log('Sending OTA update request:', wrapped);
     } catch (err) {
@@ -121,50 +161,68 @@ function hardwareInit() {
     }
   });
 
-  // connect to the server
   connect();
+}
 
-}  
+function handleSocketOpen() {
+  setBadge('connected', 'ok');
+  sendBtn.disabled = false;
+  sendView.textContent = 'Connected. Ready to send.';
+}
 
+function handleSocketClose() {
+  setBadge('reconnecting', 'warn');
+  sendBtn.disabled = true;
+  sendView.textContent = 'Connection closed. Reconnecting...';
+  stopOtaPolling();
+}
+
+function handleSocketError() {
+  setBadge('error', 'bad');
+  sendBtn.disabled = true;
+  sendView.textContent = 'WebSocket error. Check console.';
+}
+
+function handleSocketMessage(raw) {
+  const parsed = parseHotTubMessage(raw);
+  renderParsedMessage(parsed, raw);
+
+  if (parsed.valid) {
+    updateOtaState(parsed.payload);
+    updateAppState(parsed, raw);
+    updateTemperatureChart(parsed.state);
+    console.log('Received verified payload:', parsed.payload);
+  } else {
+    console.warn('Invalid CRC32 payload:', raw, parsed);
+  }
+}
+
+function updateTemperatureChart(state) {
+  if (!temperatureChartId || !state) {
+    return;
+  }
+
+  chartContainer.classList.add('loaded');
+
+  const timestamp = state.lastUpdateTime
+    ? Date.parse(state.lastUpdateTime) / 1000
+    : Math.floor(Date.now() / 1000);
+
+  chartManager.addPoint(temperatureChartId, timestamp, {
+    waterTemp: state.waterTemp,
+    filteredWaterTemp: state.filteredWaterTemp,
+    airTemp: state.airTemp,
+  });
+}
 
 function connect() {
   const proto = window.location.protocol === 'https:' ? 'wss' : 'ws';
-  socket = new WebSocket(`${proto}://${window.location.host}/ws`);
-
-  socket.addEventListener('open', () => {
-    setBadge('connected', 'ok');
-    sendBtn.disabled = false;
-    sendView.textContent = 'Connected. Ready to send.';
-    // socket.send(JSON.stringify({ command: 'get_state' }));
-  });
-
-  socket.addEventListener('close', () => {
-    setBadge('reconnecting', 'warn');
-    sendBtn.disabled = true;
-    sendView.textContent = 'Connection closed. Reconnecting...';
-    stopOtaPolling();
-    window.setTimeout(connect, 1500);
-  });
-
-  socket.addEventListener('message', (event) => {
-    const result = parseAndVerifyCrc32Wrapper(event.data);
-    if (result.valid) {
-      updateOtaState(result.payload);
-      const text = JSON.stringify(result.payload, null, 2);
-      stateView.textContent = text;
-      receiveView.textContent = event.data;
-      console.log('Received verified payload:', result.payload);
-    } else {
-      stateView.textContent = `CRC invalid: ${result.reason || `${result.computed} != ${result.expected}`}`;
-      receiveView.textContent = event.data;
-      console.warn('Invalid CRC32 payload:', event.data, result);
-    }
-  });
-
-  socket.addEventListener('error', () => {
-    setBadge('error', 'bad');
-    sendBtn.disabled = true;
-    sendView.textContent = 'WebSocket error. Check console.';
+  client = createWebSocketClient({
+    url: `${proto}://${window.location.host}/ws`,
+    onOpen: handleSocketOpen,
+    onClose: handleSocketClose,
+    onError: handleSocketError,
+    onMessage: handleSocketMessage,
   });
 }
 

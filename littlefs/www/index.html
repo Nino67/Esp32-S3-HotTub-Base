@@ -21,6 +21,15 @@
         </header>
         <pre id="stateView">waiting for state...</pre>
       </section>
+
+      <section class="panel">
+        <header>
+          <h2>Temperature Plot</h2>
+        </header>
+        <div id="chartContainer" class="chart-placeholder">
+          Plot will appear here once uPlot is configured.
+        </div>
+      </section>
       
       <section class="panel">
         <header>
@@ -50,6 +59,7 @@
       </section>
     </main>
 
+    <script src="/vendor/uPlot.iife.min.js"></script>
     <script type="module" src="/js/app.js"></script>
   </body>
 </html>

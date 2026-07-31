@@ -383,7 +383,7 @@ static esp_err_t ws_handler(httpd_req_t *req)
                 .len = len,
             };
             err = httpd_ws_send_frame(req, &out_frame);
-            ESP_LOGI(TAG, "Sent encoded JSON message: %s ", encoded_msg);
+            // ESP_LOGI(TAG, "Sent encoded JSON message: %s ", encoded_msg);
             if (encoded_msg) { free(encoded_msg); }
             if (root) { cJSON_Delete(root); }
         }
@@ -449,6 +449,26 @@ esp_err_t web_server_start(void)
         .method = HTTP_GET,
         .handler = asset_handler,
     };
+    httpd_uri_t ws_client_uri = {
+        .uri = "/js/ws_client.js",
+        .method = HTTP_GET,
+        .handler = asset_handler,
+    };
+    httpd_uri_t message_parser_uri = {
+        .uri = "/js/message_parser.js",
+        .method = HTTP_GET,
+        .handler = asset_handler,
+    };
+    httpd_uri_t app_state_uri = {
+        .uri = "/js/app_state.js",
+        .method = HTTP_GET,
+        .handler = asset_handler,
+    };
+    httpd_uri_t chart_manager_uri = {
+        .uri = "/js/chart_manager.js",
+        .method = HTTP_GET,
+        .handler = asset_handler,
+    };
     httpd_uri_t crc_wrapper_uri = {
         .uri = "/js/crc32_wrapper.js",
         .method = HTTP_GET,
@@ -474,6 +494,10 @@ esp_err_t web_server_start(void)
     
     ESP_RETURN_ON_ERROR(httpd_register_uri_handler(s_server, &index_uri), TAG, "index handler failed");
     ESP_RETURN_ON_ERROR(httpd_register_uri_handler(s_server, &app_js_uri), TAG, "js handler failed");
+    ESP_RETURN_ON_ERROR(httpd_register_uri_handler(s_server, &ws_client_uri), TAG, "ws_client handler failed");
+    ESP_RETURN_ON_ERROR(httpd_register_uri_handler(s_server, &message_parser_uri), TAG, "message_parser handler failed");
+    ESP_RETURN_ON_ERROR(httpd_register_uri_handler(s_server, &app_state_uri), TAG, "app_state handler failed");
+    ESP_RETURN_ON_ERROR(httpd_register_uri_handler(s_server, &chart_manager_uri), TAG, "chart_manager handler failed");
     ESP_RETURN_ON_ERROR(httpd_register_uri_handler(s_server, &crc_wrapper_uri), TAG, "crc wrapper handler failed");
     ESP_RETURN_ON_ERROR(httpd_register_uri_handler(s_server, &styles_uri), TAG, "css handler failed");
     ESP_RETURN_ON_ERROR(httpd_register_uri_handler(s_server, &uplot_uri), TAG, "uPlot handler failed");
