@@ -82,6 +82,7 @@ typedef enum {
 } sim_mode_t;
 
 
+
 /**
  * @brief Structure to hold the state of the hot tub controller.
  */

@@ -1,9 +1,9 @@
 #pragma once
 
+#include <stddef.h>
 #include "esp_err.h"
+#include "esp_http_server.h"
 #include "cJSON.h"
-#include <sys/_intsup.h>
-
 
 
 /**
@@ -41,3 +41,4 @@
 esp_err_t web_server_start(void);
 esp_err_t web_server_broadcast_json(const char *json);
 cJSON *system_status_get_json(void);
+esp_err_t websocket_send_frame(httpd_req_t *req, char *payload, size_t len);

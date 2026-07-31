@@ -60,10 +60,8 @@ esp_err_t web_server_ota_update_requested(cJSON *);
 // esp_err_t json_service_parse_json(const char *, cJSON **);
 
 cJSON *system_status_get_json();
-// void ws_json_service_dispatcher_core0(const char *incoming_json);
-
-// void json_service_dispatcher_core0(const char *);
 void json_service_dispatcher_core0(cJSON *root); 
+
 char *json_service_crc32_envelope_encode(const cJSON *);
 
 
@@ -261,9 +259,9 @@ static esp_err_t asset_handler(httpd_req_t *req)
 
 
 /**
- * @brief Handle WebSocket connections and messages.
+ * @brief Handle OTA update requests.
  * 
- * @param req The HTTP request object representing the WebSocket connection.
+ * @param req The HTTP request object.
  * @return ESP_OK on success, or an error code on failure.
  */
 static void ota_update_task(void *arg)
@@ -400,6 +398,24 @@ static esp_err_t ws_handler(httpd_req_t *req)
 //-----------------------------------------------------------------------------
 
 
+/**
+ * @brief Send a WebSocket frame with the given payload.
+ * 
+ * @param req The HTTP request object representing the WebSocket connection.
+ * @param payload The payload to send in the WebSocket frame.
+ * @param len The length of the payload.
+ * @return ESP_OK on success, or an error code on failure.
+ */
+esp_err_t websocket_send_frame(httpd_req_t *req, char *payload, size_t len)
+{
+    httpd_ws_frame_t frame = {
+        .type = HTTPD_WS_TYPE_TEXT,
+        .payload = (uint8_t *)payload,
+        .len = len,
+    };
+    return httpd_ws_send_frame(req, &frame);
+}
+//-----------------------------------------------------------------------------
 
 /**
  * @brief Start the HTTP server and register URI handlers.

@@ -334,7 +334,8 @@ void json_service_dispatcher_core0(cJSON *root)
                 } 
                 // else if (cmd_registry[i].target_core == 1) {
                     // --- Core 1 Remote Execution ---
-                    
+                
+                break;    
             }
         }
         ESP_LOGD(TAG, "RPC request response type for id=%d, type=%s and cmd=%s", id, type_str ? type_str : "null", cmd_str);
@@ -353,5 +354,11 @@ void json_service_dispatcher_core0(cJSON *root)
         ESP_LOGD(TAG, "Unknown RPC type for id=%d, type=%s and cmd=%s", id, type_str ? type_str : "null", cmd_str);
     }
 
+    // if (cmd_str) {
+    //     free((void *)cmd_str);
+    // }
+    // if (params) {
+    //     free((void *)cJSON_PrintUnformatted(params));
+    // }
 } // end of json_service_dispatcher_core0() 
 //-----------------------------------------------------------------------------

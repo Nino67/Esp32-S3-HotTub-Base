@@ -96,11 +96,9 @@ cJSON * json_service_create_rpc_envelope(rpc_type_t type,
 cJSON *json_service_parse_rpc_envelope(const char *json_str, rpc_type_t *out_type, uint32_t *out_id, char **out_cmd, cJSON **out_params);
 
 
-// bool json_service_register_command(const char *cmd_string, 
-//                                     json_cmd_callback_t callback, 
-//                                     uint8_t target_core);
-
-
+bool json_service_register_command(const char *cmd_string, 
+                                    json_cmd_callback_t callback, 
+                                    uint8_t target_core);
 
 
 char *json_service_crc32_envelope_encode(const cJSON *json);

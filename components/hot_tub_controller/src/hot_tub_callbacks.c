@@ -6,11 +6,12 @@
 #include "hot_tub_struct_io.h"
 #include "hot_tub_controller.h"
 #include "hot_tub_callbacks.h"
+#include "esp_http_server.h"
 #include "json_service.h"
+#include "web_server.h"
 
 static const char *TAG = "hot_tub_callbacks";
 
-extern bool json_service_register_command(const char *, json_cmd_callback_t, uint8_t );
 void get_current_time(char *strftime_buf, size_t buf_size);
 
 
@@ -56,10 +57,44 @@ void hottub_callback_response(cJSON *root, cJSON *response) {
     cJSON_AddStringToObject(root, "status", "ok");
     cJSON_AddItemToObject(root, "response", cJSON_Duplicate(response, 1));
     // Change the "type" field to "res" to indicate a response
-    cJSON  *type_item = cJSON_GetObjectItemCaseSensitive(root, "type");
-    cJSON_SetValuestring(type_item, "res");
+    // cJSON  *type_item = cJSON_GetObjectItemCaseSensitive(root, "type");
+    // cJSON_SetValuestring(type_item, "res");
     if (response) { cJSON_Delete(response); }
 } // End of hottub_callback_response
+//----------------------------------------------------------------------------- 
+
+
+    // char *encoded_msg = json_service_crc32_envelope_encode(root);
+    // int len = strlen(encoded_msg);
+    // httpd_ws_frame_t out_frame = {
+    //     .type = HTTPD_WS_TYPE_TEXT,
+    //     .payload = (uint8_t *)encoded_msg,
+    //     .len = len,
+    // };
+    // err = httpd_ws_send_frame(req, &out_frame);
+
+
+
+
+void hottub_broadcast_status_callback(void) 
+{
+    char * pub_json = "{\"id\":0,\"type\":\"pub\",\"cmd\":\"hottub.status\",\"params\":\"\"}";
+    cJSON *pub_root = cJSON_Parse(pub_json);
+    hottub_status_get_callback(pub_root);
+    char *encoded_msg = json_service_crc32_envelope_encode(pub_root);
+
+    // ESP_LOGI(TAG, "Broadcasting hot tub status: %s", encoded_msg);
+    // Broadcast the JSON string to all connected WebSocket clients
+    esp_err_t err = web_server_broadcast_json(encoded_msg);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to broadcast hot tub status: %s", esp_err_to_name(err));
+    }
+
+
+    free(encoded_msg);
+    cJSON_Delete(pub_root);
+
+} // End of hottub_broadcast_status_callback
 //----------------------------------------------------------------------------- 
 
 
@@ -756,7 +791,7 @@ void get_current_time(char *strftime_buf, size_t buf_size)
     localtime_r(&now, &timeinfo);        // convert to broken-down local time
 
     strftime(strftime_buf, buf_size, "%Y-%m-%d %H:%M:%S", &timeinfo);
-    ESP_LOGI(TAG, "Current time: %s", strftime_buf);
+    // ESP_LOGI(TAG, "Current time: %s", strftime_buf);
 }
 //-----------------------------------------------------------------------------
 

@@ -56,6 +56,7 @@ void hottub_safety_switch_get_callback(cJSON *root);
 void hottub_safety_switch_set_callback(cJSON *root);
 void hottub_simulation_mode_get_callback(cJSON *root);
 void hottub_simulation_mode_set_callback(cJSON *root);
+void hottub_broadcast_status_callback(void);
 
     
 
