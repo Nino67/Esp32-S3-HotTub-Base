@@ -1,3 +1,34 @@
+# app_watchdog Component
+
+Back to project guide: [../../README.md](../../README.md)
+
+## What This Component Does
+
+`app_watchdog` prevents lockups by monitoring task health. If a task stops feeding the watchdog, reset recovery can occur.
+
+## Concept Diagram
+
+```mermaid
+flowchart LR
+  TaskA[Task A] -->|feed| WDT[Watchdog]
+  TaskB[Task B] -->|feed| WDT
+  WDT -->|timeout| Reset[System reset path]
+```
+
+## Beginner Explanation
+
+Think of watchdog as a heartbeat monitor. Healthy tasks check in repeatedly. No check-in means a possible freeze.
+
+## Typical Usage
+
+1. Initialize watchdog config.
+2. Register task.
+3. Feed periodically.
+
+## Troubleshooting
+
+- Random resets often mean watchdog feed interval is too long.
+- Long blocking I/O calls can starve watchdog feeds.
 # App Watchdog
 
 Reusable watchdog component for ESP-IDF projects that need to register arbitrary FreeRTOS tasks with the Task Watchdog Timer (TWDT) and keep a fallback RTC watchdog armed as a fail-safe reset path.

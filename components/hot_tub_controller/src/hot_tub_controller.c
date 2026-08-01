@@ -264,8 +264,8 @@ void hot_tub_controller_main_task(void *arg)
         float water_temp = snapshot.waterTemp;
         if (hot_tub_ds18b20_read_temperature(&water_temp) == ESP_OK) 
         {
-            snapshot.waterTemp = hottub_controller_temperature_filter(water_temp, snapshot.waterTemp, 0.1f);
             // snapshot.waterTemp = water_temp;
+            snapshot.waterTemp = hottub_controller_temperature_filter(water_temp, snapshot.waterTemp, 0.1f);
             // ESP_LOGI(TAG, "Current water temperature: %.2f", snapshot.waterTemp);
         } 
         else 

@@ -21,6 +21,7 @@ static bool s_sta_enabled;
 static bool s_ap_enabled;
 static SemaphoreHandle_t s_mutex;
 static wifi_status_t s_status;
+static char s_sta_ssid[33];
 
 static void lock_state(void)
 {
@@ -111,7 +112,7 @@ static void wifi_event_handler(void *arg, esp_event_base_t event_base, int32_t e
         wireless_status_t status = {0};
         status.current_mode = WIFI_STATE_STA_CONNECTED;
         status.internet_connected = true;
-        strlcpy(status.active_ssid, s_status.sta_connected ? s_status.sta_ip : "", sizeof(status.active_ssid));
+            strlcpy(status.active_ssid, s_sta_ssid, sizeof(status.active_ssid));
         status.connected_client_count = 0;
         memset(status.clients[0].mac_address, 0, sizeof(status.clients[0].mac_address));
         strlcpy((char *)status.clients[0].ip_address, s_status.sta_ip, sizeof(status.clients[0].ip_address));
@@ -175,6 +176,7 @@ esp_err_t wifi_manager_start(const wifi_credentials_t *sta_credentials)
     if (s_sta_enabled)
     {
         wifi_config_t sta_config = {0};
+        strlcpy(s_sta_ssid, sta_credentials->ssid, sizeof(s_sta_ssid));
         strlcpy((char *)sta_config.sta.ssid, sta_credentials->ssid, sizeof(sta_config.sta.ssid));
         strlcpy((char *)sta_config.sta.password, sta_credentials->password, sizeof(sta_config.sta.password));
         sta_config.sta.threshold.authmode = WIFI_AUTH_WPA2_PSK;
@@ -184,6 +186,7 @@ esp_err_t wifi_manager_start(const wifi_credentials_t *sta_credentials)
     }
     else
     {
+        s_sta_ssid[0] = '\0';
         ESP_RETURN_ON_ERROR(esp_wifi_set_mode(WIFI_MODE_AP), TAG, "wifi mode failed");
         ESP_RETURN_ON_ERROR(esp_wifi_set_config(WIFI_IF_AP, &ap_config), TAG, "ap config failed");
     }

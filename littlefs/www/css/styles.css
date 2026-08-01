@@ -30,11 +30,15 @@ body {
 
 .shell {
   max-width: 960px;
-  width: min(960px, calc(100vw - 32px));
+  width: min(960px, 100%);
   margin: 0 auto;
   padding: clamp(24px, 4vw, 56px) 16px 56px;
   display: grid;
   gap: clamp(16px, 2vw, 24px);
+}
+
+.shell > * {
+  min-width: 0;
 }
 
 .hero, .panel {
@@ -43,6 +47,9 @@ body {
   border-radius: 24px;
   box-shadow: 0 24px 80px rgba(0, 0, 0, 0.35);
   backdrop-filter: blur(18px);
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
 }
 
 .hero {
@@ -87,7 +94,7 @@ h1 {
 
 .chart-placeholder {
   position: relative;
-  min-height: 280px;
+  height: clamp(250px, 44vw, 360px);
   width: 100%;
   max-width: 100%;
   border-radius: 16px;
@@ -97,25 +104,54 @@ h1 {
   padding: 0;
 }
 
-.chart-placeholder::before {
-  content: 'Waiting for temperature data...';
-  position: absolute;
-  inset: 0;
+.chart-top-legend {
   display: flex;
   align-items: center;
   justify-content: center;
-  color: rgba(255, 255, 255, 0.6);
-  font-size: 0.95rem;
-  pointer-events: none;
-  z-index: 1;
+  gap: 12px;
+  margin: 0 0 10px;
+  flex-wrap: wrap;
 }
 
-.chart-placeholder.loaded::before {
-  display: none;
+.chart-top-legend__item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.82rem;
+  color: var(--text);
+  background: rgba(6, 10, 18, 0.66);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 999px;
+  padding: 4px 10px;
 }
 
-.chart-placeholder .uplot,
-.chart-placeholder canvas {
+.chart-top-legend__swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.chart-placeholder .uplot {
+  position: absolute;
+  inset: 0;
+  user-select: none;
+  touch-action: pan-x pan-y;
+  display: block;
+  width: 100% !important;
+  height: 100% !important;
+  max-width: 100%;
+  color: var(--text);
+  z-index: 0;
+  overflow: hidden;
+}
+
+.chart-placeholder .u-wrap {
+  position: absolute;
+  inset: 0;
+}
+
+.chart-placeholder .uplot canvas {
   position: absolute;
   top: 0;
   left: 0;
@@ -123,8 +159,40 @@ h1 {
   height: 100% !important;
 }
 
-.chart-placeholder .uplot {
-  z-index: 0;
+.chart-placeholder .u-under,
+.chart-placeholder .u-over,
+.chart-placeholder .u-select {
+  position: absolute;
+  top: 0;
+  left: 0;
+}
+
+.chart-placeholder .u-legend,
+.chart-placeholder .u-title,
+.chart-placeholder .u-label,
+.chart-placeholder .u-value,
+.chart-placeholder .u-cursor-x,
+.chart-placeholder .u-cursor-y {
+  pointer-events: none;
+}
+
+.chart-placeholder .u-title {
+  color: var(--text);
+  letter-spacing: 0.02em;
+}
+
+.chart-placeholder .u-legend {
+  color: var(--text);
+  background: rgba(6, 10, 18, 0.7);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 10px;
+  padding: 6px 8px;
+}
+
+.chart-placeholder .u-legend th,
+.chart-placeholder .u-legend td {
+  color: var(--text);
+  font-size: 0.82rem;
 }
 
 .badge {
@@ -142,6 +210,7 @@ h1 {
 
 pre, textarea {
   width: 100%;
+  max-width: 100%;
   border: 1px solid rgba(255, 255, 255, 0.08);
   background: rgba(3, 8, 16, 0.8);
   color: var(--text);
@@ -154,11 +223,16 @@ pre {
   min-height: 140px;
   margin: 0;
   overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 textarea {
   min-height: 110px;
   resize: vertical;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 button {
@@ -208,7 +282,7 @@ button {
 
 @media (max-width: 768px) {
   .shell {
-    width: min(100vw - 20px, 100%);
+    width: 100%;
     padding: 20px 12px 32px;
     gap: 16px;
   }
@@ -239,6 +313,16 @@ button {
   }
 
   .chart-placeholder {
-    min-height: 250px;
+    height: 240px;
+  }
+
+  .chart-placeholder .u-legend th,
+  .chart-placeholder .u-legend td {
+    font-size: 0.76rem;
+  }
+
+  .chart-top-legend {
+    justify-content: flex-start;
+    gap: 8px;
   }
 }

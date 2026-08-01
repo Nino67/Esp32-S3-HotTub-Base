@@ -93,14 +93,10 @@ function initializeCharts() {
   temperatureChartId = chartManager.createChart({
     id: 'temperature-chart',
     container: chartContainer,
-    title: 'Hot Tub Temperature',
-    seriesLabels: ['waterTemp', 'filteredWaterTemp', 'airTemp'],
-    maxPoints: 60,
+    title: '',
+    seriesLabels: ['waterTemp', 'filteredWaterTemp'],
+    maxPoints: 100,
   });
-  chartContainer.classList.add('loaded');
-  chartContainer.style.display = 'block';
-  chartContainer.style.position = 'relative';
-  chartContainer.style.minHeight = '340px';
 }
 
 function hardwareInit() {
@@ -202,17 +198,17 @@ function updateTemperatureChart(state) {
     return;
   }
 
-  chartContainer.classList.add('loaded');
-
-  const timestamp = state.lastUpdateTime
-    ? Date.parse(state.lastUpdateTime) / 1000
+  const src = state.response && typeof state.response === 'object' ? state.response : state;
+  const parsedTimestampMs = src.lastUpdateTime ? Date.parse(src.lastUpdateTime) : NaN;
+  const timestamp = Number.isFinite(parsedTimestampMs)
+    ? parsedTimestampMs / 1000
     : Math.floor(Date.now() / 1000);
 
   chartManager.addPoint(temperatureChartId, timestamp, {
-    waterTemp: state.waterTemp,
-    filteredWaterTemp: state.filteredWaterTemp,
-    airTemp: state.airTemp,
-  });
+    waterTemp: src.waterTemp,
+    filteredWaterTemp: src.filteredWaterTemp,
+    // airTemp: src.airTemp,
+  });``
 }
 
 function connect() {
