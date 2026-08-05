@@ -582,10 +582,10 @@ void hot_tub_controller_set_last_update_time(const char *time_str)
  *
  * @return true if the safety switch is on, false otherwise.
  */
-bool hot_tub_controller_get_safety_switch(void)
+safety_switch_t hot_tub_controller_get_safety_switch(void)
 {
     lock_state();
-    bool state = hottub_ctl.safetySwitch;
+    safety_switch_t state = hottub_ctl.safetySwitch;
     unlock_state();
     return state;
 }
@@ -594,10 +594,9 @@ bool hot_tub_controller_get_safety_switch(void)
 /**
  * @brief Set the current safety switch state.
  *
- * @param state true to turn the safety switch on, false to turn it off.
- * @return true if the operation was successful, false otherwise.
+ * @param state The new safety switch state (SAFETY_SWITCH_OFF, SAFETY_SWITCH_ON, etc.).
  */
-void hot_tub_controller_set_safety_switch(bool state)
+void hot_tub_controller_set_safety_switch(safety_switch_t state)
 {
     lock_state();
     hottub_ctl.safetySwitch = state;

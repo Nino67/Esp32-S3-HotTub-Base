@@ -40,7 +40,6 @@
 #define DEFAULT_LOW_HYSTERESIS_MIN 0.1
 #define DEFAULT_LOW_HYSTERESIS_MAX 5.0
 
-#define DEFAULT_SAFETY_SWITCH_STATE false
 #define DEFAULT_PUMP_PRE_RUN_TIME 2.0
 #define DEFAULT_PUMP_PRE_RUN_TIME_MIN 1.0
 #define DEFAULT_PUMP_PRE_RUN_TIME_MAX 20.0
@@ -48,7 +47,29 @@
 #define DEFAULT_PUMP_POST_RUN_TIME_MIN 1.0
 #define DEFAULT_PUMP_POST_RUN_TIME_MAX 20.0
 
+#define DEFAULT_MAX_WATER_TEMP 45.0
+#define DEFAULT_MIN_WATER_TEMP 15.0
 #define DEFAULT_TEMP_UNIT_CELSIUS true
+
+
+#define HOT_TUB_CONTROLLER_TASK_STACK_SIZE 4096
+
+#define HOT_TUB_CONTROLLER_TASK_PRIORITY 5
+#define HOT_TUB_CONTROLLER_TASK_CORE 1
+
+// Define error codes for the hot tub controller
+#define HOT_TUB_ERR_INVALID_ARG 1001
+#define HOT_TUB_ERR_NVS_READ 1002
+#define HOT_TUB_ERR_NVS_WRITE 1003
+#define HOT_TUB_ERR_SENSOR_READ 1004
+#define HOT_TUB_ERR_PUMP_CONTROL 1005
+#define HOT_TUB_ERR_HEATER_CONTROL 1006
+#define HOT_TUB_ERR_JSON_PARSE 1007
+#define HOT_TUB_ERR_JSON_RESPONSE 1008
+#define HOT_TUB_ERR_CALLBACK_REGISTRATION 1009
+#define HOT_TUB_ERR_TEMP_OUT_OF_RANGE 1010
+
+
 
 
 // Define a structure to hold component callback objects
@@ -107,6 +128,7 @@ typedef struct {
     pump_state_t pumpState;
     char lastUpdateTime[TIME_BUFFER_SIZE];
     sim_mode_t simulationMode;
+    int errorCode; // To hold error codes for various operations
 } HotTubController_t;
 
 

@@ -25,6 +25,7 @@
 #include "hot_tub_controller.h"
 #include "hot_tub_struct_io.h"
 #include "hot_tub_ds18b20.h"
+#include "hot_tub_sim.h"
 
 static const char *TAG = "hot_tub_controller";
 
@@ -68,6 +69,11 @@ esp_err_t hot_tub_controller_load_saved_settings(void);
 esp_err_t ntp_utils_time_get_local(struct tm *out_time);
 static float hottub_controller_temperature_filter(float new_temp, float prev_temp, float alpha);
 void hottub_broadcast_status_callback(void);
+void hot_tub_controller_set_simulation_mode(sim_mode_t mode);
+sim_mode_t hot_tub_controller_get_simulation_mode(void);
+float hot_tub_controller_get_filtered_water_temp(void);
+safety_switch_t hot_tub_controller_get_safety_switch(void);
+void hot_tub_controller_set_safety_switch(safety_switch_t state);
 
 
 
@@ -238,7 +244,14 @@ void hot_tub_controller_main_task(void *arg)
     // Timers for pump delays (in seconds)
     int pre_pump_timer = 0;
     int post_pump_timer = 0;
-     
+
+    // Default to no simulation mode
+    hot_tub_controller_set_simulation_mode(SIM_NONE); 
+    // hot_tub_controller_set_simulation_mode(SIM_TRIANGLE); // For testing, set to triangle wave simulation
+ 
+    // Set the safety switch to its default state (false/off) at startup
+    hot_tub_controller_set_safety_switch(DEFAULT_SAFETY_SWITCH_STATE);
+
     esp_err_t err = ESP_OK;
 
     while (1) 
@@ -251,6 +264,8 @@ void hot_tub_controller_main_task(void *arg)
 
         // Take a snapshot of the current state
         err = hot_tub_controller_snapshot_get(&snapshot);
+
+        // If snapshot fails, attempt to reload settings from NVS
         if (err != ESP_OK) 
         {
             err = hot_tub_controller_settings_load_from_nvs();
@@ -258,21 +273,52 @@ void hot_tub_controller_main_task(void *arg)
             {
                 ESP_LOGE(TAG, "Failed to reload settings from NVS.");
             }
-         }   
+        }   
 
-        // get the current water temperature
-        float water_temp = snapshot.waterTemp;
-        if (hot_tub_ds18b20_read_temperature(&water_temp) == ESP_OK) 
+        if (hot_tub_controller_get_simulation_mode() != SIM_NONE)
         {
-            // snapshot.waterTemp = water_temp;
-            snapshot.waterTemp = hottub_controller_temperature_filter(water_temp, snapshot.waterTemp, 0.1f);
-            // ESP_LOGI(TAG, "Current water temperature: %.2f", snapshot.waterTemp);
-        } 
+            // Simulated temperature reading
+            // snapshot.waterTemp = get_simulated_temperature();
+            ESP_LOGI(TAG, "Simulated water temperature:");
+        }
         else 
         {
-            ESP_LOGW(TAG, "DS18B20 read failed, keeping previous waterTemp %.2f", snapshot.waterTemp);
+            // Read actual hardware sensor (DS18B20 / ADC / MAX31865)
+            float water_temp = 0; //snapshot.waterTemp;
+            if (hot_tub_ds18b20_read_temperature(&water_temp) == ESP_OK) 
+            {
+                if (water_temp < DEFAULT_MIN_WATER_TEMP || water_temp > DEFAULT_MAX_WATER_TEMP) 
+                {
+                    snapshot.errorCode = HOT_TUB_ERR_TEMP_OUT_OF_RANGE;
+                    ESP_LOGW(TAG, "DS18B20 read temperature out of range: %.2f", water_temp);
+                }
+                snapshot.waterTemp = water_temp;
+                snapshot.filteredWaterTemp = hottub_controller_temperature_filter(water_temp, snapshot.filteredWaterTemp, 0.1f);
+            } 
+            else 
+            {
+                snapshot.errorCode = HOT_TUB_ERR_SENSOR_READ;
+                ESP_LOGW(TAG, "DS18B20 read failed, keeping previous waterTemp %.2f", snapshot.waterTemp);
+            }
         }
 
+        if (snapshot.safetySwitch == SAFETY_SWITCH_OFF) 
+        {
+            // Safety switch is OFF, disable heater and pump
+            if (snapshot.heaterOn) 
+            {
+                snapshot.heaterOn = false;
+                ESP_LOGW(TAG, "Safety switch OFF: Heater turned OFF");
+            }
+            if (snapshot.pumpState != PUMP_OFF) 
+            {
+                snapshot.pumpState = PUMP_OFF;
+                ESP_LOGW(TAG, "Safety switch OFF: Pump turned OFF");
+            }
+        }
+
+
+        
         // --- AUTO TEMPERATURE CONTROL LOGIC ---
         if(snapshot.autoMode) 
         {
