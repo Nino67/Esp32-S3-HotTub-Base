@@ -1,4 +1,6 @@
 #include <inttypes.h>
+#include <stdlib.h>
+#include <string.h>
 
 #include "ota_manager.h"
 #include "rgb_led.h"
@@ -12,6 +14,7 @@
 
 #include "esp_check.h"
 #include "esp_ota_ops.h"
+#include "esp_partition.h"
 #include "esp_http_client.h"
 #include "esp_https_ota.h"
 #include "esp_crt_bundle.h"
@@ -168,22 +171,170 @@ const char* get_active_storage_label(void)
     return "storage_0";
 }
 
+static const char* storage_label_for_next_app(void)
+{
+    const esp_partition_t *next_app = esp_ota_get_next_update_partition(NULL);
+    if (next_app == NULL) {
+        ESP_LOGE(TAG, "Unable to determine next OTA app partition");
+        return NULL;
+    }
+
+    if (next_app->subtype == ESP_PARTITION_SUBTYPE_APP_OTA_1) {
+        ESP_LOGI(TAG, "Next OTA target is ota_1, using storage_1");
+        return "storage_1";
+    }
+
+    if (next_app->subtype == ESP_PARTITION_SUBTYPE_APP_OTA_0) {
+        ESP_LOGI(TAG, "Next OTA target is ota_0, using storage_0");
+        return "storage_0";
+    }
+
+    ESP_LOGE(TAG, "Unexpected next OTA app partition subtype: 0x%02x", next_app->subtype);
+    return NULL;
+}
+
+static char *derive_storage_image_url(const char *ota_url, const char *storage_label)
+{
+    if (!ota_url || !storage_label) {
+        return NULL;
+    }
+
+    const char *storage_filename = strcmp(storage_label, "storage_0") == 0 ? "storage_0.bin" : "storage_1.bin";
+    const char *needle = "hot_tub_controller.bin";
+    const char *match = strstr(ota_url, needle);
+    size_t prefix_len;
+
+    if (match) {
+        prefix_len = match - ota_url;
+    } else {
+        const char *slash = strrchr(ota_url, '/');
+        if (!slash) {
+            return NULL;
+        }
+        prefix_len = (slash - ota_url) + 1;
+    }
+
+    size_t output_len = prefix_len + strlen(storage_filename) + 1;
+    char *storage_url = malloc(output_len);
+    if (!storage_url) {
+        return NULL;
+    }
+
+    memcpy(storage_url, ota_url, prefix_len);
+    storage_url[prefix_len] = '\0';
+    strcat(storage_url, storage_filename);
+    return storage_url;
+}
+
+static esp_err_t download_partition_image(const char *url, const esp_partition_t *partition)
+{
+    ESP_LOGI(TAG, "Downloading storage image from '%s' to partition '%s'", url, partition->label);
+
+    esp_http_client_config_t config = {
+        .url = url,
+        .timeout_ms = 60000,
+        .disable_auto_redirect = false,
+        .max_redirection_count = 5,
+        .crt_bundle_attach = esp_crt_bundle_attach,
+    };
+
+    esp_http_client_handle_t client = esp_http_client_init(&config);
+    if (!client) {
+        ESP_LOGE(TAG, "Failed to initialize HTTP client for storage image");
+        return ESP_ERR_NO_MEM;
+    }
+
+    esp_err_t err = esp_http_client_open(client, 0);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "HTTP open for storage image failed: %s", esp_err_to_name(err));
+        esp_http_client_cleanup(client);
+        return err;
+    }
+
+    int64_t content_length = esp_http_client_fetch_headers(client);
+    int status_code = esp_http_client_get_status_code(client);
+    if (status_code != 200) {
+        ESP_LOGE(TAG, "Storage image HTTP status %d for URL: %s", status_code, url);
+        esp_http_client_close(client);
+        esp_http_client_cleanup(client);
+        return ESP_FAIL;
+    }
+
+    if (content_length <= 0 || (size_t)content_length > partition->size) {
+        ESP_LOGE(TAG,
+                 "Invalid storage image content length (%lld) for partition '%s' size %u",
+                 (long long)content_length,
+                 partition->label,
+                 (unsigned int)partition->size);
+        esp_http_client_close(client);
+        esp_http_client_cleanup(client);
+        return ESP_ERR_INVALID_SIZE;
+    }
+
+    err = esp_partition_erase_range(partition, 0, partition->size);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to erase partition '%s': %s", partition->label, esp_err_to_name(err));
+        esp_http_client_close(client);
+        esp_http_client_cleanup(client);
+        return err;
+    }
+
+    char buffer[4096];
+    size_t offset = 0;
+    while (true) {
+        int read_bytes = esp_http_client_read(client, buffer, sizeof(buffer));
+        if (read_bytes == 0) {
+            break;
+        }
+        if (read_bytes < 0) {
+            ESP_LOGE(TAG, "Error reading storage image HTTP response: %d", read_bytes);
+            err = ESP_FAIL;
+            break;
+        }
+        if (offset + (size_t)read_bytes > partition->size) {
+            ESP_LOGE(TAG, "Storage image exceeds partition size (%s)", partition->label);
+            err = ESP_ERR_INVALID_SIZE;
+            break;
+        }
+        err = esp_partition_write(partition, offset, buffer, read_bytes);
+        if (err != ESP_OK) {
+            ESP_LOGE(TAG, "Failed to write storage image to '%s': %s", partition->label, esp_err_to_name(err));
+            break;
+        }
+        offset += (size_t)read_bytes;
+    }
+
+    esp_http_client_close(client);
+    esp_http_client_cleanup(client);
+
+    if (err != ESP_OK) {
+        return err;
+    }
+
+    if ((int64_t)offset != content_length) {
+        ESP_LOGE(TAG,
+                 "Storage image size mismatch: wrote %u bytes but expected %lld bytes",
+                 (unsigned int)offset,
+                 (long long)content_length);
+        return ESP_FAIL;
+    }
+
+    ESP_LOGI(TAG, "Wrote %u bytes to storage partition '%s'", (unsigned int)offset, partition->label);
+    return ESP_OK;
+}
 
 
 
-esp_err_t ota_manager_trigger_github_ota(const char *url)
+
+esp_err_t ota_manager_trigger_github_ota(const char *url, const char *storage_url)
 {
     ESP_LOGW(TAG, "Inside ota_manager_trigger_github_ota with URL: %s", url);
     if (url == NULL || url[0] == '\0') {
         ESP_LOGE(TAG, "OTA URL is empty");
-        // hot_tub_device_state_set_ota_status("failed");
-        // hot_tub_device_state_set_ota_progress(0);
         return ESP_ERR_INVALID_ARG;
     }
 
     ESP_LOGI(TAG, "Starting manual OTA update from GitHub: %s", url);
-    // hot_tub_device_state_set_ota_status("started");
-    // hot_tub_device_state_set_ota_progress(0);
     set_heartbeat_interval(OTA_HEARTBEAT_INTERVAL_MS);
 
 
@@ -210,17 +361,72 @@ esp_err_t ota_manager_trigger_github_ota(const char *url)
         .http_config = &http_config,
     };
 
+    const char *storage_label = storage_label_for_next_app();
+    if (!storage_label) {
+        free(progress_ctx);
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    char *derived_storage_url = NULL;
+    const char *storage_url_to_use = storage_url;
+    if (!storage_url_to_use || storage_url_to_use[0] == '\0') {
+        derived_storage_url = derive_storage_image_url(url, storage_label);
+        if (!derived_storage_url) {
+            ESP_LOGE(TAG, "Unable to derive storage image URL for partition '%s'", storage_label);
+            free(progress_ctx);
+            return ESP_ERR_INVALID_ARG;
+        }
+        storage_url_to_use = derived_storage_url;
+    }
+
+    ESP_LOGI(TAG, "Using storage image URL: %s for partition %s", storage_url_to_use, storage_label);
+
     esp_err_t ret = esp_https_ota(&ota_config);
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "OTA upgrade failed: %s", esp_err_to_name(ret));
-        // hot_tub_device_state_set_ota_status("failed");
-        // hot_tub_device_state_set_ota_progress(0);
-        // hot_tub_device_state_set_ota_pending(false);
         free(progress_ctx);
+        free(derived_storage_url);
         return ret;
     }
 
     free(progress_ctx);
+
+    // Update both storage partitions so the new OTA slot and its alternate slot both have valid web assets.
+    const char *storage_labels[2] = { "storage_0", "storage_1" };
+    for (size_t i = 0; i < 2; ++i) {
+        char *partition_storage_url = NULL;
+        if (storage_url_to_use && strstr(storage_url_to_use, storage_labels[i])) {
+            partition_storage_url = strdup(storage_url_to_use);
+        } else {
+            partition_storage_url = derive_storage_image_url(url, storage_labels[i]);
+        }
+        if (!partition_storage_url) {
+            ESP_LOGE(TAG, "Unable to derive URL for %s", storage_labels[i]);
+            free(derived_storage_url);
+            return ESP_ERR_INVALID_ARG;
+        }
+
+        const esp_partition_t *storage_part = esp_partition_find_first(
+            ESP_PARTITION_TYPE_DATA,
+            ESP_PARTITION_SUBTYPE_ANY,
+            storage_labels[i]);
+        if (!storage_part) {
+            ESP_LOGE(TAG, "Storage partition '%s' not found", storage_labels[i]);
+            free(partition_storage_url);
+            free(derived_storage_url);
+            return ESP_ERR_NOT_FOUND;
+        }
+
+        esp_err_t storage_ret = download_partition_image(partition_storage_url, storage_part);
+        free(partition_storage_url);
+        if (storage_ret != ESP_OK) {
+            ESP_LOGE(TAG, "Storage image update for %s failed: %s", storage_labels[i], esp_err_to_name(storage_ret));
+            free(derived_storage_url);
+            return storage_ret;
+        }
+    }
+
+    free(derived_storage_url);
     // hot_tub_device_state_set_ota_status("success");
     // hot_tub_device_state_set_ota_progress(100);
     set_heartbeat_interval(HEARTBEAT_INTERVAL_MS);
@@ -263,14 +469,31 @@ static void ota_manager_update_git_callback(cJSON *root) {
         cJSON *url_item = cJSON_GetObjectItemCaseSensitive(params, "url");
         if (cJSON_IsString(url_item) && url_item->valuestring != NULL) {
             const char *ota_url = url_item->valuestring;
-            ESP_LOGI(TAG, "Triggering OTA update from URL: %s", ota_url);
-            esp_err_t ota_result = ota_manager_trigger_github_ota(ota_url);
+            const char *storage_url = NULL;
+            cJSON *storage_url_item = cJSON_GetObjectItemCaseSensitive(params, "storage_url");
+            if (cJSON_IsString(storage_url_item) && storage_url_item->valuestring != NULL) {
+                storage_url = storage_url_item->valuestring;
+            }
+
+            char *derived_storage_url = NULL;
+            const char *storage_url_to_report = storage_url;
+            if (!storage_url_to_report || storage_url_to_report[0] == '\0') {
+                const char *storage_label = storage_label_for_next_app();
+                if (storage_label) {
+                    derived_storage_url = derive_storage_image_url(ota_url, storage_label);
+                    storage_url_to_report = derived_storage_url;
+                }
+            }
+
+            ESP_LOGI(TAG, "Triggering OTA update from URL: %s storage_url: %s", ota_url, storage_url_to_report ? storage_url_to_report : "(none)");
+            esp_err_t ota_result = ota_manager_trigger_github_ota(ota_url, storage_url);
             if (ota_result != ESP_OK) {
                 ESP_LOGE(TAG, "OTA update failed with error: %s", esp_err_to_name(ota_result));
-                // Optionally, you can send a response back indicating failure
             }
-            cJSON_AddStringToObject(root, "status", "ok");
-
+            if (storage_url_to_report) {
+                cJSON_AddStringToObject(root, "storage_url", storage_url_to_report);
+            }
+            free(derived_storage_url);
         } else {
             ESP_LOGE(TAG, "Invalid or missing 'url' parameter for OTA update.");
         }

@@ -681,6 +681,39 @@ void hot_tub_controller_set_simulation_mode(sim_mode_t mode)
 
 
 /**
+ * @brief Get the current pump state.
+ *
+ * @return The current pump state (PUMP_OFF, PUMP_LOW, PUMP_HIGH).
+ */
+int hot_tub_controller_get_error_code(void)
+{
+    lock_state();
+    int error_code = hottub_ctl.errorCode;
+    unlock_state();
+    return error_code;
+}
+//-----------------------------------------------------------------------------
+
+
+/**
+ * @brief Set the current error code.
+ *
+ * @param error_code The new error code to set.
+ */
+void hot_tub_controller_set_error_code(int error_code)
+{
+    lock_state();
+    hottub_ctl.errorCode = error_code;
+    unlock_state();
+
+    if (hot_tub_struct_io_save_settings_to_nvs() != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to save settings to NVS");
+    }
+}
+//-----------------------------------------------------------------------------
+
+
+/**
  * @brief Lock the hot tub controller state for thread-safe access.
  */
 void lock_state(void)

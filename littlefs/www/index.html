@@ -10,9 +10,60 @@
     <main class="shell">
       <section class="hero">
         <p class="eyebrow">Hot Tub Controller</p>
-        <h1>Local control panel for Wi-Fi, BLE, and OTA.</h1>
+        <h3>Local control panel for Wi-Fi, BLE, and OTA.</h3>
         <p class="lede">Connect over the device AP, then use the websocket console to exchange JSON with the controller.</p>
       </section>
+
+      <section class="panel">
+        <header>
+          <h2>Settings</h2>
+        </header>
+        <div class="settings-form">
+          <span class="lede">
+            Set the desired temperature: 
+            <input class="inputs" id="set-setpoint-temp" type="text" placeholder="30" />
+          </span>
+          <br/>
+          <span class="lede">
+            Set the desired temperature unit: 
+            <select id="set-temperature-unit">
+              <option value="C">Celsius</option>
+              <option value="F">Fahrenheit</option>
+            </select>
+          </span>
+          <br/>
+          <span class="lede">
+            Set if heat is requested 
+            <select id="set-pump-mode">
+              <option value="0">Off</option>
+              <option value="1">On</option>
+            </select>
+          </span>
+          <br/>
+          <span class="lede">
+            Set the desired pump speed: 
+            <select id="set-pump-speed">
+              <option value="0">Off</option>
+              <option value="1">Low</option>
+              <option value="3">High</option>
+            </select>
+          </span>
+          <br/>
+        </div>
+      </section>
+
+
+      <section class="panel">
+        <header>
+          <h2>Wi-Fi</h2>
+        </header>
+        <div class="wifi-form">
+          <input id="ssidInput" type="text" placeholder="SSID" />
+          <input id="passInput" type="password" placeholder="Password" />
+          <button id="wifiBtn">Connect</button>
+        </div>
+      </section>
+
 
       <section class="panel">
         <header>

@@ -17,6 +17,8 @@ const chartContainer = document.getElementById('chartContainer');
 
 let client = null;
 let otaPollingInterval = null;
+let statusPollingInterval = null;
+let requestId = 100;
 const appState = createAppState({ latestRawMessage: null, latestPayload: null, latestHotTubState: null });
 const chartManager = createChartManager();
 let temperatureChartId = null;
@@ -37,6 +39,41 @@ function stopOtaPolling() {
     clearInterval(otaPollingInterval);
     otaPollingInterval = null;
   }
+}
+
+function stopStatusPolling() {
+  if (statusPollingInterval !== null) {
+    clearInterval(statusPollingInterval);
+    statusPollingInterval = null;
+  }
+}
+
+function requestStatusSnapshot() {
+  if (!client || client.readyState !== WebSocket.OPEN) {
+    return;
+  }
+
+  const payload = {
+    id: requestId += 1,
+    type: 'req',
+    cmd: 'system.status.get',
+    params: '',
+  };
+
+  try {
+    client.send(createCrc32JsonWrapper(payload));
+  } catch (err) {
+    console.error('Failed to request status snapshot:', err);
+  }
+}
+
+function startStatusPolling() {
+  if (statusPollingInterval !== null) {
+    return;
+  }
+
+  requestStatusSnapshot();
+  statusPollingInterval = setInterval(requestStatusSnapshot, 1000);
 }
 
 function startOtaPolling() {
@@ -67,7 +104,7 @@ function updateOtaState(state) {
 function renderParsedMessage(parsed, raw) {
   receiveView.textContent = raw;
   if (parsed.valid) {
-    stateView.textContent = JSON.stringify(parsed.state || parsed.payload, null, 2);
+    stateView.textContent = JSON.stringify(parsed.payload, null, 2);
   } else {
     stateView.textContent = `CRC invalid: ${parsed.reason || `${parsed.computed} != ${parsed.expected}`}`;
   }
@@ -90,20 +127,71 @@ function initializeCharts() {
     return;
   }
 
-  temperatureChartId = chartManager.createChart({
-    id: 'temperature-chart',
-    container: chartContainer,
-    title: '',
-    seriesLabels: ['waterTemp', 'filteredWaterTemp'],
-    maxPoints: 100,
+  try {
+    temperatureChartId = chartManager.createChart({
+      id: 'temperature-chart',
+      container: chartContainer,
+      title: '',
+      seriesLabels: ['waterTemp', 'filteredWaterTemp'],
+      maxPoints: 100,
+    });
+  } catch (err) {
+    temperatureChartId = null;
+    console.error('Chart initialization failed:', err);
+  }
+}
+
+function ensureUPlotLoaded() {
+  return new Promise((resolve) => {
+    if (window.uPlot) {
+      resolve(true);
+      return;
+    }
+
+    const existing = document.querySelector('script[data-uplot-dynamic="1"]');
+    if (existing) {
+      existing.addEventListener('load', () => resolve(Boolean(window.uPlot)), { once: true });
+      existing.addEventListener('error', () => resolve(false), { once: true });
+      return;
+    }
+
+    const script = document.createElement('script');
+    script.src = '/vendor/uPlot.iife.min.js';
+    script.async = true;
+    script.dataset.uplotDynamic = '1';
+    script.addEventListener('load', () => resolve(Boolean(window.uPlot)), { once: true });
+    script.addEventListener('error', () => resolve(false), { once: true });
+    document.head.appendChild(script);
   });
 }
 
-function hardwareInit() {
+function deriveStorageUrl(otaUrl, storageLabel) {
+  try {
+    const url = new URL(otaUrl);
+    const storageFilename = storageLabel === 'storage_0' ? 'storage_0.bin' : 'storage_1.bin';
+    const segments = url.pathname.split('/');
+    segments[segments.length - 1] = storageFilename;
+    url.pathname = segments.join('/');
+    return url.toString();
+  } catch (err) {
+    console.error('Cannot derive storage URL from OTA URL:', err);
+    return null;
+  }
+}
+
+async function hardwareInit() {
   setBadge('initializing', 'warn');
   sendBtn.disabled = true;
   otaStatus.textContent = 'idle';
   setOtaProgress(0);
+
+  if (!window.uPlot) {
+    const loaded = await ensureUPlotLoaded();
+    if (!loaded) {
+      console.error('uPlot script failed to load from /vendor/uPlot.iife.min.js');
+    }
+  }
+
   initializeCharts();
 
   sendBtn.addEventListener('click', () => {
@@ -135,11 +223,13 @@ function hardwareInit() {
       return;
     }
 
+    const storage_url = deriveStorageUrl(url, 'storage_1');
+
     const payload = {
       id: 1,
       type: 'req',
       cmd: 'ota.manager.update.github',
-      params: { url },
+      params: { url, storage_url },
     };
 
     otaStatus.textContent = 'requested';
@@ -164,6 +254,7 @@ function handleSocketOpen() {
   setBadge('connected', 'ok');
   sendBtn.disabled = false;
   sendView.textContent = 'Connected. Ready to send.';
+  startStatusPolling();
 }
 
 function handleSocketClose() {
@@ -171,12 +262,14 @@ function handleSocketClose() {
   sendBtn.disabled = true;
   sendView.textContent = 'Connection closed. Reconnecting...';
   stopOtaPolling();
+  stopStatusPolling();
 }
 
 function handleSocketError() {
   setBadge('error', 'bad');
   sendBtn.disabled = true;
   sendView.textContent = 'WebSocket error. Check console.';
+  stopStatusPolling();
 }
 
 function handleSocketMessage(raw) {
@@ -198,7 +291,9 @@ function updateTemperatureChart(state) {
     return;
   }
 
-  const src = state.response && typeof state.response === 'object' ? state.response : state;
+  const src = state.response && typeof state.response === 'object' && Object.keys(state.response).length > 0
+    ? state.response
+    : state;
   const parsedTimestampMs = src.lastUpdateTime ? Date.parse(src.lastUpdateTime) : NaN;
   const timestamp = Number.isFinite(parsedTimestampMs)
     ? parsedTimestampMs / 1000
@@ -208,7 +303,7 @@ function updateTemperatureChart(state) {
     waterTemp: src.waterTemp,
     filteredWaterTemp: src.filteredWaterTemp,
     // airTemp: src.airTemp,
-  });``
+  });
 }
 
 function connect() {

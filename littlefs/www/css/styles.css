@@ -21,6 +21,7 @@ html, body {
 
 body {
   font-family: Inter, system-ui, sans-serif;
+  font-size: 18px;
   color: var(--text);
   background:
     radial-gradient(circle at top left, rgba(122, 215, 255, 0.14), transparent 30%),
@@ -78,6 +79,15 @@ h1 {
   margin: 14px 0 0;
   max-width: 58ch;
   color: var(--muted);
+}
+
+.inputs, select {
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(3, 8, 16, 0.8);
+  color: var(--text);
+  border-radius: 999px;
+  padding: 8px 12px;
+  font: inherit;
 }
 
 .panel {

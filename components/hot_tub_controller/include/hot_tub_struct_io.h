@@ -51,7 +51,8 @@ void hot_tub_controller_set_simulation_mode(sim_mode_t mode);
 sim_mode_t hot_tub_controller_get_simulation_mode(void);
 float hot_tub_controller_get_filtered_water_temp(void);
 void hot_tub_controller_set_filtered_water_temp(float temp);
-
+int hot_tub_controller_get_error_code(void);
+void hot_tub_controller_set_error_code(int error_code);
 
 
 #endif // HOT_TUB_STRUCT_IO_H

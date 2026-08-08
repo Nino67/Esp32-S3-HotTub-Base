@@ -38,7 +38,7 @@ export function parseHotTubMessage(raw) {
 export function buildHotTubState(payload) {
   const response = payload.response && typeof payload.response === 'object' && !Array.isArray(payload.response)
     ? payload.response
-    : {};
+    : payload;
 
   return {
     id: payload.id ?? null,

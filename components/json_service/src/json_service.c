@@ -143,62 +143,6 @@ cJSON *json_service_crc32_envelope_decode(const char *packet)
 //------------------------------------------------------------------------------
 
 
-
-/**
- * @brief Create an RPC envelope JSON object.
- *
- * @param json_obj The cJSON object to populate.
- * @param type The RPC type.
- * @param id The RPC ID.
- * @param cmd The command string.
- * @param params The parameters object.
- * @return The created cJSON object, or NULL on failure.
- */
-cJSON * json_service_create_rpc_envelope(rpc_type_t type, 
-                                        uint32_t id, 
-                                        const char *cmd, 
-                                        cJSON *params)
-{
-    cJSON *json_obj = cJSON_CreateObject();
-    if (!json_obj)
-        return NULL;
-
-    cJSON_AddNumberToObject(json_obj, "id", id);
-
-    const char *type_str = NULL;
-    switch (type)
-    {
-    case RPC_TYPE_REQ:
-        type_str = "req";
-        break;
-    case RPC_TYPE_RES:
-        type_str = "res";
-        break;
-    case RPC_TYPE_EVT:
-        type_str = "evt";
-        break;
-    default:
-        type_str = "unknown";
-        break;
-    }
-    cJSON_AddStringToObject(json_obj, "type", type_str);
-
-    if (cmd)
-        cJSON_AddStringToObject(json_obj, "cmd", cmd);
-
-    if (params)
-        cJSON_AddItemToObject(json_obj, "params", params);
-
-    char * msg = cJSON_PrintUnformatted(json_obj);
-    // ESP_LOGW(TAG, "Created RPC envelope: %s", msg);
-    free(msg);
-
-    return json_obj;
-} // end of json_service_create_rpc_envelope()
-//------------------------------------------------------------------------------
-
-
-
 /**
  * @brief Parses an RPC envelope JSON string.
  *
@@ -354,11 +298,5 @@ void json_service_dispatcher_core0(cJSON *root)
         ESP_LOGD(TAG, "Unknown RPC type for id=%d, type=%s and cmd=%s", id, type_str ? type_str : "null", cmd_str);
     }
 
-    // if (cmd_str) {
-    //     free((void *)cmd_str);
-    // }
-    // if (params) {
-    //     free((void *)cJSON_PrintUnformatted(params));
-    // }
 } // end of json_service_dispatcher_core0() 
 //-----------------------------------------------------------------------------

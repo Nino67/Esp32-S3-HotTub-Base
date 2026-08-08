@@ -691,6 +691,48 @@ void hottub_safety_switch_set_callback(cJSON *root) {
 
 
 /**
+ * @brief Callback function to handle the "hottub.error.get" command received via JSON service.
+ *
+ * @param root The cJSON object containing the command and its data.
+ *
+ * @note Ex: command received: {"id":1,"type":"req","cmd":"hottub.error.get","params":""}
+ */
+void hottub_error_get_callback(cJSON *root) {
+    int error = hot_tub_controller_get_error_code();
+    cJSON *response = cJSON_CreateObject();
+    cJSON_AddNumberToObject(response, "error.get", (int)error);
+    hottub_callback_response(root, response);
+} // End of hottub_error_get_callback
+//-----------------------------------------------------------------------------     
+
+
+/**
+ * @brief Callback function to handle the "hottub.error.set" command received via JSON service.
+ *
+ * @param root The cJSON object containing the command and its data.
+ *
+ * @note Ex: command received: {"id":1,"type":"req","cmd":"hottub.error.set","params":{"error.set":1}}
+ */
+void hottub_error_set_callback(cJSON *root) {
+    param_tupple_t param;
+
+    if (parse_json_param(root, &param.key_name, &param.key_value) != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to parse JSON params");
+        return;
+    }
+    cJSON *error_item = param.key_value;
+    int error = error_item->valueint;
+    hot_tub_controller_set_error_code(error);
+
+    // Create a response JSON object
+    cJSON *response = cJSON_CreateObject();
+    cJSON_AddNumberToObject(response, "error.set", (int)error);
+    hottub_callback_response(root, response);
+} // End of hottub_error_set_callback
+//----------------------------------------------------------------------------- 
+
+
+/**
  * @brief Callback function to handle the "hottub.pump.pre.run.time.get" command received via JSON service.
  *
  * @param root The cJSON object containing the command and its data.
@@ -837,6 +879,8 @@ callbacks_t hot_tub_callbacks[] = {
     {"hottub.pump.pre.run.time.set", hottub_pump_pre_run_time_set_callback},
     {"hottub.pump.post.run.time.get", hottub_pump_post_run_time_get_callback},
     {"hottub.pump.post.run.time.set", hottub_pump_post_run_time_set_callback},
+    {"hottub.error.get", hottub_error_get_callback},
+    {"hottub.error.set", hottub_error_set_callback},
     {NULL, NULL} // Sentinel value to mark the end of the array
 };
 //-----------------------------------------------------------------------------

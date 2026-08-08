@@ -74,6 +74,9 @@ sim_mode_t hot_tub_controller_get_simulation_mode(void);
 float hot_tub_controller_get_filtered_water_temp(void);
 safety_switch_t hot_tub_controller_get_safety_switch(void);
 void hot_tub_controller_set_safety_switch(safety_switch_t state);
+void hot_tub_controller_set_error_code(int error_code);
+void hottub_error_get_callback(cJSON *root);
+void hottub_error_set_callback(cJSON *root);
 
 
 
@@ -252,10 +255,14 @@ void hot_tub_controller_main_task(void *arg)
     // Set the safety switch to its default state (false/off) at startup
     hot_tub_controller_set_safety_switch(DEFAULT_SAFETY_SWITCH_STATE);
 
+    // Clear any error codes at startup
+    hot_tub_controller_set_error_code(HOT_TUB_ERR_NONE); // Clear any error codes at startup
     esp_err_t err = ESP_OK;
 
     while (1) 
     {
+        /******** Start of controller loop (read and verify) temperature ********/
+
         // Wait for the next cycle (1Hz).
         xTaskDelayUntil( &xLastWakeTime, xFrequency );
 
@@ -300,29 +307,32 @@ void hot_tub_controller_main_task(void *arg)
                 snapshot.errorCode = HOT_TUB_ERR_SENSOR_READ;
                 ESP_LOGW(TAG, "DS18B20 read failed, keeping previous waterTemp %.2f", snapshot.waterTemp);
             }
-        }
-
-        if (snapshot.safetySwitch == SAFETY_SWITCH_OFF) 
-        {
-            // Safety switch is OFF, disable heater and pump
-            if (snapshot.heaterOn) 
-            {
-                snapshot.heaterOn = false;
-                ESP_LOGW(TAG, "Safety switch OFF: Heater turned OFF");
-            }
-            if (snapshot.pumpState != PUMP_OFF) 
-            {
-                snapshot.pumpState = PUMP_OFF;
-                ESP_LOGW(TAG, "Safety switch OFF: Pump turned OFF");
-            }
-        }
+        } // End of temperature reading
 
 
-        
+        // if (snapshot.safetySwitch == SAFETY_SWITCH_OFF) 
+        // {
+        //     // Safety switch is OFF, disable heater and pump
+        //     if (snapshot.heaterOn) 
+        //     {
+        //         snapshot.heaterOn = false;
+        //         ESP_LOGW(TAG, "Safety switch OFF: Heater turned OFF");
+        //     }
+        //     if (snapshot.pumpState != PUMP_OFF) 
+        //     {
+        //         snapshot.pumpState = PUMP_OFF;
+        //         ESP_LOGW(TAG, "Safety switch OFF: Pump turned OFF");
+        //     }
+        // }
+
+
+        /******** Start of auto temperature control logic ********/
+
         // --- AUTO TEMPERATURE CONTROL LOGIC ---
         if(snapshot.autoMode) 
         {
-
+            ESP_LOGI(TAG, "Auto temperature control enabled. Current water temp: %.2f, Setpoint: %.2f", snapshot.waterTemp, snapshot.setpointTemp);
+            
             // Verify hysteresis values are within safe limits
             err = hot_tub_controller_verify_hysteresis(&snapshot);
             if (err != ESP_OK) 
@@ -340,6 +350,9 @@ void hot_tub_controller_main_task(void *arg)
             bool needs_heat = (snapshot.waterTemp < snapshot.setpointTemp - snapshot.lowHysteresis);
             bool heat_satisfied = (snapshot.waterTemp > snapshot.setpointTemp + snapshot.highHysteresis);
 
+            
+            ESP_LOGI(TAG, "Heating logic: needs_heat=%d, heat_satisfied=%d, heaterOn=%d, pumpState=%d, auto_started_pump=%d, pre_pump_timer=%d, post_pump_timer=%d", 
+                     needs_heat, heat_satisfied, snapshot.heaterOn, snapshot.pumpState, auto_started_pump, pre_pump_timer, post_pump_timer);
             // --- HEATING LOGIC ---
             if (needs_heat) 
             {
@@ -687,6 +700,7 @@ esp_err_t hot_tub_controller_to_json(cJSON *json, const HotTubController_t *stat
     cJSON_AddNumberToObject(json, "pumpPreRunTime", state->pumpPreRunTime);
     cJSON_AddNumberToObject(json, "pumpPostRunTime", state->pumpPostRunTime);
     cJSON_AddNumberToObject(json, "simulationMode", state->simulationMode);
+    cJSON_AddNumberToObject(json, "errorCode", state->errorCode);
     cJSON_AddStringToObject(json, "lastUpdateTime", state->lastUpdateTime);
 
     return ESP_OK;

@@ -64,12 +64,6 @@ void json_service_dispatcher_core0(cJSON *root);
 
 char *json_service_crc32_envelope_encode(const cJSON *);
 
-
-cJSON * json_service_create_rpc_envelope(rpc_type_t type, 
-                                        uint32_t id, 
-                                        const char *cmd, 
-                                        cJSON *params);
-
 cJSON *json_service_crc32_envelope_decode(const char *);
 
 
@@ -84,27 +78,49 @@ cJSON *json_service_parse_rpc_envelope(const char *json_str, rpc_type_t *out_typ
 static esp_err_t mount_littlefs(void)
 {
     const esp_partition_t *running_app = esp_ota_get_running_partition();
-    const char *fs_partition_label = "storage_0";
+    const char *primary_label = "storage_0";
+    const char *fallback_label = "storage_1";
 
     if (running_app != NULL && running_app->subtype == ESP_PARTITION_SUBTYPE_APP_OTA_1) {
-        fs_partition_label = "storage_1";
+        primary_label = "storage_1";
+        fallback_label = "storage_0";
     }
 
-    ESP_LOGI(TAG, "Mounting LittleFS partition '%s'", fs_partition_label);
+    const char *mount_candidates[2] = { primary_label, fallback_label };
 
-    esp_vfs_littlefs_conf_t conf = {
-        .base_path = LFS_BASE_PATH,
-        .partition_label = fs_partition_label,
-        .format_if_mount_failed = true,
-        .dont_mount = false,
-    };
-
-    esp_err_t err = esp_vfs_littlefs_register(&conf);
-    if (err == ESP_ERR_INVALID_STATE)
+    for (size_t i = 0; i < 2; ++i)
     {
-        return ESP_OK;
+        const char *candidate = mount_candidates[i];
+        ESP_LOGI(TAG, "Mounting LittleFS partition '%s'", candidate);
+
+        esp_vfs_littlefs_conf_t conf = {
+            .base_path = LFS_BASE_PATH,
+            .partition_label = candidate,
+            .format_if_mount_failed = false,
+            .dont_mount = false,
+        };
+
+        esp_err_t err = esp_vfs_littlefs_register(&conf);
+        if (err != ESP_OK && err != ESP_ERR_INVALID_STATE)
+        {
+            ESP_LOGW(TAG, "Failed to mount '%s': %s", candidate, esp_err_to_name(err));
+            continue;
+        }
+
+        FILE *index = fopen(LFS_INDEX, "r");
+        if (index != NULL)
+        {
+            fclose(index);
+            ESP_LOGI(TAG, "LittleFS mount validated using '%s'", candidate);
+            return ESP_OK;
+        }
+
+        ESP_LOGW(TAG, "Mounted '%s' but missing %s, trying fallback", candidate, LFS_INDEX);
+        esp_vfs_littlefs_unregister(candidate);
     }
-    return err;
+
+    ESP_LOGE(TAG, "No valid LittleFS partition found");
+    return ESP_FAIL;
 } // End of mount_littlefs
 //-----------------------------------------------------------------------------
 
@@ -275,7 +291,7 @@ static void ota_update_task(void *arg)
     }
 
     ESP_LOGI(TAG, "OTA task started: %s", url);
-    esp_err_t err = ota_manager_trigger_github_ota(url);
+    esp_err_t err = ota_manager_trigger_github_ota(url, NULL);
     if (err != ESP_OK)
     {
         ESP_LOGE(TAG, "OTA task failed: %s", esp_err_to_name(err));

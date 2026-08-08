@@ -72,27 +72,6 @@ extern QueueHandle_t xCore1GenericQueue;
 void json_service_dispatcher_core0(cJSON *root); 
 
 
-/**
- * @brief Create an RPC envelope JSON object.
- *
- * @param json_obj The cJSON object to populate.
- * @param type The RPC type.
- * @param id The RPC ID.
- * @param cmd The command string.
- * @param params The parameters object.
- */
-cJSON * json_service_create_rpc_envelope(rpc_type_t type, 
-                                        uint32_t id, 
-                                        const char *cmd, 
-                                        cJSON *params);
-
-
-//  void json_service_create_rpc_envelope(cJSON *json_obj, rpc_type_t type, uint32_t id, const char *cmd, cJSON *params);
-
-
-
-
-
 cJSON *json_service_parse_rpc_envelope(const char *json_str, rpc_type_t *out_type, uint32_t *out_id, char **out_cmd, cJSON **out_params);
 
 
