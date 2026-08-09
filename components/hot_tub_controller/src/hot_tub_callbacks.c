@@ -117,6 +117,18 @@ void hottub_broadcast_status_callback(void)
     // Update the lastUpdateTime field with the current time
     get_current_time(snapshot.lastUpdateTime, sizeof(snapshot.lastUpdateTime));
 
+    ESP_LOGI(TAG, "Hot Tub Status Snapshot: autoMode=%d, heaterOn=%d, tempUnitCelsius=%d, waterTemp=%.2f, setpointTemp=%.2f, lowHysteresis=%.2f, highHysteresis=%.2f, pumpPreRunTime=%.2f, pumpPostRunTime=%.2f, lastUpdateTime=%s",
+             snapshot.autoMode,
+             snapshot.heaterOn,
+             snapshot.tempUnitCelsius,
+             snapshot.waterTemp,
+             snapshot.setpointTemp,
+             snapshot.lowHysteresis,
+             snapshot.highHysteresis,
+             snapshot.pumpPreRunTime,
+             snapshot.pumpPostRunTime,
+             snapshot.lastUpdateTime);
+
     esp_err_t err = hot_tub_controller_to_json(response, &snapshot);
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "Failed to convert snapshot to JSON: %s", esp_err_to_name(err));

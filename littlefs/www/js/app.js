@@ -254,7 +254,7 @@ function handleSocketOpen() {
   setBadge('connected', 'ok');
   sendBtn.disabled = false;
   sendView.textContent = 'Connected. Ready to send.';
-  startStatusPolling();
+  // startStatusPolling();
 }
 
 function handleSocketClose() {
