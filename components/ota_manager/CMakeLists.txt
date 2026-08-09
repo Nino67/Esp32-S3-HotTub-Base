@@ -9,4 +9,6 @@ idf_component_register(SRCS "src/ota_manager.c"
                                 littlefs
                                 rgb_led
                                 json_service)
+
+target_include_directories(${COMPONENT_LIB} PRIVATE ${CMAKE_BINARY_DIR})
                                 

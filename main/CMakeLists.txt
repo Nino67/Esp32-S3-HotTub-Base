@@ -11,8 +11,9 @@ idf_component_register(SRCS "app_main.c"
                             json_service
                             psram_allocator
                             system_status)
+
+target_include_directories(${COMPONENT_LIB} PRIVATE ${CMAKE_BINARY_DIR})
                             
-    
 littlefs_create_partition_image(storage_0 ../littlefs FLASH_IN_PROJECT)
 littlefs_create_partition_image(storage_1 ../littlefs FLASH_IN_PROJECT)
 

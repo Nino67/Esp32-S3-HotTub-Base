@@ -35,6 +35,7 @@
 #include "esp_heap_caps.h"
 #include "freertos/semphr.h"
 #include "system_status.h"
+#include "version.h"
 
 
 
@@ -206,6 +207,15 @@ void app_main(void)
         if (status_err != ESP_OK) {
             ESP_LOGW(TAG, "system_status_init failed: %s", esp_err_to_name(status_err));
         } else {
+            firmware_status_t firmware_status = {0};
+            strlcpy(firmware_status.current_version, APP_VERSION, sizeof(firmware_status.current_version));
+            strlcpy(firmware_status.compile_date, APP_BUILD_DATE, sizeof(firmware_status.compile_date));
+            strlcpy(firmware_status.compile_time, APP_BUILD_TIME, sizeof(firmware_status.compile_time));
+            firmware_status.active_partition_slot = 0;
+            firmware_status.running_partition_slot = 0;
+            firmware_status.current_ota_state = OTA_READY;
+            system_status_set_firmware_status(&firmware_status);
+
             esp_err_t snap_err = system_status_snapshot();
             if (snap_err != ESP_OK) {
                 ESP_LOGW(TAG, "system_status_snapshot failed: %s", esp_err_to_name(snap_err));

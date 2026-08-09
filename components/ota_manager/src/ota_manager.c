@@ -19,6 +19,7 @@
 #include "esp_https_ota.h"
 #include "esp_crt_bundle.h"
 #include "esp_system.h"
+#include "version.h"
 
 #include "nvs_storage.h"
 
@@ -50,7 +51,7 @@ bool json_service_register_command(const char *cmd_string,
 char *json_service_crc32_envelope_encode(const cJSON *json);
 
 static void ota_manager_update_git_callback(cJSON *root);
-
+static void ota_manager_update_manifest_callback(cJSON *root);
 
 
 
@@ -110,6 +111,174 @@ static esp_err_t ota_http_event_handler(esp_http_client_event_t *evt)
     return ESP_OK;
 }
 
+static esp_err_t ota_manager_download_url_to_buffer(const char *url, char **out_buffer, size_t *out_length)
+{
+    if (!url || !out_buffer) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    esp_http_client_config_t config = {
+        .url = url,
+        .timeout_ms = 60000,
+        .disable_auto_redirect = false,
+        .max_redirection_count = 5,
+        .crt_bundle_attach = esp_crt_bundle_attach,
+    };
+
+    esp_http_client_handle_t client = esp_http_client_init(&config);
+    if (!client) {
+        ESP_LOGE(TAG, "Failed to init HTTP client for URL: %s", url);
+        return ESP_ERR_NO_MEM;
+    }
+
+    esp_err_t err = esp_http_client_open(client, 0);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "HTTP open failed for URL %s: %s", url, esp_err_to_name(err));
+        esp_http_client_cleanup(client);
+        return err;
+    }
+
+    int64_t content_length = esp_http_client_fetch_headers(client);
+    if (content_length < 0) {
+        content_length = 0;
+    }
+
+    size_t buffer_size = (content_length > 0 && content_length < 65536) ? (size_t)content_length + 1 : 65536;
+    char *buffer = malloc(buffer_size);
+    if (!buffer) {
+        esp_http_client_close(client);
+        esp_http_client_cleanup(client);
+        return ESP_ERR_NO_MEM;
+    }
+
+    size_t total_read = 0;
+    while (true) {
+        int read_bytes = esp_http_client_read(client, buffer + total_read, buffer_size - total_read - 1);
+        if (read_bytes < 0) {
+            ESP_LOGE(TAG, "HTTP read failed for URL %s: %d", url, read_bytes);
+            err = ESP_FAIL;
+            break;
+        }
+        if (read_bytes == 0) {
+            break;
+        }
+
+        total_read += (size_t)read_bytes;
+        if (total_read + 1 >= buffer_size) {
+            size_t new_size = buffer_size * 2;
+            char *new_buffer = realloc(buffer, new_size);
+            if (!new_buffer) {
+                ESP_LOGE(TAG, "Failed to realloc HTTP buffer");
+                err = ESP_ERR_NO_MEM;
+                break;
+            }
+            buffer = new_buffer;
+            buffer_size = new_size;
+        }
+    }
+
+    if (err == ESP_OK) {
+        buffer[total_read] = '\0';
+        *out_buffer = buffer;
+        if (out_length) {
+            *out_length = total_read;
+        }
+    } else {
+        free(buffer);
+    }
+
+    esp_http_client_close(client);
+    esp_http_client_cleanup(client);
+    return err;
+}
+
+static esp_err_t ota_manager_parse_manifest(const char *manifest, char **out_version, char **out_ota_url, char **out_storage_url)
+{
+    if (!manifest || !out_version || !out_ota_url || !out_storage_url) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    cJSON *root = cJSON_Parse(manifest);
+    if (!root) {
+        ESP_LOGE(TAG, "Failed to parse manifest JSON");
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    if (!cJSON_IsObject(root)) {
+        ESP_LOGE(TAG, "Manifest JSON must be an object");
+        cJSON_Delete(root);
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    cJSON *version_item = cJSON_GetObjectItemCaseSensitive(root, "version");
+    cJSON *ota_url_item = cJSON_GetObjectItemCaseSensitive(root, "url");
+    cJSON *storage_url_item = cJSON_GetObjectItemCaseSensitive(root, "storage_url");
+
+    if (!cJSON_IsString(version_item) || !cJSON_IsString(ota_url_item) || !cJSON_IsString(storage_url_item)) {
+        ESP_LOGE(TAG, "Manifest JSON missing required string fields");
+        cJSON_Delete(root);
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    if (version_item->valuestring[0] == '\0' || ota_url_item->valuestring[0] == '\0' || storage_url_item->valuestring[0] == '\0') {
+        ESP_LOGE(TAG, "Manifest JSON fields must not be empty");
+        cJSON_Delete(root);
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    *out_version = strdup(version_item->valuestring);
+    *out_ota_url = strdup(ota_url_item->valuestring);
+    *out_storage_url = strdup(storage_url_item->valuestring);
+
+    if (!*out_version || !*out_ota_url || !*out_storage_url) {
+        free(*out_version);
+        free(*out_ota_url);
+        free(*out_storage_url);
+        cJSON_Delete(root);
+        return ESP_ERR_NO_MEM;
+    }
+
+    cJSON_Delete(root);
+    return ESP_OK;
+}
+
+static esp_err_t ota_manager_trigger_manifest_ota(const char *manifest_url)
+{
+    char *manifest = NULL;
+    size_t manifest_length = 0;
+    esp_err_t err = ota_manager_download_url_to_buffer(manifest_url, &manifest, &manifest_length);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to download OTA manifest from %s: %s", manifest_url, esp_err_to_name(err));
+        return err;
+    }
+
+    char *remote_version = NULL;
+    char *ota_url = NULL;
+    char *storage_url = NULL;
+    err = ota_manager_parse_manifest(manifest, &remote_version, &ota_url, &storage_url);
+    free(manifest);
+    if (err != ESP_OK) {
+        return err;
+    }
+
+    ESP_LOGI(TAG, "Manifest version: %s, current version: %s", remote_version, APP_VERSION);
+    if (strcmp(remote_version, APP_VERSION) == 0) {
+        ESP_LOGI(TAG, "Manifest version matches current firmware, no update required.");
+        free(remote_version);
+        free(ota_url);
+        free(storage_url);
+        return ESP_OK;
+    }
+
+    ESP_LOGI(TAG, "Remote firmware version differs; performing OTA from %s", ota_url);
+    err = ota_manager_trigger_github_ota(ota_url, storage_url);
+
+    free(remote_version);
+    free(ota_url);
+    free(storage_url);
+    return err;
+}
+
 esp_err_t ota_manager_note_boot(void)
 {
     const esp_partition_t *running = esp_ota_get_running_partition();
@@ -119,8 +288,9 @@ esp_err_t ota_manager_note_boot(void)
     }
 
 
-    // Register the "ota.manager.update.git" command with the JSON service
+    // Register the OTA update commands with the JSON service
     json_service_register_command("ota.manager.update.github", ota_manager_update_git_callback, 0);
+    json_service_register_command("ota.manager.update.manifest", ota_manager_update_manifest_callback, 0);
 
     esp_ota_img_states_t ota_state;
     esp_err_t err = esp_ota_get_state_partition(running, &ota_state);
@@ -448,18 +618,56 @@ esp_err_t ota_manager_trigger_github_ota(const char *url, const char *storage_ur
  *       It extracts the OTA URL (GitHub)from the request and triggers the OTA update process.
  *       https://raw.githubusercontent.com/Nino67/Esp32-S3-HotTub-Base/main/firmware/hot_tub_controller.bin
  */
-static void ota_manager_update_git_callback(cJSON *root) {
-    cJSON  *id_item = cJSON_GetObjectItemCaseSensitive(root, "id");
-    cJSON  *type_item = cJSON_GetObjectItemCaseSensitive(root, "type");
-    cJSON  *cmd = cJSON_GetObjectItemCaseSensitive(root, "cmd");
-    cJSON  *params = cJSON_GetObjectItemCaseSensitive(root, "params");
+static void ota_manager_update_manifest_callback(cJSON *root) {
+    cJSON *id_item = cJSON_GetObjectItemCaseSensitive(root, "id");
+    cJSON *type_item = cJSON_GetObjectItemCaseSensitive(root, "type");
+    cJSON *cmd = cJSON_GetObjectItemCaseSensitive(root, "cmd");
+    cJSON *params = cJSON_GetObjectItemCaseSensitive(root, "params");
 
     const uint32_t id = cJSON_IsNumber(id_item) ? id_item->valueint : 0;
     const char *type_str = cJSON_IsString(type_item) && type_item->valuestring != NULL ? type_item->valuestring : NULL;
     const char *cmd_str = cJSON_IsString(cmd) && cmd->valuestring != NULL ? cmd->valuestring : NULL;
     const char *params_str = cJSON_IsObject(params) ? cJSON_PrintUnformatted(params) : NULL;
- 
-    ESP_LOGI(TAG, "OTA update envelope: id=%d, type=%s, cmd=%s, params=%s", 
+
+    ESP_LOGI(TAG, "OTA manifest envelope: id=%d, type=%s, cmd=%s, params=%s",
+             id,
+             type_str ? type_str : "null",
+             cmd_str ? cmd_str : "null",
+             params_str ? params_str : "null");
+
+    if (params && cJSON_IsObject(params)) {
+        cJSON *manifest_url_item = cJSON_GetObjectItemCaseSensitive(params, "manifest_url");
+        if (cJSON_IsString(manifest_url_item) && manifest_url_item->valuestring && manifest_url_item->valuestring[0] != '\0') {
+            const char *manifest_url = manifest_url_item->valuestring;
+            ESP_LOGI(TAG, "Triggering OTA update from manifest URL: %s", manifest_url);
+            esp_err_t ota_result = ota_manager_trigger_manifest_ota(manifest_url);
+            if (ota_result != ESP_OK) {
+                ESP_LOGE(TAG, "Manifest OTA update failed with error: %s", esp_err_to_name(ota_result));
+            }
+        } else {
+            ESP_LOGE(TAG, "Invalid or missing 'manifest_url' parameter for OTA update.");
+        }
+    } else {
+        ESP_LOGE(TAG, "Missing 'params' object for OTA update command.");
+    }
+
+    cJSON_AddStringToObject(root, "status", "ok");
+    cJSON_AddItemToObject(root, "response", cJSON_CreateString("ota manifest update completed"));
+    cJSON_SetValuestring(type_item, "res");
+}
+
+static void ota_manager_update_git_callback(cJSON *root) {
+    cJSON *id_item = cJSON_GetObjectItemCaseSensitive(root, "id");
+    cJSON *type_item = cJSON_GetObjectItemCaseSensitive(root, "type");
+    cJSON *cmd = cJSON_GetObjectItemCaseSensitive(root, "cmd");
+    cJSON *params = cJSON_GetObjectItemCaseSensitive(root, "params");
+
+    const uint32_t id = cJSON_IsNumber(id_item) ? id_item->valueint : 0;
+    const char *type_str = cJSON_IsString(type_item) && type_item->valuestring != NULL ? type_item->valuestring : NULL;
+    const char *cmd_str = cJSON_IsString(cmd) && cmd->valuestring != NULL ? cmd->valuestring : NULL;
+    const char *params_str = cJSON_IsObject(params) ? cJSON_PrintUnformatted(params) : NULL;
+
+    ESP_LOGI(TAG, "OTA update envelope: id=%d, type=%s, cmd=%s, params=%s",
              id,
              type_str ? type_str : "null",
              cmd_str ? cmd_str : "null",
@@ -485,7 +693,10 @@ static void ota_manager_update_git_callback(cJSON *root) {
                 }
             }
 
-            ESP_LOGI(TAG, "Triggering OTA update from URL: %s storage_url: %s", ota_url, storage_url_to_report ? storage_url_to_report : "(none)");
+            ESP_LOGI(TAG, "Triggering OTA update from URL: %s storage_url: %s",
+                     ota_url,
+                     storage_url_to_report ? storage_url_to_report : "(none)");
+
             esp_err_t ota_result = ota_manager_trigger_github_ota(ota_url, storage_url);
             if (ota_result != ESP_OK) {
                 ESP_LOGE(TAG, "OTA update failed with error: %s", esp_err_to_name(ota_result));
@@ -500,6 +711,7 @@ static void ota_manager_update_git_callback(cJSON *root) {
     } else {
         ESP_LOGE(TAG, "Missing 'params' object for OTA update command.");
     }
+
     cJSON_AddStringToObject(root, "status", "ok");
     cJSON_AddItemToObject(root, "response", cJSON_CreateString("ota update completed"));
     cJSON_SetValuestring(type_item, "res");

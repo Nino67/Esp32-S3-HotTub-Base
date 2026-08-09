@@ -13,6 +13,7 @@ const otaStatus = document.getElementById('otaStatus');
 const otaProgressBar = document.getElementById('otaProgressBar');
 const sendBtn = document.getElementById('sendBtn');
 const otaBtn = document.getElementById('otaBtn');
+const otaManifestBtn = document.getElementById('otaManifestBtn');
 const chartContainer = document.getElementById('chartContainer');
 
 let client = null;
@@ -246,6 +247,42 @@ async function hardwareInit() {
       console.error('Failed to wrap OTA payload:', err);
     }
   });
+
+  if (otaManifestBtn) {
+    otaManifestBtn.addEventListener('click', () => {
+      if (!client || client.readyState !== WebSocket.OPEN) {
+        sendView.textContent = 'Socket is not open. Waiting for connection...';
+        return;
+      }
+
+      const manifestUrl = prompt('Enter OTA manifest URL:',
+        'https://raw.githubusercontent.com/Nino67/Esp32-S3-HotTub-Base/main/firmware/ota_manifest.json');
+      if (!manifestUrl) {
+        return;
+      }
+
+      const payload = {
+        id: 1,
+        type: 'req',
+        cmd: 'ota.manager.update.manifest',
+        params: { manifest_url: manifestUrl },
+      };
+
+      otaStatus.textContent = 'requested';
+      setOtaProgress(0);
+
+      try {
+        const wrapped = createCrc32JsonWrapper(payload);
+        client.send(wrapped);
+        sendView.textContent = wrapped;
+        console.log('Sending OTA manifest request:', wrapped);
+      } catch (err) {
+        sendView.textContent = `Invalid OTA payload: ${err.message}`;
+        otaStatus.textContent = 'failed';
+        console.error('Failed to wrap OTA payload:', err);
+      }
+    });
+  }
 
   connect();
 }

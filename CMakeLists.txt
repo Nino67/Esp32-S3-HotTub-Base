@@ -1,6 +1,32 @@
 cmake_minimum_required(VERSION 3.16)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set(IDF_TARGET "esp32s3")
+
+# Generate version header from Git or fallback string.
+find_package(Git QUIET)
+if(GIT_FOUND)
+    execute_process(
+        COMMAND ${GIT_EXECUTABLE} describe --tags --dirty --always
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+        OUTPUT_VARIABLE GIT_DESCRIBE
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+        ERROR_QUIET
+    )
+    if(NOT GIT_DESCRIBE)
+        set(GIT_DESCRIBE "0.0.0-dirty")
+    endif()
+else()
+    set(GIT_DESCRIBE "0.0.0-unknown")
+endif()
+
+set(APP_VERSION "${GIT_DESCRIBE}")
+set(APP_BUILD_DATE "${CMAKE_TIME}")
+string(TIMESTAMP APP_BUILD_TIME "%H:%M:%S" UTC)
+
+configure_file("${CMAKE_SOURCE_DIR}/version.h.in"
+               "${CMAKE_BINARY_DIR}/version.h"
+               @ONLY)
+
 include($ENV{IDF_PATH}/tools/cmake/project.cmake)
 project(hot_tub_controller)
 
