@@ -1,9 +1,30 @@
+/**
+ * @file app.js
+ * @author Gaetano (Nino) Ricca (gricca1967@gmail.com)
+ * @brief   Main application logic for the Hot Tub Controller web interface.
+ *
+ * @details This file contains the main application logic for the Hot Tub Controller web interface.
+ * It handles WebSocket communication, OTA updates, and chart management.
+ *
+ * @note Matching hardware:
+ * - model: ESP32-S3-DevKitC-1.         SKU: ESP32-S3-DevKitC-1-N16R8
+ * - mfg: RS Engineering.               date: 2026-06-22
+ *
+ * @version 0.1
+ * @date 2026-06-22 
+ *
+ * @copyright Copyright (c) 2026
+ *
+ */
+
+
 import { createCrc32JsonWrapper } from '/js/crc32_wrapper.js';
 import { createWebSocketClient } from '/js/ws_client.js';
 import { parseHotTubMessage } from '/js/message_parser.js';
 import { createAppState } from '/js/app_state.js';
 import { createChartManager } from '/js/chart_manager.js';
 
+// UI Elements
 const badge = document.getElementById('connBadge');
 const stateView = document.getElementById('stateView');
 const receiveView = document.getElementById('receiveView');
@@ -15,7 +36,11 @@ const sendBtn = document.getElementById('sendBtn');
 const otaBtn = document.getElementById('otaBtn');
 const otaManifestBtn = document.getElementById('otaManifestBtn');
 const chartContainer = document.getElementById('chartContainer');
+const filteredTemperatureDisplay = document.getElementById('filteredTemperature');
+// const temperatureLabel = document.getElementById('temperature-label');
 
+
+// Application State
 let client = null;
 let otaPollingInterval = null;
 let statusPollingInterval = null;
@@ -24,15 +49,30 @@ const appState = createAppState({ latestRawMessage: null, latestPayload: null, l
 const chartManager = createChartManager();
 let temperatureChartId = null;
 
-function setBadge(text, status) {
-  badge.textContent = text;
-  badge.dataset.status = status;
-}
+
+// Helper Functions
+
+const safeSetText = (element, value) => {
+  if (element) {
+    element.textContent = value;
+  }
+};
+
+const safeSetStyle = (element, property, value) => {
+  if (element) {
+    element.style[property] = value;
+  }
+};
+
+// function setBadge(text, status) {
+//   badge.textContent = text;
+//   badge.dataset.status = status;
+// }
 
 function setOtaProgress(value) {
   const pct = Math.max(0, Math.min(100, Number(value) || 0));
-  otaProgressBar.style.width = `${pct}%`;
-  otaProgressBar.textContent = `${pct}%`;
+  safeSetStyle(otaProgressBar, 'width', `${pct}%`);
+  safeSetText(otaProgressBar, `${pct}%`);
 }
 
 function stopOtaPolling() {
@@ -92,7 +132,7 @@ function startOtaPolling() {
 }
 
 function updateOtaState(state) {
-  otaStatus.textContent = state.ota_status || 'idle';
+  safeSetText(otaStatus, state.ota_status || 'idle');
   setOtaProgress(state.ota_progress ?? 0);
 
   if (state.ota_pending) {
@@ -103,11 +143,11 @@ function updateOtaState(state) {
 }
 
 function renderParsedMessage(parsed, raw) {
-  receiveView.textContent = raw;
+  safeSetText(receiveView, raw);
   if (parsed.valid) {
-    stateView.textContent = JSON.stringify(parsed.payload, null, 2);
+    safeSetText(stateView, JSON.stringify(parsed.payload, null, 2));
   } else {
-    stateView.textContent = `CRC invalid: ${parsed.reason || `${parsed.computed} != ${parsed.expected}`}`;
+    safeSetText(stateView, `CRC invalid: ${parsed.reason || `${parsed.computed} != ${parsed.expected}`}`);
   }
 }
 
@@ -180,10 +220,12 @@ function deriveStorageUrl(otaUrl, storageLabel) {
   }
 }
 
+
+// Main Initialization
 async function hardwareInit() {
-  setBadge('initializing', 'warn');
+  // setBadge('initializing', 'warn');
   sendBtn.disabled = true;
-  otaStatus.textContent = 'idle';
+  safeSetText(otaStatus, 'idle');
   setOtaProgress(0);
 
   if (!window.uPlot) {
@@ -197,24 +239,24 @@ async function hardwareInit() {
 
   sendBtn.addEventListener('click', () => {
     if (!client || client.readyState !== WebSocket.OPEN) {
-      sendView.textContent = 'Socket is not open. Waiting for connection...';
+      safeSetText(sendView, 'Socket is not open. Waiting for connection...');
       return;
     }
 
     try {
       const wrapped = createCrc32JsonWrapper(commandInput.value);
       client.send(wrapped);
-      sendView.textContent = wrapped;
+      safeSetText(sendView, wrapped);
       console.log('Sending:', wrapped);
     } catch (err) {
-      sendView.textContent = `Invalid JSON: ${err.message}`;
+      safeSetText(sendView, `Invalid JSON: ${err.message}`);
       console.error('Failed to wrap JSON:', err);
     }
   });
 
   otaBtn.addEventListener('click', () => {
     if (!client || client.readyState !== WebSocket.OPEN) {
-      sendView.textContent = 'Socket is not open. Waiting for connection...';
+      safeSetText(sendView, 'Socket is not open. Waiting for connection...');
       return;
     }
 
@@ -233,17 +275,17 @@ async function hardwareInit() {
       params: { url, storage_url },
     };
 
-    otaStatus.textContent = 'requested';
+    safeSetText(otaStatus, 'requested');
     setOtaProgress(0);
 
     try {
       const wrapped = createCrc32JsonWrapper(payload);
       client.send(wrapped);
-      sendView.textContent = wrapped;
+      safeSetText(sendView, wrapped);
       console.log('Sending OTA update request:', wrapped);
     } catch (err) {
-      sendView.textContent = `Invalid OTA payload: ${err.message}`;
-      otaStatus.textContent = 'failed';
+      safeSetText(sendView, `Invalid OTA payload: ${err.message}`);
+      safeSetText(otaStatus, 'failed');
       console.error('Failed to wrap OTA payload:', err);
     }
   });
@@ -251,7 +293,7 @@ async function hardwareInit() {
   if (otaManifestBtn) {
     otaManifestBtn.addEventListener('click', () => {
       if (!client || client.readyState !== WebSocket.OPEN) {
-        sendView.textContent = 'Socket is not open. Waiting for connection...';
+        safeSetText(sendView, 'Socket is not open. Waiting for connection...');
         return;
       }
 
@@ -268,45 +310,52 @@ async function hardwareInit() {
         params: { manifest_url: manifestUrl },
       };
 
-      otaStatus.textContent = 'requested';
+      safeSetText(otaStatus, 'requested');
       setOtaProgress(0);
 
       try {
         const wrapped = createCrc32JsonWrapper(payload);
         client.send(wrapped);
-        sendView.textContent = wrapped;
+        safeSetText(sendView, wrapped);
         console.log('Sending OTA manifest request:', wrapped);
       } catch (err) {
-        sendView.textContent = `Invalid OTA payload: ${err.message}`;
-        otaStatus.textContent = 'failed';
+        safeSetText(sendView, `Invalid OTA payload: ${err.message}`);
+        safeSetText(otaStatus, 'failed');
         console.error('Failed to wrap OTA payload:', err);
       }
     });
   }
 
   connect();
-}
+
+} // end of hardwareInit()
+//-----------------------------------------------------------------------------
+
+
+
+
+// WebSocket Event Handlers
 
 function handleSocketOpen() {
-  setBadge('connected', 'ok');
+  // setBadge('connected', 'ok');
   sendBtn.disabled = false;
-  sendView.textContent = 'Connected. Ready to send.';
+  safeSetText(sendView, 'Connected. Ready to send.');
   // startStatusPolling();
 }
 
 function handleSocketClose() {
-  setBadge('reconnecting', 'warn');
+  // setBadge('reconnecting', 'warn');
   sendBtn.disabled = true;
-  sendView.textContent = 'Connection closed. Reconnecting...';
+  safeSetText(sendView, 'Connection closed. Reconnecting...');
   stopOtaPolling();
-  stopStatusPolling();
+  // stopStatusPolling();
 }
 
 function handleSocketError() {
-  setBadge('error', 'bad');
+  // setBadge('error', 'bad');
   sendBtn.disabled = true;
-  sendView.textContent = 'WebSocket error. Check console.';
-  stopStatusPolling();
+  safeSetText(sendView, 'WebSocket error. Check console.');
+  // stopStatusPolling();
 }
 
 function handleSocketMessage(raw) {
@@ -317,7 +366,17 @@ function handleSocketMessage(raw) {
     updateOtaState(parsed.payload);
     updateAppState(parsed, raw);
     updateTemperatureChart(parsed.state);
-    console.log('Received verified payload:', parsed.payload);
+
+    const filteredTemp = parsed.payload.response && typeof parsed.payload.response === 'object' ? parsed.payload.response.filteredWaterTemp : null;
+    console.log('Filtered Water Temp:', filteredTemp);
+    if (filteredTemp !== null && !isNaN(filteredTemp)) {
+      const roundedTemp = Math.round(filteredTemp * 10) / 10;
+      const displayTemp = roundedTemp.toFixed(1);
+      safeSetText(filteredTemperatureDisplay, `${displayTemp}°C`);
+    } else {
+      safeSetText(filteredTemperatureDisplay, '--°C');
+    }
+
   } else {
     console.warn('Invalid CRC32 payload:', raw, parsed);
   }

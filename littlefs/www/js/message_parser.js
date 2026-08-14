@@ -1,3 +1,22 @@
+/**
+ * @file message_parser.js
+ * @author Gaetano (Nino) Ricca (gricca1967@gmail.com)
+ * @brief  Main application logic for Hot Tub Controller web interface.
+ *
+ * @details This file contains parses and normalizes messages received 
+ * from the Hot Tub Controller WebSocket.
+ *
+ * @note Matching hardware:
+ * - model: ESP32-S3-DevKitC-1.         SKU: ESP32-S3-DevKitC-1-N16R8
+ * - mfg: RS Engineering.               date: 2026-06-22
+ *
+ * @version 0.1
+ * @date 2026-06-22 
+ *
+ * @copyright Copyright (c) 2026
+ *
+ */
+
 import { parseAndVerifyCrc32Wrapper } from '/js/crc32_wrapper.js';
 
 /**

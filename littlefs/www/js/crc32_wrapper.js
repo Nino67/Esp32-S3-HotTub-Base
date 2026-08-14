@@ -8,16 +8,9 @@
  * JSON objects, and create CRC32-wrapped JSON strings.
  *
  * @note Matching hardware:
- * - model: ESP32-S3-DevKitC-1.         SKU: ESP32-S3-DevKitC-1-N8R8
+ * - model: ESP32-S3-DevKitC-1.         SKU: ESP32-S3-DevKitC-1-N16R8
  * - mfg: RS Engineering.               date: 2026-06-22
-
- * @version 0.1
- * @date 2026-06-22
  *
- * @note Matching hardware:
- * - model: ESP32-S3-DevKitC-1.         SKU: ESP32-S3-DevKitC-1-N8R8
- * - mfg: RS Engineering.               date: 2026-06-22
-
  * @version 0.1
  * @date 2026-06-22
  *

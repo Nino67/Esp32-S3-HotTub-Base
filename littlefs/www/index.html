@@ -9,9 +9,27 @@
   <body>
     <main class="shell">
       <section class="hero">
-        <p class="eyebrow">Hot Tub Controller</p>
-        <h3>Local control panel for Wi-Fi, BLE, and OTA.</h3>
-        <p class="lede">Connect over the device AP, then use the websocket console to exchange JSON with the controller.</p>
+        <div class="center-display-wrap">
+          <p class="eyebrow">Hot Tub Controller</p>
+          <div class="temperature-display" id="filteredTemperature">--°C</div>
+          <div class="temperature-label">Water Temperature</div>
+        </div>
+      </section>
+
+      <section class="panel" id="controlsPanel">
+        <header>
+          <h2>Controls</h2>
+            <div class="center-display-wrap">
+                <!-- create a button for heat  -->
+                <button id="heatBtn" class="control-button">Heat</button>
+                <div style="height: 20px; width: 100%;"></div>
+                <button id="pumpOffBtn" class="control-button">Off</button>
+                <button id="pumpLowBtn" class="control-button">Low</button>
+                <button id="pumpHighBtn" class="control-button">High</button>
+
+              <!-- <span id="connBadge" class="badge">connecting</span> -->
+            </div>  
+        </header>
       </section>
 
       <section class="panel">
@@ -53,7 +71,7 @@
       </section>
 
 
-      <section class="panel">
+      <!-- <section class="panel">
         <header>
           <h2>Wi-Fi</h2>
         </header>
@@ -62,16 +80,16 @@
           <input id="passInput" type="password" placeholder="Password" />
           <button id="wifiBtn">Connect</button>
         </div>
-      </section>
+      </section> -->
 
 
-      <section class="panel">
+      <!-- <section class="panel">
         <header>
           <h2>Status</h2>
           <span id="connBadge" class="badge">connecting</span>
         </header>
         <pre id="stateView">waiting for state...</pre>
-      </section>
+      </section> -->
 
       <section class="panel">
         <header>

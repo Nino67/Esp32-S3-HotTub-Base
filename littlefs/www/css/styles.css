@@ -9,6 +9,7 @@
   --accent-2: #9bffcd;
   --warn: #ffd36e;
   --bad: #ff8c8c;
+  --disabled: #758196;
 }
 
 * { box-sizing: border-box; }
@@ -21,7 +22,6 @@ html, body {
 
 body {
   font-family: Inter, system-ui, sans-serif;
-  font-size: 18px;
   color: var(--text);
   background:
     radial-gradient(circle at top left, rgba(122, 215, 255, 0.14), transparent 30%),
@@ -31,38 +31,37 @@ body {
 
 .shell {
   max-width: 960px;
-  width: min(960px, 100%);
+  width: min(960px, calc(100% - 32px));
   margin: 0 auto;
   padding: clamp(24px, 4vw, 56px) 16px 56px;
   display: grid;
+  justify-items: center;
   gap: clamp(16px, 2vw, 24px);
 }
 
-.shell > * {
-  min-width: 0;
-}
-
 .hero, .panel {
+  width: 100%;
+  max-width: 100%;
   background: var(--panel);
   border: 1px solid var(--panel-border);
   border-radius: 24px;
   box-shadow: 0 24px 80px rgba(0, 0, 0, 0.35);
   backdrop-filter: blur(18px);
-  width: 100%;
-  max-width: 100%;
-  min-width: 0;
 }
 
 .hero {
   padding: 28px;
+  text-align: center;
 }
 
 .eyebrow {
-  margin: 0 0 8px;
+  margin: 0 0 10px;
   letter-spacing: 0.22em;
   text-transform: uppercase;
   color: var(--accent);
-  font-size: 0.75rem;
+  /* font-size: 0.75rem; */
+  font-size: clamp(0.75rem, 2vw, 2.2rem);
+
 }
 
 h1, h2 {
@@ -75,19 +74,33 @@ h1 {
   font-size: clamp(2.2rem, 5vw, 4.4rem);
 }
 
-.lede {
-  margin: 14px 0 0;
-  max-width: 58ch;
-  color: var(--muted);
+.center-display-wrap {
+  display: grid;
+  justify-items: center;
+  width: 100%;
+  max-width: 100%;
 }
 
-.inputs, select {
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  background: rgba(3, 8, 16, 0.8);
-  color: var(--text);
-  border-radius: 999px;
-  padding: 8px 12px;
-  font: inherit;
+.temperature-display {
+  display: block;
+  width: fit-content;
+  max-width: 100%;
+  margin: 0 auto;
+  text-align: center;
+  font-size: clamp(5.05rem, 10vw, 12.3rem);
+  font-weight: 700;
+  color: var(--accent-2);
+  line-height: 1;
+}
+
+.temperature-label {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  margin: 10px auto 0;
+  text-align: center;
+  font-size: clamp(0.75rem, 2vw, 2.2rem);
+  color: var(--accent);
 }
 
 .panel {
@@ -104,7 +117,7 @@ h1 {
 
 .chart-placeholder {
   position: relative;
-  height: clamp(250px, 44vw, 360px);
+  min-height: 280px;
   width: 100%;
   max-width: 100%;
   border-radius: 16px;
@@ -114,95 +127,34 @@ h1 {
   padding: 0;
 }
 
-.chart-top-legend {
+.chart-placeholder::before {
+  content: 'Waiting for temperature data...';
+  position: absolute;
+  inset: 0;
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 12px;
-  margin: 0 0 10px;
-  flex-wrap: wrap;
+  color: rgba(255, 255, 255, 0.6);
+  font-size: 0.95rem;
+  pointer-events: none;
+  z-index: 1;
 }
 
-.chart-top-legend__item {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 0.82rem;
-  color: var(--text);
-  background: rgba(6, 10, 18, 0.66);
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  border-radius: 999px;
-  padding: 4px 10px;
+.chart-placeholder.loaded::before {
+  display: none;
 }
 
-.chart-top-legend__swatch {
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  display: inline-block;
+.chart-placeholder .uplot,
+.chart-placeholder canvas {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100% !important;
+  height: 100% !important;
 }
 
 .chart-placeholder .uplot {
-  position: absolute;
-  inset: 0;
-  user-select: none;
-  touch-action: pan-x pan-y;
-  display: block;
-  width: 100% !important;
-  height: 100% !important;
-  max-width: 100%;
-  color: var(--text);
   z-index: 0;
-  overflow: hidden;
-}
-
-.chart-placeholder .u-wrap {
-  position: absolute;
-  inset: 0;
-}
-
-.chart-placeholder .uplot canvas {
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 100% !important;
-  height: 100% !important;
-}
-
-.chart-placeholder .u-under,
-.chart-placeholder .u-over,
-.chart-placeholder .u-select {
-  position: absolute;
-  top: 0;
-  left: 0;
-}
-
-.chart-placeholder .u-legend,
-.chart-placeholder .u-title,
-.chart-placeholder .u-label,
-.chart-placeholder .u-value,
-.chart-placeholder .u-cursor-x,
-.chart-placeholder .u-cursor-y {
-  pointer-events: none;
-}
-
-.chart-placeholder .u-title {
-  color: var(--text);
-  letter-spacing: 0.02em;
-}
-
-.chart-placeholder .u-legend {
-  color: var(--text);
-  background: rgba(6, 10, 18, 0.7);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 10px;
-  padding: 6px 8px;
-}
-
-.chart-placeholder .u-legend th,
-.chart-placeholder .u-legend td {
-  color: var(--text);
-  font-size: 0.82rem;
 }
 
 .badge {
@@ -220,13 +172,14 @@ h1 {
 
 pre, textarea {
   width: 100%;
-  max-width: 100%;
   border: 1px solid rgba(255, 255, 255, 0.08);
   background: rgba(3, 8, 16, 0.8);
   color: var(--text);
   border-radius: 16px;
   padding: 16px;
   font: inherit;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 pre {
@@ -234,15 +187,11 @@ pre {
   margin: 0;
   overflow: auto;
   white-space: pre-wrap;
-  overflow-wrap: anywhere;
-  word-break: break-word;
 }
 
 textarea {
   min-height: 110px;
   resize: vertical;
-  overflow-wrap: anywhere;
-  word-break: break-word;
 }
 
 button {
@@ -255,6 +204,14 @@ button {
   font-weight: 700;
   cursor: pointer;
 }
+
+.control-button {
+  width: 80%;
+  max-width: 80%;
+  margin: 0 0 12px;
+  background: var(--disabled);
+}
+
 
 .ota-status-panel {
   margin-top: 18px;
@@ -292,7 +249,7 @@ button {
 
 @media (max-width: 768px) {
   .shell {
-    width: 100%;
+    width: min(100vw - 20px, 100%);
     padding: 20px 12px 32px;
     gap: 16px;
   }
@@ -323,16 +280,6 @@ button {
   }
 
   .chart-placeholder {
-    height: 240px;
-  }
-
-  .chart-placeholder .u-legend th,
-  .chart-placeholder .u-legend td {
-    font-size: 0.76rem;
-  }
-
-  .chart-top-legend {
-    justify-content: flex-start;
-    gap: 8px;
+    min-height: 250px;
   }
 }

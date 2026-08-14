@@ -3,27 +3,3 @@
   "url": "https://raw.githubusercontent.com/Nino67/Esp32-S3-HotTub-Base/main/firmware/hot_tub_controller.bin",
   "storage_url": "https://raw.githubusercontent.com/Nino67/Esp32-S3-HotTub-Base/main/firmware/storage_1.bin"
 }
-
-
-
-
-
-
-Error with Permissions-Policy header: Unrecognized feature: 'browsing-topics'.
-Error with Permissions-Policy header: Unrecognized feature: 'run-ad-auction'.
-Error with Permissions-Policy header: Origin trial controlled feature not enabled: 'join-ad-interest-group'.
-Error with Permissions-Policy header: Unrecognized feature: 'private-state-token-redemption'.
-Error with Permissions-Policy header: Unrecognized feature: 'private-state-token-issuance'.
-Error with Permissions-Policy header: Unrecognized feature: 'private-aggregation'.
-Error with Permissions-Policy header: Unrecognized feature: 'attribution-reporting'.
-app.js:320 Received verified payload: {id: 0, type: 'pub', cmd: 'hottub.status', params: '', status: 'ok', …}
-app.js:320 Received verified payload: {id: 0, type: 'pub', cmd: 'hottub.status', params: '', status: 'ok', …}
-app.js:320 Received verified payload: {id: 0, type: 'pub', cmd: 'hottub.status', params: '', status: 'ok', …}
-app.js:278 Sending OTA manifest request: 3608454493:{"id":1,"type":"req","cmd":"ota.manager.update.manifest","params":{"manifest_url":"https://raw.githubusercontent.com/Nino67/Esp32-S3-HotTub-Base/main/firmware/ota_manifest.json"}}
-app.js:320 Received verified payload: {id: 0, type: 'pub', cmd: 'hottub.status', params: '', status: 'ok', …}
-app.js:320 Received verified payload: {id: 1, type: 'res', cmd: 'ota.manager.update.manifest', params: {…}, status: 'ok', …}
-app.js:320 Received verified payload: {id: 0, type: 'pub', cmd: 'hottub.status', params: '', status: 'ok', …}
-app.js:320 Received verified payload: {id: 0, type: 'pub', cmd: 'hottub.status', params: '', status: 'ok', …}
-app.js:320 Received verified payload: {id: 0, type: 'pub', cmd: 'hottub.status', params: '', status: 'ok', …}
-app.js:320 Received verified payload: {id: 0, type: 'pub', cmd: 'hottub.status', params: '', status: 'ok', …}
-app.js:320 Received verified payload: {id: 0, type: 'pub', cmd: 'hottub.status', params: '', status: 'ok', …}

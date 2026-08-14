@@ -1,6 +1,20 @@
 /**
  * @file chart_manager.js
- * @brief Simple manager for multiple uPlot charts.
+ * @author Gaetano (Nino) Ricca (gricca1967@gmail.com)
+ * @brief  Application logic for Hot Tub Controller web interface charts.
+ *
+ * @details This file contains the application logic for the Hot Tub Controller web interface.
+ * It manages the creation and updating of uPlot charts.
+ *
+ * @note Matching hardware:
+ * - model: ESP32-S3-DevKitC-1.         SKU: ESP32-S3-DevKitC-1-N16R8
+ * - mfg: RS Engineering.               date: 2026-06-22
+ *
+ * @version 0.1
+ * @date 2026-06-22 
+ *
+ * @copyright Copyright (c) 2026
+ *
  */
 
 const COLOR_PALETTE = ['#4caf50', '#2196f3', '#ff9800', '#9c27b0', '#f44336'];
