@@ -127,6 +127,7 @@ typedef struct {
     float pumpPreRunTime;
     float pumpPostRunTime;
     pump_state_t pumpState;
+    char initialStartTime[TIME_BUFFER_SIZE];
     char lastUpdateTime[TIME_BUFFER_SIZE];
     sim_mode_t simulationMode;
     int errorCode; // To hold error codes for various operations

@@ -74,6 +74,7 @@ const hottub = {
     pumpPreRunTime: 0.0,
     pumpPostRunTime: 0.0,
     pumpState: 0,
+    initialStartTime: "",
     lastUpdateTime: "",
     simulationMode: 0,
     errorCode: 0
@@ -113,6 +114,7 @@ function hottub_status_get_callback(payload) {
         hottub.pumpPreRunTime = response.pumpPreRunTime;
         hottub.pumpPostRunTime = response.pumpPostRunTime;
         hottub.pumpState = response.pumpState;
+        hottub.initialStartTime = response.initialStartTime;
         hottub.lastUpdateTime = response.lastUpdateTime;
         hottub.simulationMode = response.simulationMode;
         hottub.errorCode = response.errorCode;

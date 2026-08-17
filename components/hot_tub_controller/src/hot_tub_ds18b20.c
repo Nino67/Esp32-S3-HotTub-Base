@@ -56,7 +56,14 @@ esp_err_t hot_tub_ds18b20_init(void)
         return err;
     }
 
-    ESP_LOGI(TAG, "DS18B20 initialized on GPIO%d", GPIO_DS18B20);
+    err = ds18b20_set_resolution(s_ds18b20, DS18B20_RESOLUTION_10B);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "ds18b20_set_resolution failed (%s)", esp_err_to_name(err));
+        hot_tub_ds18b20_cleanup();
+        return err;
+    }
+
+    ESP_LOGI(TAG, "DS18B20 initialized on GPIO%d at 10-bit resolution", GPIO_DS18B20);
     return ESP_OK;
 }
 
@@ -80,8 +87,8 @@ esp_err_t hot_tub_ds18b20_read_temperature(float *temperature)
 
         err = ds18b20_trigger_temperature_conversion(s_ds18b20);
         if (err == ESP_OK) {
-            // Give sensor time to calculate temp (750ms for 12-bit resolution)
-            vTaskDelay(pdMS_TO_TICKS(750)); 
+            // Give sensor time to calculate temp (187.5ms at 10-bit resolution)
+            vTaskDelay(pdMS_TO_TICKS(200));
             err = ds18b20_get_temperature(s_ds18b20, temperature);
         }
 

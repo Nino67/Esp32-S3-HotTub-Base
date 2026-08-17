@@ -37,6 +37,9 @@ const otaBtn = document.getElementById('otaBtn');
 const otaManifestBtn = document.getElementById('otaManifestBtn');
 const chartContainer = document.getElementById('chartContainer');
 const filteredTemperatureDisplay = document.getElementById('filteredTemperature');
+const heatToggle = document.getElementById('heatToggle');
+const pumpModeInputs = Array.from(document.querySelectorAll('input[name="pumpMode"]'));
+const pumpTrack = document.querySelector('.pump-track');
 // const temperatureLabel = document.getElementById('temperature-label');
 
 
@@ -63,6 +66,74 @@ const safeSetStyle = (element, property, value) => {
     element.style[property] = value;
   }
 };
+
+function setHeatControlState(isOn, pending = false) {
+  if (!heatToggle) {
+    return;
+  }
+
+  heatToggle.checked = Boolean(isOn);
+  heatToggle.disabled = Boolean(pending);
+
+  const row = heatToggle.closest('.toggle-row');
+  if (row) {
+    row.classList.toggle('is-pending', Boolean(pending));
+  }
+}
+
+function setPumpControlState(level, pending = false) {
+  const pumpLevel = Number(level) || 0;
+  const positionMap = { 0: 0, 1: 1, 3: 2 };
+  const position = positionMap[pumpLevel] ?? 0;
+
+  pumpModeInputs.forEach((input) => {
+    if (!input) {
+      return;
+    }
+
+    const isSelected = Number(input.value) === pumpLevel;
+    input.checked = isSelected;
+    input.disabled = Boolean(pending);
+  });
+
+  if (pumpTrack) {
+    pumpTrack.style.setProperty('--pump-position', String(position));
+    pumpTrack.classList.toggle('is-pending', Boolean(pending));
+  }
+}
+
+function syncControlStateFromPayload(response = {}) {
+  if (typeof response.heaterOn === 'boolean' && heatToggle) {
+    setHeatControlState(response.heaterOn, false);
+  }
+
+  if (typeof response.pumpState !== 'undefined' && pumpModeInputs.length) {
+    setPumpControlState(response.pumpState, false);
+  }
+}
+
+function sendHotTubCommand(command, params) {
+  if (!client || client.readyState !== WebSocket.OPEN) {
+    safeSetText(sendView, 'Socket is not open. Waiting for connection...');
+    return;
+  }
+
+  const payload = {
+    id: requestId += 1,
+    type: 'req',
+    cmd: command,
+    params,
+  };
+
+  try {
+    client.send(createCrc32JsonWrapper(payload));
+    safeSetText(sendView, JSON.stringify(payload));
+    console.log('Sending:', payload);
+  } catch (err) {
+    safeSetText(sendView, `Invalid payload: ${err.message}`);
+    console.error('Failed to send command:', err);
+  }
+}
 
 // function setBadge(text, status) {
 //   badge.textContent = text;
@@ -237,6 +308,33 @@ async function hardwareInit() {
 
   initializeCharts();
 
+  if (heatToggle) {
+    heatToggle.addEventListener('change', () => {
+      const desiredState = heatToggle.checked;
+      setHeatControlState(desiredState, true);
+      sendHotTubCommand('hottub.heater.status.set', {
+        'heaterOn': desiredState,
+      });
+    });
+  }
+
+  pumpModeInputs.forEach((input) => {
+    input.addEventListener('change', () => {
+      if (!input.checked) {
+        return;
+      }
+
+      const desiredState = Number(input.value);
+      setPumpControlState(desiredState, true);
+      sendHotTubCommand('hottub.pump.state.set', {
+        'pump.state.set': desiredState,
+      });
+    });
+  });
+
+  setHeatControlState(false, false);
+  setPumpControlState(0, false);
+
   sendBtn.addEventListener('click', () => {
     if (!client || client.readyState !== WebSocket.OPEN) {
       safeSetText(sendView, 'Socket is not open. Waiting for connection...');
@@ -339,6 +437,12 @@ async function hardwareInit() {
 function handleSocketOpen() {
   // setBadge('connected', 'ok');
   sendBtn.disabled = false;
+  if (heatToggle) {
+    heatToggle.disabled = false;
+  }
+  pumpModeInputs.forEach((input) => {
+    input.disabled = false;
+  });
   safeSetText(sendView, 'Connected. Ready to send.');
   // startStatusPolling();
 }
@@ -346,6 +450,12 @@ function handleSocketOpen() {
 function handleSocketClose() {
   // setBadge('reconnecting', 'warn');
   sendBtn.disabled = true;
+  if (heatToggle) {
+    heatToggle.disabled = true;
+  }
+  pumpModeInputs.forEach((input) => {
+    input.disabled = true;
+  });
   safeSetText(sendView, 'Connection closed. Reconnecting...');
   stopOtaPolling();
   // stopStatusPolling();
@@ -354,6 +464,12 @@ function handleSocketClose() {
 function handleSocketError() {
   // setBadge('error', 'bad');
   sendBtn.disabled = true;
+  if (heatToggle) {
+    heatToggle.disabled = true;
+  }
+  pumpModeInputs.forEach((input) => {
+    input.disabled = true;
+  });
   safeSetText(sendView, 'WebSocket error. Check console.');
   // stopStatusPolling();
 }
@@ -367,7 +483,13 @@ function handleSocketMessage(raw) {
     updateAppState(parsed, raw);
     updateTemperatureChart(parsed.state);
 
-    const filteredTemp = parsed.payload.response && typeof parsed.payload.response === 'object' ? parsed.payload.response.filteredWaterTemp : null;
+    const response = parsed.payload && parsed.payload.response && typeof parsed.payload.response === 'object'
+      ? parsed.payload.response
+      : {};
+
+    syncControlStateFromPayload(response);
+
+    const filteredTemp = response.filteredWaterTemp ?? null;
     console.log('Filtered Water Temp:', filteredTemp);
     if (filteredTemp !== null && !isNaN(filteredTemp)) {
       const roundedTemp = Math.round(filteredTemp * 10) / 10;
@@ -414,3 +536,55 @@ function connect() {
 }
 
 hardwareInit();
+
+
+
+
+
+
+
+// /**
+//  * @brief Array of callback functions for the hot tub controller commands.
+//  *
+//  * Each entry in the array consists of a command string and its corresponding callback function.
+//  * The array is terminated with a sentinel value (NULL, NULL).
+//  */
+// callbacks_t hot_tub_callbacks[] = {
+//     {"hottub.status.get", hottub_status_get_callback},
+//     {"hottub.automode.get", hottub_auto_mode_get_callback},
+//     {"hottub.automode.set", hottub_auto_mode_set_callback},
+//     {"hottub.heater.status.get", hottub_heater_status_get_callback},
+//     {"hottub.heater.status.set", hottub_heater_status_set_callback},
+//     {"hottub.temperature.unit.get", hottub_temperature_unit_get_callback},
+//     {"hottub.temperature.unit.set", hottub_temperature_unit_set_callback},
+//     {"hottub.water.temperature.get", hottub_water_temperature_get_callback},
+//     {"hottub.water.temperature.set", hottub_water_temperature_set_callback},
+//     {"hottub.filtered.water.temp.get", hottub_filtered_water_temp_get_callback},
+//     {"hottub.filtered.water.temp.set", hottub_filtered_water_temp_set_callback},
+//     {"hottub.simulation.mode.get", hottub_simulation_mode_get_callback},
+//     {"hottub.simulation.mode.set", hottub_simulation_mode_set_callback},
+//     {"hottub.air.temperature.get", hottub_air_temperature_get_callback},
+//     {"hottub.air.temperature.set", hottub_air_temperature_set_callback},
+//     {"hottub.humidity.get", hottub_humidity_get_callback},
+//     {"hottub.humidity.set", hottub_humidity_set_callback},
+//     {"hottub.setpoint.temperature.get", hottub_setpoint_temperature_get_callback},
+//     {"hottub.setpoint.temperature.set", hottub_setpoint_temperature_set_callback},
+//     {"hottub.high.hysteresis.get", hottub_high_hysteresis_get_callback},
+//     {"hottub.high.hysteresis.set", hottub_high_hysteresis_set_callback},
+//     {"hottub.low.hysteresis.get", hottub_low_hysteresis_get_callback},
+//     {"hottub.low.hysteresis.set", hottub_low_hysteresis_set_callback},
+//     {"hottub.pump.state.get", hottub_pump_state_get_callback},
+//     {"hottub.pump.state.set", hottub_pump_state_set_callback},
+//     {"hottub.low.pass.filter.alpha.get", hottub_low_pass_filter_alpha_get_callback},
+//     {"hottub.low.pass.filter.alpha.set", hottub_low_pass_filter_alpha_set_callback},
+//     {"hottub.safety.switch.get", hottub_safety_switch_get_callback},
+//     {"hottub.safety.switch.set", hottub_safety_switch_set_callback},
+//     {"hottub.pump.pre.run.time.get", hottub_pump_pre_run_time_get_callback},
+//     {"hottub.pump.pre.run.time.set", hottub_pump_pre_run_time_set_callback},
+//     {"hottub.pump.post.run.time.get", hottub_pump_post_run_time_get_callback},
+//     {"hottub.pump.post.run.time.set", hottub_pump_post_run_time_set_callback},
+//     {"hottub.error.get", hottub_error_get_callback},
+//     {"hottub.error.set", hottub_error_set_callback},
+//     {NULL, NULL} // Sentinel value to mark the end of the array
+// };
+// //-----------------------------------------------------------------------------

@@ -259,6 +259,9 @@ void hot_tub_controller_main_task(void *arg)
     hot_tub_controller_set_error_code(HOT_TUB_ERR_NONE); // Clear any error codes at startup
     esp_err_t err = ESP_OK;
 
+    // Clear the snapshot structure
+    memset(&snapshot, 0, sizeof(snapshot));
+
     while (1) 
     {
         /******** Start of controller loop (read and verify) temperature ********/
@@ -266,8 +269,8 @@ void hot_tub_controller_main_task(void *arg)
         // Wait for the next cycle (1Hz).
         xTaskDelayUntil( &xLastWakeTime, xFrequency );
 
-        // Clear the snapshot structure
-        memset(&snapshot, 0, sizeof(snapshot));
+        // // Clear the snapshot structure
+        // memset(&snapshot, 0, sizeof(snapshot));
 
         // Take a snapshot of the current state
         err = hot_tub_controller_snapshot_get(&snapshot);
@@ -276,6 +279,7 @@ void hot_tub_controller_main_task(void *arg)
         if (err != ESP_OK) 
         {
             err = hot_tub_controller_settings_load_from_nvs();
+            ESP_LOGW(TAG, "Failed to get snapshot, reloading settings from NVS: %s", esp_err_to_name(err));
             if (err != ESP_OK) 
             {
                 ESP_LOGE(TAG, "Failed to reload settings from NVS.");
@@ -331,7 +335,7 @@ void hot_tub_controller_main_task(void *arg)
         // --- AUTO TEMPERATURE CONTROL LOGIC ---
         if(snapshot.autoMode) 
         {
-            ESP_LOGI(TAG, "Auto temperature control enabled. Current water temp: %.2f, Setpoint: %.2f", snapshot.waterTemp, snapshot.setpointTemp);
+            // ESP_LOGI(TAG, "Auto temperature control enabled. Current water temp: %.2f, Setpoint: %.2f", snapshot.waterTemp, snapshot.setpointTemp);
             
             // Verify hysteresis values are within safe limits
             err = hot_tub_controller_verify_hysteresis(&snapshot);
@@ -351,8 +355,9 @@ void hot_tub_controller_main_task(void *arg)
             bool heat_satisfied = (snapshot.waterTemp > snapshot.setpointTemp + snapshot.highHysteresis);
 
             
-            ESP_LOGI(TAG, "Heating logic: needs_heat=%d, heat_satisfied=%d, heaterOn=%d, pumpState=%d, auto_started_pump=%d, pre_pump_timer=%d, post_pump_timer=%d", 
-                     needs_heat, heat_satisfied, snapshot.heaterOn, snapshot.pumpState, auto_started_pump, pre_pump_timer, post_pump_timer);
+            // ESP_LOGI(TAG, "Heating logic: needs_heat=%d, heat_satisfied=%d, heaterOn=%d, pumpState=%d, auto_started_pump=%d, pre_pump_timer=%d, post_pump_timer=%d", 
+            //          needs_heat, heat_satisfied, snapshot.heaterOn, snapshot.pumpState, auto_started_pump, pre_pump_timer, post_pump_timer);
+
             // --- HEATING LOGIC ---
             if (needs_heat) 
             {
@@ -701,6 +706,7 @@ esp_err_t hot_tub_controller_to_json(cJSON *json, const HotTubController_t *stat
     cJSON_AddNumberToObject(json, "pumpPostRunTime", state->pumpPostRunTime);
     cJSON_AddNumberToObject(json, "simulationMode", state->simulationMode);
     cJSON_AddNumberToObject(json, "errorCode", state->errorCode);
+    cJSON_AddStringToObject(json, "initialStartTime", state->initialStartTime);
     cJSON_AddStringToObject(json, "lastUpdateTime", state->lastUpdateTime);
 
     return ESP_OK;

@@ -105,7 +105,7 @@ esp_err_t hot_tub_controller_set_heater_on(bool on)
         ESP_LOGE(TAG, "Failed to save settings to NVS");
         return ESP_FAIL;
     }
-
+    ESP_LOGW(TAG, "Heater state set to: %s", on ? "ON" : "OFF");    
     return ESP_OK;
 }
 //------------------------------------------------------------------------------
@@ -546,6 +546,38 @@ void hot_tub_controller_set_pump_post_run_time(float time)
     if (hot_tub_struct_io_save_settings_to_nvs() != ESP_OK) {
         ESP_LOGE(TAG, "Failed to save settings to NVS");
     }
+}
+//-----------------------------------------------------------------------------
+
+/**
+ * @brief Set the initial start time of the hot tub controller.
+ *
+ * @param time_str Pointer to a string representing the initial start time.
+ */
+void hot_tub_controller_set_initial_start_time(const char *time_str)
+{
+    lock_state();
+    strncpy(hottub_ctl.initialStartTime, time_str, sizeof(hottub_ctl.initialStartTime) - 1);
+    hottub_ctl.initialStartTime[sizeof(hottub_ctl.initialStartTime) - 1] = '\0'; // Ensure null-termination
+    unlock_state();
+
+    if (hot_tub_struct_io_save_settings_to_nvs() != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to save settings to NVS");
+    }
+}
+//-----------------------------------------------------------------------------
+
+/**
+ * @brief Get the initial start time of the hot tub controller.
+ *
+ * @param buffer Pointer to a character array where the initial start time will be stored.
+ * @param buffer_size Size of the buffer to ensure no overflow occurs.
+ */
+void hot_tub_controller_get_initial_start_time(char *buffer, size_t buffer_size)
+{
+    lock_state();
+    strncpy(buffer, hottub_ctl.initialStartTime, buffer_size);
+    unlock_state();
 }
 //-----------------------------------------------------------------------------
 

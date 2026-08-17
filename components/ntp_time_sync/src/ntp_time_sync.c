@@ -7,6 +7,7 @@
 #include "system_status.h"
 
 #include "ntp_time_sync.h"
+#include "hot_tub_struct_io.h"
 
 
 // ============================================================================
@@ -271,6 +272,8 @@ esp_err_t ntp_time_sync_init(void)
         }
     }
 
+    // hot_tub_controller_set_initial_start_time(const char *time_str); // Removed, now set in time_maintenance_task
+
     return ESP_OK;
 } // end of ntp_time_sync_init()
 // ============================================================================
@@ -313,6 +316,8 @@ void time_maintenance_task(void *arg)
     esp_err_t err = ntp_utils_time_sync_blocking(ntp_server, tz, 15000);
     if (err == ESP_OK) {
         time(&last_sync);
+        hot_tub_controller_set_initial_start_time(ctime(&last_sync));
+
         ESP_LOGI(TAG, "time_maintenance_task: initial NTP sync OK");
     } else {
         ESP_LOGW(TAG, "time_maintenance_task: initial NTP sync failed: %s", esp_err_to_name(err));

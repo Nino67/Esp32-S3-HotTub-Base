@@ -205,11 +205,199 @@ button {
   cursor: pointer;
 }
 
+.controls-stack {
+  display: grid;
+  gap: 10px;
+  width: min(100%, 340px);
+  margin: 0 auto;
+}
+
+.toggle-row,
+.pump-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  width: 100%;
+}
+
+.switch-control {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  order: 1;
+}
+
+.switch-input {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.switch-track {
+  position: relative;
+  display: block;
+  width: 64px;
+  height: 34px;
+  border-radius: 999px;
+  border: 1px solid rgba(122, 215, 255, 0.28);
+  background: rgba(117, 129, 150, 0.45);
+  transition: background 0.2s ease, border-color 0.2s ease;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.04);
+}
+
+.switch-thumb {
+  position: absolute;
+  left: 4px;
+  top: 3px;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #f3f7ff, #dff8ff);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.22);
+  transition: transform 0.2s ease, background 0.2s ease;
+}
+
+.switch-input:checked + .switch-track {
+  background: linear-gradient(135deg, rgba(122, 215, 255, 0.92), rgba(155, 255, 205, 0.9));
+  border-color: rgba(155, 255, 205, 0.8);
+}
+
+.switch-input:checked + .switch-track .switch-thumb {
+  transform: translateX(30px);
+  background: linear-gradient(135deg, #07111a, #0f2031);
+}
+
+.toggle-row.is-pending .switch-track {
+  background: linear-gradient(135deg, rgba(255, 211, 110, 0.9), rgba(255, 163, 96, 0.9));
+}
+
+.switch-label {
+  min-width: 52px;
+  text-align: left;
+  font-size: 0.96rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--text);
+}
+
+.pump-label {
+  min-width: 54px;
+}
+
+.pump-selector {
+  flex: 1;
+  min-width: 0;
+}
+
+.pump-track {
+  --pump-position: 0;
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  align-items: center;
+  width: min(100%, 220px);
+  height: 36px;
+  padding: 2px;
+  border: 1px solid rgba(122, 215, 255, 0.26);
+  border-radius: 999px;
+  background: rgba(12, 18, 28, 0.8);
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,0.04);
+  overflow: hidden;
+  transition: opacity 0.15s ease, filter 0.15s ease;
+}
+
+.pump-track.is-pending {
+  opacity: 0.8;
+  filter: saturate(0.9);
+}
+
+.pump-track input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.pump-segment {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  cursor: pointer;
+  text-transform: uppercase;
+  transition: color 0.2s ease;
+}
+
+.pump-segment:nth-of-type(2) {
+  border-left: 1px solid rgba(122, 215, 255, 0.12);
+  border-right: 1px solid rgba(122, 215, 255, 0.12);
+}
+
+.pump-thumb {
+  position: absolute;
+  left: 2px;
+  top: 2px;
+  width: calc((100% - 4px) / 3);
+  height: calc(100% - 4px);
+  border-radius: 999px;
+  background: linear-gradient(135deg, var(--accent), var(--accent-2));
+  box-shadow: 0 8px 24px rgba(122, 215, 255, 0.22);
+  transform: translateX(calc(var(--pump-position) * 100%));
+  transition: transform 0.2s ease;
+}
+
+.pump-track input:checked + .pump-segment {
+  color: #07111a;
+}
+
+button {
+  margin-top: 12px;
+  border: 0;
+  border-radius: 999px;
+  padding: 12px 18px;
+  background: linear-gradient(135deg, var(--accent), var(--accent-2));
+  color: #07111a;
+  font-weight: 700;
+  cursor: pointer;
+}
+
 .control-button {
-  width: 80%;
-  max-width: 80%;
-  margin: 0 0 12px;
+  width: 100%;
+  max-width: 100%;
+  margin: 0;
   background: var(--disabled);
+  color: var(--text);
+  transition: transform 0.15s ease, box-shadow 0.15s ease, opacity 0.15s ease, background 0.15s ease;
+}
+
+.control-button:hover:not(:disabled) {
+  transform: translateY(-1px);
+}
+
+.control-button.is-active {
+  background: linear-gradient(135deg, var(--accent), var(--accent-2));
+  color: #07111a;
+  box-shadow: 0 12px 30px rgba(122, 215, 255, 0.2);
+}
+
+.control-button.is-pending {
+  background: linear-gradient(135deg, var(--warn), #ffa360);
+  color: #1a1403;
+  opacity: 0.9;
+  cursor: wait;
+}
+
+.control-button:disabled {
+  cursor: wait;
+  opacity: 0.75;
 }
 
 
@@ -262,6 +450,15 @@ button {
     flex-direction: column;
     align-items: flex-start;
     gap: 14px;
+  }
+
+  .controls-stack {
+    width: 100%;
+  }
+
+  .toggle-row,
+  .pump-row {
+    gap: 12px;
   }
 
   .ota-status-row {

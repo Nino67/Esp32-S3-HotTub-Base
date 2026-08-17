@@ -75,7 +75,6 @@ void hottub_callback_response(cJSON *root, cJSON *response) {
 
 
 
-
 void hottub_broadcast_status_callback(void) 
 {
     char * pub_json = "{\"id\":0,\"type\":\"pub\",\"cmd\":\"hottub.status\",\"params\":\"\"}";
@@ -83,7 +82,7 @@ void hottub_broadcast_status_callback(void)
     hottub_status_get_callback(pub_root);
     char *encoded_msg = json_service_crc32_envelope_encode(pub_root);
 
-    // ESP_LOGI(TAG, "Broadcasting hot tub status: %s", encoded_msg);
+    ESP_LOGI(TAG, "Broadcasting hot tub status: %s", encoded_msg);
     // Broadcast the JSON string to all connected WebSocket clients
     esp_err_t err = web_server_broadcast_json(encoded_msg);
     if (err != ESP_OK) {
@@ -968,3 +967,6 @@ esp_err_t hot_tub_controller_register_callbacks()
 // json_service_register_command("hottub.pump.post.run.time.get", hottub_pump_post_run_time_get_callback, 0);
 // json_service_register_command("hottub.pump.post.run.time.set", hottub_pump_post_run_time_set_callback, 0);
 // json_service_register_command("hottub.status.get", hottub_status_get_callback, 0);
+
+
+// {"id":1,"type":"req","cmd":"hottub.pump.post.run.time.set","params":{"pumpPostRunTime":77}}

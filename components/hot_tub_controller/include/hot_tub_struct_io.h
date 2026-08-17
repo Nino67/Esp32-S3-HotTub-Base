@@ -53,6 +53,8 @@ float hot_tub_controller_get_filtered_water_temp(void);
 void hot_tub_controller_set_filtered_water_temp(float temp);
 int hot_tub_controller_get_error_code(void);
 void hot_tub_controller_set_error_code(int error_code);
+void hot_tub_controller_get_initial_start_time(char *buffer, size_t buffer_size);
+void hot_tub_controller_set_initial_start_time(const char *time_str);
 
 
 #endif // HOT_TUB_STRUCT_IO_H

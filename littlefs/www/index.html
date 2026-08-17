@@ -19,17 +19,37 @@
       <section class="panel" id="controlsPanel">
         <header>
           <h2>Controls</h2>
-            <div class="center-display-wrap">
-                <!-- create a button for heat  -->
-                <button id="heatBtn" class="control-button">Heat</button>
-                <div style="height: 20px; width: 100%;"></div>
-                <button id="pumpOffBtn" class="control-button">Off</button>
-                <button id="pumpLowBtn" class="control-button">Low</button>
-                <button id="pumpHighBtn" class="control-button">High</button>
-
-              <!-- <span id="connBadge" class="badge">connecting</span> -->
-            </div>  
         </header>
+
+        <div class="controls-stack">
+          <label class="toggle-row" for="heatToggle">
+            <span class="switch-control">
+              <input id="heatToggle" type="checkbox" class="switch-input" />
+              <span class="switch-track">
+                <span class="switch-thumb"></span>
+              </span>
+            </span>
+            <span class="switch-label">Heat</span>
+          </label>
+
+          <div class="pump-row">
+            <div class="pump-selector" role="radiogroup" aria-label="Pump mode">
+              <div class="pump-track">
+                <input id="pumpOff" type="radio" name="pumpMode" value="0" checked />
+                <label for="pumpOff" class="pump-segment">Off</label>
+
+                <input id="pumpLow" type="radio" name="pumpMode" value="1" />
+                <label for="pumpLow" class="pump-segment">Low</label>
+
+                <input id="pumpHigh" type="radio" name="pumpMode" value="3" />
+                <label for="pumpHigh" class="pump-segment">Hi</label>
+
+                <span class="pump-thumb"></span>
+              </div>
+            </div>
+            <span class="switch-label pump-label">Pump</span>
+          </div>
+        </div>
       </section>
 
       <section class="panel">
@@ -83,13 +103,13 @@
       </section> -->
 
 
-      <!-- <section class="panel">
+      <section class="panel">
         <header>
           <h2>Status</h2>
           <span id="connBadge" class="badge">connecting</span>
         </header>
         <pre id="stateView">waiting for state...</pre>
-      </section> -->
+      </section>
 
       <section class="panel">
         <header>
@@ -103,8 +123,12 @@
         <header>
           <h2>Send JSON</h2>
         </header>
-        <textarea id="commandInput" spellcheck="false">{"id":1,"type":"req","cmd":"system.status.get","params":""}</textarea>
-        <!-- <textarea id="commandInput" spellcheck="false">{"id":1,"type":"req","cmd":""}</textarea> -->
+        <!-- <textarea id="commandInput" spellcheck="false">{"id":1,"type":"req","cmd":"system.status.get","params":""}</textarea> -->
+            <!-- hottub.automode.set -->
+        <textarea id="commandInput" spellcheck="false">{"id":1,"type":"req","cmd":"hottub.automode.set","params":{"autoMode":true}}</textarea>
+
+
+            <!-- <textarea id="commandInput" spellcheck="false">{"id":1,"type":"req","cmd":""}</textarea> -->
         <button id="sendBtn">Send</button>
         <button id="otaBtn" class="secondary">OTA Update</button>
         <button id="otaManifestBtn" class="secondary">OTA Manifest</button>
