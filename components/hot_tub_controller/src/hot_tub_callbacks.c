@@ -82,7 +82,7 @@ void hottub_broadcast_status_callback(void)
     hottub_status_get_callback(pub_root);
     char *encoded_msg = json_service_crc32_envelope_encode(pub_root);
 
-    ESP_LOGI(TAG, "Broadcasting hot tub status: %s", encoded_msg);
+    // ESP_LOGI(TAG, "Broadcasting hot tub status: %s", encoded_msg);
     // Broadcast the JSON string to all connected WebSocket clients
     esp_err_t err = web_server_broadcast_json(encoded_msg);
     if (err != ESP_OK) {
@@ -115,8 +115,8 @@ void hottub_broadcast_status_callback(void)
 
     // Update the lastUpdateTime field with the current time
     get_current_time(snapshot.lastUpdateTime, sizeof(snapshot.lastUpdateTime));
-
-    // ESP_LOGI(TAG, "Hot Tub Status Snapshot: autoMode=%d, heaterOn=%d, tempUnitCelsius=%d, waterTemp=%.2f, setpointTemp=%.2f, lowHysteresis=%.2f, highHysteresis=%.2f, pumpPreRunTime=%.2f, pumpPostRunTime=%.2f, lastUpdateTime=%s",
+ 
+    // ESP_LOGI(TAG, "Hot Tub Status Snapshot: autoMode=%d, heaterOn=%d, tempUnitCelsius=%d, waterTemp=%.2f, setpointTemp=%.2f, lowHysteresis=%.2f, highHysteresis=%.2f, pumpPreRunTime=%.2f, pumpPostRunTime=%.2f, initialStartTime=%s ,lastUpdateTime=%s",
     //          snapshot.autoMode,
     //          snapshot.heaterOn,
     //          snapshot.tempUnitCelsius,
@@ -126,6 +126,7 @@ void hottub_broadcast_status_callback(void)
     //          snapshot.highHysteresis,
     //          snapshot.pumpPreRunTime,
     //          snapshot.pumpPostRunTime,
+    //          snapshot.initialStartTime,
     //          snapshot.lastUpdateTime);
 
     esp_err_t err = hot_tub_controller_to_json(response, &snapshot);

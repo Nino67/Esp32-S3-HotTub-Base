@@ -61,11 +61,6 @@ esp_err_t hot_tub_controller_snapshot_set(const HotTubController_t *state)
     hottub_ctl = *state;
     unlock_state();
 
-    if (hot_tub_struct_io_save_settings_to_nvs() != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to save settings to NVS");
-        return ESP_FAIL;
-    }
-   
     return ESP_OK;
 } // end of hot_tub_controller_snapshot_set()
 
@@ -105,7 +100,7 @@ esp_err_t hot_tub_controller_set_heater_on(bool on)
         ESP_LOGE(TAG, "Failed to save settings to NVS");
         return ESP_FAIL;
     }
-    ESP_LOGW(TAG, "Heater state set to: %s", on ? "ON" : "OFF");    
+    // ESP_LOGW(TAG, "Heater state set to: %s", on ? "ON" : "OFF");    
     return ESP_OK;
 }
 //------------------------------------------------------------------------------

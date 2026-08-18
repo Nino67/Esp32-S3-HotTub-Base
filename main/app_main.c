@@ -124,6 +124,8 @@ void app_main(void)
     size_t default_heap_free = heap_caps_get_free_size(MALLOC_CAP_INTERNAL);
     ESP_LOGI(TAG, "Default heap free size = %u bytes", (unsigned)default_heap_free);
 
+    ntp_utils_set_timezone(NTP_TIME_ZONE);
+
 #ifdef CONFIG_SPIRAM
     esp_err_t err = psram_check();
     if (err != ESP_OK) {

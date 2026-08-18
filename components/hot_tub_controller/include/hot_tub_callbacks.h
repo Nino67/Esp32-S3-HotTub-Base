@@ -20,6 +20,9 @@ typedef struct {
 
 extern callbacks_registry_t *hot_tub_controller_callbacks;
 
+void get_current_time(char *strftime_buf, size_t buf_size);
+
+
 esp_err_t hot_tub_controller_register_callbacks();
 void hottub_callback_response(cJSON *root, cJSON *response);
 

@@ -4,6 +4,7 @@
 #include "esp_log.h"
 #include "onewire_bus.h"
 #include "ds18b20.h"
+#include "app_watchdog.h"
 
 #include "hot_tub_globals.h"
 #include "hot_tub_ds18b20.h"
@@ -12,6 +13,10 @@ static const char *TAG = "hot_tub_ds18b20";
 static onewire_bus_handle_t s_onewire_bus = NULL;
 static ds18b20_device_handle_t s_ds18b20 = NULL;
 
+
+/**
+ * @brief Clean up the DS18B20 and OneWire bus handles.
+ */
 static void hot_tub_ds18b20_cleanup(void)
 {
     if (s_ds18b20) {
@@ -23,7 +28,14 @@ static void hot_tub_ds18b20_cleanup(void)
         s_onewire_bus = NULL;
     }
 }
+//-----------------------------------------------------------------------------
 
+
+/**
+ * @brief Initialize the DS18B20 temperature sensor.
+ *
+ * @return ESP_OK on success, or an error code on failure.
+ */
 esp_err_t hot_tub_ds18b20_init(void)
 {
     if (s_ds18b20 != NULL) {
@@ -64,9 +76,89 @@ esp_err_t hot_tub_ds18b20_init(void)
     }
 
     ESP_LOGI(TAG, "DS18B20 initialized on GPIO%d at 10-bit resolution", GPIO_DS18B20);
+
+
+
+    TaskHandle_t task_handle = NULL;
+    BaseType_t result = xTaskCreatePinnedToCore(
+                            water_temperature_monitoring_task,
+                            "water_temperature_monitoring_task",
+                            2048,
+                            NULL,
+                            5,
+                            &task_handle,
+                            0);
+
+    if (result != pdPASS) 
+    {
+        ESP_LOGE(TAG, "Failed to create water temperature monitoring task");
+        return ESP_ERR_NO_MEM;
+    }
+
+    // Register the task with the watchdog
+    if (app_watchdog_register_task(task_handle, "water_temperature_monitoring_task") != ESP_OK)
+    {
+        ESP_LOGE(TAG, "Failed to register water temperature monitoring task with watchdog");
+        vTaskDelete(task_handle);
+        return ESP_FAIL;
+    }
+
+
+
     return ESP_OK;
 }
+//-----------------------------------------------------------------------------
 
+
+/**
+ * @brief Task to monitor the water temperature.
+ *
+ * This task reads the water temperature from the DS18B20 sensor at regular intervals
+ * and updates the hot tub controller state. It also feeds the watchdog to ensure
+ * the system remains responsive.
+ *
+ * @param arg Task argument (not used).
+ */
+void water_temperature_monitoring_task(void *arg)
+{
+    TickType_t xLastWakeTime = xTaskGetTickCount();
+    const TickType_t xFrequency = pdMS_TO_TICKS(1000); // 1 second
+
+    while (1) 
+    {
+        float water_temp = 0.0f;
+        esp_err_t err = hot_tub_ds18b20_read_temperature(&water_temp);
+        
+        if (err == ESP_OK) 
+        {
+            lock_state();
+            hottub_ctl.waterTemp = water_temp;
+            unlock_state();
+        } 
+        else 
+        {
+            ESP_LOGW(TAG, "DS18B20 read failed: %s", esp_err_to_name(err));
+        }
+
+        if (app_watchdog_feed_current_task() != ESP_OK)
+        {
+            ESP_LOGW(TAG, "water temperature monitoring task failed to feed watchdog");
+        }
+
+        // Wait for the next cycle
+        vTaskDelayUntil(&xLastWakeTime, xFrequency);
+    }
+} 
+//-----------------------------------------------------------------------------
+
+
+
+/**
+ * @brief Read the temperature from the DS18B20 sensor.
+ *
+ * @param temperature Pointer to a float where the temperature will be stored.
+ * @return ESP_OK on success, or an error code on failure.
+ */
 esp_err_t hot_tub_ds18b20_read_temperature(float *temperature)
 {
     if (temperature == NULL) {
@@ -87,8 +179,6 @@ esp_err_t hot_tub_ds18b20_read_temperature(float *temperature)
 
         err = ds18b20_trigger_temperature_conversion(s_ds18b20);
         if (err == ESP_OK) {
-            // Give sensor time to calculate temp (187.5ms at 10-bit resolution)
-            vTaskDelay(pdMS_TO_TICKS(200));
             err = ds18b20_get_temperature(s_ds18b20, temperature);
         }
 
@@ -105,3 +195,4 @@ esp_err_t hot_tub_ds18b20_read_temperature(float *temperature)
 
     return err;
 }
+//-----------------------------------------------------------------------------

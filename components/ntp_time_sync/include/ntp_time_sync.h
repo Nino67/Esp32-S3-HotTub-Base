@@ -8,6 +8,8 @@
 #ifndef _ntp_time_sync_h_
 #define _ntp_time_sync_h_
 
+#define NTP_TIME_ZONE "EST5EDT,M3.2.0,M11.1.0"
+
 
 #ifdef __cplusplus
 extern "C"
@@ -54,6 +56,7 @@ void time_maintenance_task(void *arg);
 esp_err_t ntp_utils_time_sync_blocking(const char *ntp_server,
 								   const char *tz,
 								   uint32_t timeout_ms);
+void ntp_utils_set_timezone(const char *tz);
 
 
 

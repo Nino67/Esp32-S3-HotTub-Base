@@ -128,7 +128,7 @@ h1 {
 }
 
 .chart-placeholder::before {
-  content: 'Waiting for temperature data...';
+  /* content: 'Waiting for temperature data...'; */
   position: absolute;
   inset: 0;
   display: flex;

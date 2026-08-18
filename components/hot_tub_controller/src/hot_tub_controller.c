@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <time.h>
+// #include <math.h>
 #include "esp_err.h"
 #include "esp_log.h"
 // #include "esp_ota_ops.h"
@@ -104,7 +105,7 @@ esp_err_t hot_tub_controller_load_saved_settings(void)
     // Load settings from NVS, if not found, save default values
     esp_err_t err = hot_tub_controller_settings_load_from_nvs();
 
-    err = ESP_ERR_NVS_NOT_FOUND; // Force default settings for testing
+    // err = ESP_ERR_NVS_NOT_FOUND; // Force default settings for testing
 
     if (err != ESP_OK) 
     {
@@ -214,6 +215,17 @@ esp_err_t hot_tub_controller_verify_pump_delay_times(HotTubController_t *state)
  */
 static float hottub_controller_temperature_filter(float new_temp, float prev_temp, float alpha) 
 {
+    // Ensure alpha is within the valid range
+    if (alpha < 0.0f) 
+    {
+        alpha = 0.0f;
+    } 
+    else if (alpha > 1.0f) 
+    {
+        alpha = 1.0f;
+    }
+    
+    // Apply low-pass filter formula and return the filtered temperature
     return alpha * new_temp + (1.0f - alpha) * prev_temp;
 } // end of hottub_controller_temperature_filter()
 //-----------------------------------------------------------------------------
@@ -235,7 +247,6 @@ static float hottub_controller_temperature_filter(float new_temp, float prev_tem
 void hot_tub_controller_main_task(void *arg)
 {
     HotTubController_t snapshot;
-    // HotTubPublisher_t publisher;
 
     // Timing variables for the hot tub main loop
     TickType_t xFrequency = pdMS_TO_TICKS(1000);
@@ -261,6 +272,11 @@ void hot_tub_controller_main_task(void *arg)
 
     // Clear the snapshot structure
     memset(&snapshot, 0, sizeof(snapshot));
+    
+    // Set the initial start time to the current time at startup and save in in the NVS
+    get_current_time(snapshot.initialStartTime, sizeof(snapshot.initialStartTime));
+    hot_tub_controller_set_initial_start_time(snapshot.initialStartTime);
+
 
     while (1) 
     {
@@ -269,23 +285,17 @@ void hot_tub_controller_main_task(void *arg)
         // Wait for the next cycle (1Hz).
         xTaskDelayUntil( &xLastWakeTime, xFrequency );
 
-        // // Clear the snapshot structure
-        // memset(&snapshot, 0, sizeof(snapshot));
-
-        // Take a snapshot of the current state
-        err = hot_tub_controller_snapshot_get(&snapshot);
-
-        // If snapshot fails, attempt to reload settings from NVS
-        if (err != ESP_OK) 
+        // Take a snapshot of the current state, if it fails reload settings from NVS
+        if (hot_tub_controller_snapshot_get(&snapshot) != ESP_OK) 
         {
-            err = hot_tub_controller_settings_load_from_nvs();
-            ESP_LOGW(TAG, "Failed to get snapshot, reloading settings from NVS: %s", esp_err_to_name(err));
-            if (err != ESP_OK) 
+            ESP_LOGW(TAG, "Failed to get snapshot, reloading settings from NVS");
+            if (hot_tub_controller_settings_load_from_nvs() != ESP_OK) 
             {
                 ESP_LOGE(TAG, "Failed to reload settings from NVS.");
             }
         }   
-
+        
+        // If simulation mode is enabled, simulate temperature instead 
         if (hot_tub_controller_get_simulation_mode() != SIM_NONE)
         {
             // Simulated temperature reading
@@ -294,25 +304,9 @@ void hot_tub_controller_main_task(void *arg)
         }
         else 
         {
-            // Read actual hardware sensor (DS18B20 / ADC / MAX31865)
-            float water_temp = 0; //snapshot.waterTemp;
-            if (hot_tub_ds18b20_read_temperature(&water_temp) == ESP_OK) 
-            {
-                if (water_temp < DEFAULT_MIN_WATER_TEMP || water_temp > DEFAULT_MAX_WATER_TEMP) 
-                {
-                    snapshot.errorCode = HOT_TUB_ERR_TEMP_OUT_OF_RANGE;
-                    ESP_LOGW(TAG, "DS18B20 read temperature out of range: %.2f", water_temp);
-                }
-                snapshot.waterTemp = water_temp;
-                snapshot.filteredWaterTemp = hottub_controller_temperature_filter(water_temp, snapshot.filteredWaterTemp, 0.1f);
-            } 
-            else 
-            {
-                snapshot.errorCode = HOT_TUB_ERR_SENSOR_READ;
-                ESP_LOGW(TAG, "DS18B20 read failed, keeping previous waterTemp %.2f", snapshot.waterTemp);
-            }
-        } // End of temperature reading
-
+            // Pass the water_temp to the filter function to get the filtered temperature
+            snapshot.filteredWaterTemp = hottub_controller_temperature_filter(snapshot.waterTemp, snapshot.filteredWaterTemp, 0.1f);
+        } 
 
         // if (snapshot.safetySwitch == SAFETY_SWITCH_OFF) 
         // {
@@ -335,40 +329,37 @@ void hot_tub_controller_main_task(void *arg)
         // --- AUTO TEMPERATURE CONTROL LOGIC ---
         if(snapshot.autoMode) 
         {
-            // ESP_LOGI(TAG, "Auto temperature control enabled. Current water temp: %.2f, Setpoint: %.2f", snapshot.waterTemp, snapshot.setpointTemp);
+            ESP_LOGI(TAG, "Auto temperature control enabled. Current water temp: %.2f, Setpoint: %.2f", snapshot.waterTemp, snapshot.setpointTemp);
             
             // Verify hysteresis values are within safe limits
-            err = hot_tub_controller_verify_hysteresis(&snapshot);
-            if (err != ESP_OK) 
+            if (hot_tub_controller_verify_hysteresis(&snapshot) != ESP_OK) 
             {
-                ESP_LOGE(TAG, "Failed to verify hysteresis: %s", esp_err_to_name(err));
+                ESP_LOGE(TAG, "Failed to verify hysteresis");
             }
                     
             // Verify pump delay times are within safe limits
-            err = hot_tub_controller_verify_pump_delay_times(&snapshot);
-            if (err != ESP_OK) 
+            if (hot_tub_controller_verify_pump_delay_times(&snapshot) != ESP_OK) 
             {
                 ESP_LOGE(TAG, "Failed to verify pump delay times: %s", esp_err_to_name(err));
             }
 
             bool needs_heat = (snapshot.waterTemp < snapshot.setpointTemp - snapshot.lowHysteresis);
             bool heat_satisfied = (snapshot.waterTemp > snapshot.setpointTemp + snapshot.highHysteresis);
-
-            
-            // ESP_LOGI(TAG, "Heating logic: needs_heat=%d, heat_satisfied=%d, heaterOn=%d, pumpState=%d, auto_started_pump=%d, pre_pump_timer=%d, post_pump_timer=%d", 
-            //          needs_heat, heat_satisfied, snapshot.heaterOn, snapshot.pumpState, auto_started_pump, pre_pump_timer, post_pump_timer);
-
+  
             // --- HEATING LOGIC ---
             if (needs_heat) 
             {
                 if (snapshot.heaterOn) 
                 {
                     // Already heating, keep going.
+                    ESP_LOGI(TAG, "Heating in progress. Current water temp: %.2f, Setpoint: %.2f", snapshot.waterTemp, snapshot.setpointTemp);
                 } 
                 else  
                 {
+                    ESP_LOGI(TAG, "Heating required. Current water temp: %.2f, Setpoint: %.2f", snapshot.waterTemp, snapshot.setpointTemp);
+                    
                     // We need to start heating. Check if pump is running.
-                    if (snapshot.pumpState != PUMP_OFF) 
+                    if (snapshot.pumpState != PUMP_OFF)
                     {
                         // Pump is running.
                         // Logic: If WE started it (auto_started_pump) and timer is ticking, we wait.
@@ -498,7 +489,8 @@ void hot_tub_controller_main_task(void *arg)
             ESP_LOGE(TAG, "Failed to save hot tub controller snapshot: %s", esp_err_to_name(err));
         }
 
-        hottub_broadcast_status_callback(); // Broadcast the updated status
+        // Broadcast the updated status to any connected clients
+        hottub_broadcast_status_callback(); 
    
         // // Call to update the GPIOs based on the new state
         // err = hot_tub_controller_gpio_update(&snapshot);
@@ -511,7 +503,7 @@ void hot_tub_controller_main_task(void *arg)
             ESP_LOGW(TAG, "hot tub controller main task failed to feed watchdog");
         }
 
-     } // End of while(1) loop 
+     } // End of hot_tub_controller_main_task while(1) loop 
 
 } // end of hot_tub_controller_main_loop()
 //-----------------------------------------------------------------------------
@@ -552,11 +544,11 @@ esp_err_t hot_tub_controller_init(void)
         ESP_LOGE(TAG, "Failed to load saved settings: %s", esp_err_to_name(err));
     }
 
-    err = hot_tub_ds18b20_init();
-    if (err != ESP_OK) 
-    {
-        ESP_LOGE(TAG, "Failed to initialize DS18B20 sensor: %s", esp_err_to_name(err));
-    }
+    // err = hot_tub_ds18b20_init();
+    // if (err != ESP_OK) 
+    // {
+    //     ESP_LOGE(TAG, "Failed to initialize DS18B20 sensor: %s", esp_err_to_name(err));
+    // }
 
     // Register the JSON service callbacks
     err = hot_tub_controller_register_callbacks();
@@ -564,7 +556,7 @@ esp_err_t hot_tub_controller_init(void)
     {
         ESP_LOGE(TAG, "Failed to register hot tub controller callbacks: %s", esp_err_to_name(err));
         return err;
-    }
+    }    
 
 
     TaskHandle_t task_handle = NULL;

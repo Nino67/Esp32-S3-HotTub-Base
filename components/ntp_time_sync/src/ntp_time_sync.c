@@ -1,3 +1,4 @@
+#include <stdlib.h>
 #include <time.h>
 #include "esp_log.h"
 #include "esp_check.h"
@@ -6,9 +7,10 @@
 #include "app_watchdog.h"
 #include "system_status.h"
 
+#include "hot_tub_globals.h"
 #include "ntp_time_sync.h"
 #include "hot_tub_struct_io.h"
-
+#include "hot_tub_callbacks.h"
 
 // ============================================================================
 // DEFINES
@@ -76,8 +78,13 @@ esp_err_t ntp_utils_time_sync_nonblocking(const char *ntp_server,
     return ESP_OK;
 }
 
-
-
+void ntp_utils_set_timezone(const char *tz)
+{
+    if (tz != NULL) {
+        setenv("TZ", tz, 1);
+        tzset();
+    }
+}
 
 // ============================================================================
 /** 
@@ -274,6 +281,14 @@ esp_err_t ntp_time_sync_init(void)
 
     // hot_tub_controller_set_initial_start_time(const char *time_str); // Removed, now set in time_maintenance_task
 
+    // char strftime_buf[TIME_BUFFER_SIZE];
+
+    // Update the lastUpdateTime field with the current time
+    // get_current_time(strftime_buf, sizeof(strftime_buf));
+    // ESP_LOGW(TAG, "current time: %s ",strftime_buf );
+    // hot_tub_controller_set_initial_start_time(strftime_buf);
+
+
     return ESP_OK;
 } // end of ntp_time_sync_init()
 // ============================================================================
@@ -314,14 +329,14 @@ void time_maintenance_task(void *arg)
     ESP_LOGI(TAG, "time_maintenance_task: starting initial NTP sync");
     // esp_err_t err = ntp_utils_time_sync_blocking(ntp_server, tz, 15000);
     esp_err_t err = ntp_utils_time_sync_blocking(ntp_server, tz, 15000);
-    if (err == ESP_OK) {
-        time(&last_sync);
-        hot_tub_controller_set_initial_start_time(ctime(&last_sync));
+    // if (err == ESP_OK) {
+    //     time(&last_sync);
+    //     hot_tub_controller_set_initial_start_time(ctime(&last_sync));
 
-        ESP_LOGI(TAG, "time_maintenance_task: initial NTP sync OK");
-    } else {
-        ESP_LOGW(TAG, "time_maintenance_task: initial NTP sync failed: %s", esp_err_to_name(err));
-    }
+    //     ESP_LOGI(TAG, "time_maintenance_task: initial NTP sync OK");
+    // } else {
+    //     ESP_LOGW(TAG, "time_maintenance_task: initial NTP sync failed: %s", esp_err_to_name(err));
+    // }
 
     time_maintenance_register_watchdog();
 
