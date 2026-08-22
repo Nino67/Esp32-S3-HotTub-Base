@@ -64,6 +64,8 @@ void hot_tub_controller_set_low_hysteresis(float low_hysteresis);
 void hot_tub_controller_set_high_hysteresis(float high_hysteresis);
 void hot_tub_controller_set_pump_pre_run_time(float pre_run_time);
 void hot_tub_controller_set_pump_post_run_time(float post_run_time);
+void hot_tub_controller_set_pump_state(pump_state_t targetSpeed);
+pump_state_t hot_tub_controller_get_pump_state(void);
 esp_err_t hot_tub_controller_verify_hysteresis(HotTubController_t *state);
 esp_err_t hot_tub_controller_verify_pump_delay_times(HotTubController_t *state);
 esp_err_t hot_tub_controller_load_saved_settings(void);
@@ -122,7 +124,7 @@ esp_err_t hot_tub_controller_load_saved_settings(void)
         hot_tub_controller_set_auto_mode(DEFAULT_AUTO_MODE);
         hot_tub_controller_set_safety_switch(DEFAULT_SAFETY_SWITCH_STATE);
         hot_tub_controller_set_simulation_mode(DEFAULT_SIMULATION_MODE);
-        hot_tub_controller_set_pump(PUMP_OFF);
+        hot_tub_controller_set_pump_state(PUMP_OFF);
         hot_tub_controller_set_heater_on(false);
         hot_tub_controller_set_pump_on_light(false);
         hot_tub_controller_set_heater_on_light(false);
@@ -254,10 +256,19 @@ void hot_tub_controller_main_task(void *arg)
 
     // Track ownership: Did the auto-controller start the pump for heating?
     bool auto_started_pump = false;
+    pump_state_t current_pump_state = PUMP_OFF;
 
     // Timers for pump delays (in seconds)
     int pre_pump_timer = 0;
     int post_pump_timer = 0;
+
+    // Ensure the heater is off at startup
+    hot_tub_controller_set_heater_on(false);
+    
+    // Ensure the pump is off at startup
+    hot_tub_controller_set_pump_state(PUMP_OFF);
+
+    ESP_LOGW(TAG, "PUMP_STATE: %d", hot_tub_controller_get_pump_state());
 
     // Default to no simulation mode
     hot_tub_controller_set_simulation_mode(SIM_NONE); 
@@ -544,12 +555,6 @@ esp_err_t hot_tub_controller_init(void)
         ESP_LOGE(TAG, "Failed to load saved settings: %s", esp_err_to_name(err));
     }
 
-    // err = hot_tub_ds18b20_init();
-    // if (err != ESP_OK) 
-    // {
-    //     ESP_LOGE(TAG, "Failed to initialize DS18B20 sensor: %s", esp_err_to_name(err));
-    // }
-
     // Register the JSON service callbacks
     err = hot_tub_controller_register_callbacks();
     if (err != ESP_OK) 
@@ -736,88 +741,88 @@ esp_err_t hot_tub_publisher_to_json(cJSON *json, const HotTubPublisher_t *state)
 
 
 
-/**
- * @brief Get the current pump state.
- *
- * @param state Pointer to a variable where the current pump state will be stored.
- * @return The current pump state (PUMP_OFF, PUMP_LOW, PUMP_HIGH).
- */
-pump_state_t hot_tub_controller_pump_state_get(pump_state_t *state) 
-{
-    if (!state) return PUMP_OFF; // Return a default value if the pointer is NULL
-    lock_state();
-    *state = hottub_ctl.pumpState;
-    unlock_state();
-    return *state;  
-}// End of hot_tub_controller_pump_state_get
-//-----------------------------------------------------------------------------
+// /**
+//  * @brief Get the current pump state.
+//  *
+//  * @param state Pointer to a variable where the current pump state will be stored.
+//  * @return The current pump state (PUMP_OFF, PUMP_LOW, PUMP_HIGH).
+//  */
+// pump_state_t hot_tub_controller_pump_state_get(pump_state_t *state) 
+// {
+//     if (!state) return PUMP_OFF; // Return a default value if the pointer is NULL
+//     lock_state();
+//     *state = hottub_ctl.pumpState;
+//     unlock_state();
+//     return *state;  
+// }// End of hot_tub_controller_pump_state_get
+// //-----------------------------------------------------------------------------
 
 
-/**
- * @brief Set the GPIO level for the specified pin.
- *
- * @param gpio_num The GPIO pin number.
- * @param level The desired level (true for high, false for low).
- * @return ESP_OK on success, or an appropriate error code.
- */
-esp_err_t hot_tub_controller_gpio_set_level(gpio_num_t gpio_num, bool level) 
-{
-    // Implement GPIO control logic here
-    // For example, using the ESP-IDF GPIO API:
-    // gpio_set_level(gpio_num, level ? 1 : 0);
-    return ESP_OK; // Return appropriate error code if needed
-} // End of hot_tub_controller_gpio_set_level
-//-----------------------------------------------------------------------------
+// /**
+//  * @brief Set the GPIO level for the specified pin.
+//  *
+//  * @param gpio_num The GPIO pin number.
+//  * @param level The desired level (true for high, false for low).
+//  * @return ESP_OK on success, or an appropriate error code.
+//  */
+// esp_err_t hot_tub_controller_gpio_set_level(gpio_num_t gpio_num, bool level) 
+// {
+//     // Implement GPIO control logic here
+//     // For example, using the ESP-IDF GPIO API:
+//     // gpio_set_level(gpio_num, level ? 1 : 0);
+//     return ESP_OK; // Return appropriate error code if needed
+// } // End of hot_tub_controller_gpio_set_level
+// //-----------------------------------------------------------------------------
 
 
-/**
- * @brief Set the pump hardware to the target speed.
- *
- * @param targetSpeed The desired pump speed (PUMP_OFF, PUMP_LOW, PUMP_HIGH).
- *
- * @note This function ensures safe operation by first turning off both relays,
- * waiting for a dead-time delay, and then engaging the desired speed.
- * ONLY this function should be used to control the pump hardware to avoid damage.
- */
-void hot_tub_controller_set_pump(pump_state_t targetSpeed) 
-{
-    // wrap to avoid multiple variable accesses and ensure safe state transitions
+// /**
+//  * @brief Set the pump hardware to the target speed.
+//  *
+//  * @param targetSpeed The desired pump speed (PUMP_OFF, PUMP_LOW, PUMP_HIGH).
+//  *
+//  * @note This function ensures safe operation by first turning off both relays,
+//  * waiting for a dead-time delay, and then engaging the desired speed.
+//  * ONLY this function should be used to control the pump hardware to avoid damage.
+//  */
+// void hot_tub_controller_set_pump(pump_state_t targetSpeed) 
+// {
+//     // wrap to avoid multiple variable accesses and ensure safe state transitions
     
-    static pump_state_t currentSpeed = PUMP_OFF;
+//     static pump_state_t currentSpeed = PUMP_OFF;
     
-    // If already there, do nothing
-    if (targetSpeed == currentSpeed) return;
+//     // If already there, do nothing
+//     if (targetSpeed == currentSpeed) return;
  
-    // ALWAYS kill both relays first (Safe State)
-    hot_tub_controller_gpio_set_level(GPIO_PUMP_LOW, 0);
-    hot_tub_controller_gpio_set_level(GPIO_PUMP_HIGH, 0);
+//     // ALWAYS kill both relays first (Safe State)
+//     hot_tub_controller_gpio_set_level(GPIO_PUMP_LOW, 0);
+//     hot_tub_controller_gpio_set_level(GPIO_PUMP_HIGH, 0);
     
-    // Mandatory dead-time delay to let the motor arcs quench
-    // (Crucial when switching directly between Low and High)
-    if (currentSpeed != PUMP_OFF && targetSpeed != PUMP_OFF) 
-    {
-        vTaskDelay(pdMS_TO_TICKS(PUMP_DEAD_TIME_MS)); // 2 second pause
-    }
+//     // Mandatory dead-time delay to let the motor arcs quench
+//     // (Crucial when switching directly between Low and High)
+//     if (currentSpeed != PUMP_OFF && targetSpeed != PUMP_OFF) 
+//     {
+//         vTaskDelay(pdMS_TO_TICKS(PUMP_DEAD_TIME_MS)); // 2 second pause
+//     }
 
-    // Safely engage the new target
-    switch (targetSpeed) 
-    {
-        case PUMP_LOW:
-            hot_tub_controller_gpio_set_level(GPIO_PUMP_LOW, 1);
-            break;
-        case PUMP_HIGH:
-            hot_tub_controller_gpio_set_level(GPIO_PUMP_HIGH, 1);
-            break;
-        case PUMP_OFF:
-        default:
-            // Already handled earlier 
-            break;
-    }
-    // Update the current speed state
-    currentSpeed = targetSpeed;
+//     // Safely engage the new target
+//     switch (targetSpeed) 
+//     {
+//         case PUMP_LOW:
+//             hot_tub_controller_gpio_set_level(GPIO_PUMP_LOW, 1);
+//             break;
+//         case PUMP_HIGH:
+//             hot_tub_controller_gpio_set_level(GPIO_PUMP_HIGH, 1);
+//             break;
+//         case PUMP_OFF:
+//         default:
+//             // Already handled earlier 
+//             break;
+//     }
+//     // Update the current speed state
+//     currentSpeed = targetSpeed;
 
-} // end of hot_tub_controller_set_pump()
-//-----------------------------------------------------------------------------
+// } // end of hot_tub_controller_set_pump()
+// //-----------------------------------------------------------------------------
 
 
 

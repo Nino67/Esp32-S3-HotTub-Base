@@ -544,6 +544,41 @@ void hot_tub_controller_set_pump_post_run_time(float time)
 }
 //-----------------------------------------------------------------------------
 
+
+/**
+ * @brief Set the current pump state.
+ *
+ * @param targetSpeed The new pump state (PUMP_OFF, PUMP_LOW, PUMP_HIGH).
+ */
+void hot_tub_controller_set_pump_state(pump_state_t targetSpeed) 
+{
+    lock_state();
+    hottub_ctl.pumpState = targetSpeed;
+    unlock_state();
+
+    if (hot_tub_struct_io_save_settings_to_nvs() != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to save settings to NVS");
+    }
+}
+//-----------------------------------------------------------------------------
+
+
+/**
+ * @brief Get the current pump state.
+ *
+ * @param state Pointer to a variable where the current pump state will be stored.
+ * @return The current pump state (PUMP_OFF, PUMP_LOW, PUMP_HIGH).
+ */
+pump_state_t hot_tub_controller_get_pump_state(void)
+{
+    lock_state();
+    pump_state_t state = hottub_ctl.pumpState;
+    unlock_state();
+    return state;  
+}// End of hot_tub_controller_get_pump_state
+//-----------------------------------------------------------------------------
+
+
 /**
  * @brief Set the initial start time of the hot tub controller.
  *

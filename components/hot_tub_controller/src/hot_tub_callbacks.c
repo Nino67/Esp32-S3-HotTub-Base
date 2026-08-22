@@ -74,7 +74,6 @@ void hottub_callback_response(cJSON *root, cJSON *response) {
     // err = httpd_ws_send_frame(req, &out_frame);
 
 
-
 void hottub_broadcast_status_callback(void) 
 {
     char * pub_json = "{\"id\":0,\"type\":\"pub\",\"cmd\":\"hottub.status\",\"params\":\"\"}";
@@ -583,8 +582,8 @@ void hottub_low_hysteresis_set_callback(cJSON *root) {
  * @note Ex: command received: {"id":1,"type":"req","cmd":"hottub.pump.state.get","params":""}
  */
 void hottub_pump_state_get_callback(cJSON *root) {
-    pump_state_t pump_state;
-    hot_tub_controller_pump_state_get(&pump_state);
+    pump_state_t pump_state = hot_tub_controller_get_pump_state();
+    // hot_tub_controller_pump_state_get(&pump_state);
     cJSON *response = cJSON_CreateObject();
     cJSON_AddNumberToObject(response, "pump.state.get", (int)pump_state);
     hottub_callback_response(root, response);
@@ -608,7 +607,7 @@ void hottub_pump_state_set_callback(cJSON *root) {
     }
     cJSON *pump_state_item = param.key_value;
     pump_state_t pump_state = (pump_state_t)pump_state_item->valueint;
-    hot_tub_controller_set_pump(pump_state);
+    hot_tub_controller_set_pump_state(pump_state);
 
     // Create a response JSON object
     cJSON *response = cJSON_CreateObject();

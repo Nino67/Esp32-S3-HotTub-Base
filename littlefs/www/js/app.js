@@ -23,16 +23,19 @@ import { createWebSocketClient } from '/js/ws_client.js';
 import { parseHotTubMessage } from '/js/message_parser.js';
 import { createAppState } from '/js/app_state.js';
 import { createChartManager } from '/js/chart_manager.js';
+import { hot_tub_callbacks } from '/js/hottub_callbacks.js';
 
 // UI Elements
 const badge = document.getElementById('connBadge');
 const stateView = document.getElementById('stateView');
+const statusView = document.getElementById('systemStatusView');
 const receiveView = document.getElementById('receiveView');
 const sendView = document.getElementById('sendView');
 const commandInput = document.getElementById('commandInput');
 const otaStatus = document.getElementById('otaStatus');
 const otaProgressBar = document.getElementById('otaProgressBar');
 const sendBtn = document.getElementById('sendBtn');
+const systemStatusBtn = document.getElementById('sendSystemStatusBtn');
 const otaBtn = document.getElementById('otaBtn');
 const otaManifestBtn = document.getElementById('otaManifestBtn');
 const chartContainer = document.getElementById('chartContainer');
@@ -244,7 +247,7 @@ function initializeCharts() {
       id: 'temperature-chart',
       container: chartContainer,
       title: '',
-      seriesLabels: ['waterTemp', 'filteredWaterTemp'],
+      seriesLabels: ['waterTemp', 'filteredWaterTemp', 'heaterOn', 'pumpState'],
       maxPoints: 100,
     });
   } catch (err) {
@@ -327,7 +330,7 @@ async function hardwareInit() {
       const desiredState = Number(input.value);
       setPumpControlState(desiredState, true);
       sendHotTubCommand('hottub.pump.state.set', {
-        'pump.state.set': desiredState,
+        'pumpState': desiredState,
       });
     });
   });
@@ -335,6 +338,34 @@ async function hardwareInit() {
   setHeatControlState(false, false);
   setPumpControlState(0, false);
 
+  systemStatusBtn.addEventListener('click', () => {
+    console.log('Requesting system status...');
+
+    if (!client || client.readyState !== WebSocket.OPEN) {
+      safeSetText(statusView, 'Socket is not open. Waiting for connection...');
+      return;
+    }
+
+    const payload = {
+      id: requestId = 1,
+      type: 'req',
+      cmd: 'system.status.get',
+      params: '',
+    };
+
+    console.log('Requesting system status:', payload);
+
+    try {
+      client.send(createCrc32JsonWrapper(payload));
+      safeSetText(statusView, JSON.stringify(payload));
+      // console.log('Sending system status request:', payload);
+    } catch (err) {
+      safeSetText(statusView, `Invalid payload: ${err.message}`);
+      console.error('Failed to send system status request:', err);
+    }
+  }); 
+  
+  
   sendBtn.addEventListener('click', () => {
     if (!client || client.readyState !== WebSocket.OPEN) {
       safeSetText(sendView, 'Socket is not open. Waiting for connection...');
@@ -345,7 +376,7 @@ async function hardwareInit() {
       const wrapped = createCrc32JsonWrapper(commandInput.value);
       client.send(wrapped);
       safeSetText(sendView, wrapped);
-      console.log('Sending:', wrapped);
+      // console.log('Sending:', wrapped);
     } catch (err) {
       safeSetText(sendView, `Invalid JSON: ${err.message}`);
       console.error('Failed to wrap JSON:', err);
@@ -474,13 +505,16 @@ function handleSocketError() {
   // stopStatusPolling();
 }
 
-function handleSocketMessage(raw) {
-  const parsed = parseHotTubMessage(raw);
-  renderParsedMessage(parsed, raw);
+function handleSocketMessage(rawOrParsed) {
+  const parsed = typeof rawOrParsed === 'string'
+    ? parseHotTubMessage(rawOrParsed)
+    : rawOrParsed;
 
-  if (parsed.valid) {
+  renderParsedMessage(parsed, typeof rawOrParsed === 'string' ? rawOrParsed : JSON.stringify(parsed.payload || parsed, null, 2));
+
+  if (parsed && parsed.valid) {
     updateOtaState(parsed.payload);
-    updateAppState(parsed, raw);
+    updateAppState(parsed, typeof rawOrParsed === 'string' ? rawOrParsed : JSON.stringify(parsed.payload || parsed, null, 2));
     updateTemperatureChart(parsed.state);
 
     const response = parsed.payload && parsed.payload.response && typeof parsed.payload.response === 'object'
@@ -490,7 +524,7 @@ function handleSocketMessage(raw) {
     syncControlStateFromPayload(response);
 
     const filteredTemp = response.filteredWaterTemp ?? null;
-    console.log('Filtered Water Temp:', filteredTemp);
+    // console.log('Filtered Water Temp:', filteredTemp);
     if (filteredTemp !== null && !isNaN(filteredTemp)) {
       const roundedTemp = Math.round(filteredTemp * 10) / 10;
       const displayTemp = roundedTemp.toFixed(1);
@@ -517,10 +551,25 @@ function updateTemperatureChart(state) {
     ? parsedTimestampMs / 1000
     : Math.floor(Date.now() / 1000);
 
+  const STATUS_BASELINE_TEMP = 25;
+
+  const heaterOnValue = STATUS_BASELINE_TEMP + (src.heaterOn === true ? 2 : 0);
+  const pumpStateValue = (() => {
+    switch (src.pumpState) {
+      case 1:
+        return STATUS_BASELINE_TEMP + 5; // low pump state at 25°C relative baseline
+      case 2:
+        return STATUS_BASELINE_TEMP + 7; // high pump state at 27°C relative baseline
+      default:
+        return STATUS_BASELINE_TEMP; // off pump state at 25°C baseline
+    }
+  })();
+
   chartManager.addPoint(temperatureChartId, timestamp, {
     waterTemp: src.waterTemp,
     filteredWaterTemp: src.filteredWaterTemp,
-    // airTemp: src.airTemp,
+    heaterOn: heaterOnValue,
+    pumpState: pumpStateValue,
   });
 }
 
@@ -532,6 +581,7 @@ function connect() {
     onClose: handleSocketClose,
     onError: handleSocketError,
     onMessage: handleSocketMessage,
+    routes: hot_tub_callbacks,
   });
 }
 

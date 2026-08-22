@@ -54,6 +54,30 @@ esp_err_t hot_tub_controller_settings_save_to_nvs(void)
         return err;
     }
     
+    ESP_LOGI(TAG, "Hot tub settings saved to NVS successfully.");
+    ESP_LOGI(TAG, "Current State: safetySwitch=%d, heaterOn=%d, autoMode=%d, tempUnitCelsius=%d, pumpOnLight=%d, heaterOnLight=%d, waterTemp=%.2f, filteredWaterTemp=%.2f, airTemp=%.2f, humidity=%.2f, setpointTemp=%.2f, lowPassFilterAlpha=%.2f, highHysteresis=%.2f, lowHysteresis=%.2f, pumpPreRunTime=%.2f, pumpPostRunTime=%.2f, pumpState=%d, initialStartTime=%s, lastUpdateTime=%s, simulationMode=%d, errorCode=%d",
+        current_state.safetySwitch,
+        current_state.heaterOn,
+        current_state.autoMode,
+        current_state.tempUnitCelsius,
+        current_state.pumpOnLight,
+        current_state.heaterOnLight,
+        current_state.waterTemp,
+        current_state.filteredWaterTemp,
+        current_state.airTemp,
+        current_state.humidity,
+        current_state.setpointTemp,
+        current_state.lowPassFilterAlpha,
+        current_state.highHysteresis,
+        current_state.lowHysteresis,
+        current_state.pumpPreRunTime,
+        current_state.pumpPostRunTime,
+        current_state.pumpState,
+        current_state.initialStartTime,
+        current_state.lastUpdateTime,
+        current_state.simulationMode,
+        current_state.errorCode
+    );
     return ESP_OK;
 
 } // end of hot_tub_controller_settings_save_to_nvs()

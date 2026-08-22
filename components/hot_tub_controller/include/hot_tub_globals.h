@@ -19,15 +19,15 @@
 // GPIO pin definitions for pump control
 #define GPIO_PUMP_LOW 25
 #define GPIO_PUMP_HIGH 26
-#define GPIO_DS18B20 4 // TODO: set this to the actual GPIO pin used for the DS18B20 data line
+#define GPIO_DS18B20 4 // GPIO pin used for the DS18B20 data line
 #define LOW_PASS_FILTER_ALPHA 0.1f // Alpha value for low-pass filter (0 < alpha < 1)
 #define PUMP_DEAD_TIME_MS 2000
 
 #define DEFAULT_HOTTUB_TIMING_LOOP_DELAY_MS 1000
 
 #define DEFAULT_SAFETY_SWITCH_STATE false
-#define DEFAULT_SETPOINT_TEMP 30.0
-#define DEFAULT_SETPOINT_TEMP_MIN 20.0
+#define DEFAULT_SETPOINT_TEMP 32.0
+#define DEFAULT_SETPOINT_TEMP_MIN 10.0
 #define DEFAULT_SETPOINT_TEMP_MAX 40.0
 #define DEFAULT_LOW_PASS_FILTER_ALPHA 0.1f
 #define DEFAULT_AUTO_MODE false
@@ -47,8 +47,8 @@
 #define DEFAULT_PUMP_POST_RUN_TIME_MIN 1.0
 #define DEFAULT_PUMP_POST_RUN_TIME_MAX 20.0
 
-#define DEFAULT_MAX_WATER_TEMP 45.0
-#define DEFAULT_MIN_WATER_TEMP 15.0
+#define DEFAULT_MAX_WATER_TEMP 40.0
+#define DEFAULT_MIN_WATER_TEMP 10.0
 #define DEFAULT_TEMP_UNIT_CELSIUS true
 
 

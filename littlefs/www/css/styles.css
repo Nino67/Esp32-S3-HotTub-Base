@@ -144,6 +144,36 @@ h1 {
   display: none;
 }
 
+.chart-top-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.9rem;
+  padding: 0.75rem 1rem 0 1rem;
+  color: var(--text);
+  font-size: 0.9rem;
+  line-height: 1.2;
+  z-index: 2;
+}
+
+.chart-top-legend__item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  white-space: nowrap;
+}
+
+.chart-top-legend__swatch {
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+  display: inline-block;
+  flex-shrink: 0;
+}
+
+.chart-top-legend__label {
+  display: inline-block;
+}
+
 .chart-placeholder .uplot,
 .chart-placeholder canvas {
   position: absolute;

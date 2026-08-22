@@ -490,6 +490,16 @@ esp_err_t web_server_start(void)
         .method = HTTP_GET,
         .handler = asset_handler,
     };
+    httpd_uri_t callback_manager_uri = {
+        .uri = "/js/callback_manager.js",
+        .method = HTTP_GET,
+        .handler = asset_handler,
+    };
+    httpd_uri_t hottub_callbacks_uri = {
+        .uri = "/js/hottub_callbacks.js",
+        .method = HTTP_GET,
+        .handler = asset_handler,
+    };
     httpd_uri_t styles_uri = {
         .uri = "/css/styles.css",
         .method = HTTP_GET,
@@ -515,6 +525,8 @@ esp_err_t web_server_start(void)
     ESP_RETURN_ON_ERROR(httpd_register_uri_handler(s_server, &app_state_uri), TAG, "app_state handler failed");
     ESP_RETURN_ON_ERROR(httpd_register_uri_handler(s_server, &chart_manager_uri), TAG, "chart_manager handler failed");
     ESP_RETURN_ON_ERROR(httpd_register_uri_handler(s_server, &crc_wrapper_uri), TAG, "crc wrapper handler failed");
+    ESP_RETURN_ON_ERROR(httpd_register_uri_handler(s_server, &callback_manager_uri), TAG, "callback_manager handler failed");
+    ESP_RETURN_ON_ERROR(httpd_register_uri_handler(s_server, &hottub_callbacks_uri), TAG, "hottub_callbacks handler failed");
     ESP_RETURN_ON_ERROR(httpd_register_uri_handler(s_server, &styles_uri), TAG, "css handler failed");
     ESP_RETURN_ON_ERROR(httpd_register_uri_handler(s_server, &uplot_uri), TAG, "uPlot handler failed");
     ESP_RETURN_ON_ERROR(httpd_register_uri_handler(s_server, &ws_uri), TAG, "ws handler failed");
