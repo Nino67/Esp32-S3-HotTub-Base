@@ -1,5 +1,5 @@
 /**
- * @file callbacks.js
+ * @file hottub_callbacks.js
  * @author Gaetano (Nino) Ricca (gricca1967@gmail.com)
  * @brief  Client-side callback handlers for the Hot Tub Controller web interface.
  *
@@ -11,7 +11,7 @@
  * - mfg: RS Engineering.               date: 2026-06-22
  *
  * @version 0.1
- * @date 2026-06-22 
+ * @date 2026-07-30 
  *
  * @copyright Copyright (c) 2026
  *
@@ -22,42 +22,10 @@
 
 
 /*****************************************************************************/
-// Client-side callback handlers array for hot tub controller commands
-const handlers = new Map();
-
-
-/**
- * Register a callback function for a specific command.
- * @param {string} command - The command string to register the callback for.
- * @param {Function} callback - The callback function to be invoked when the command is received.
- */
-function registerHandler(command, callback) {
-    handlers.set(command, callback);
-}
-/*****************************************************************************/
-
-
-/**
- * Dispatch a command to the appropriate callback function.
- * @param {string} command - The command string to dispatch.
- * @param {Object} data - The data associated with the command.
- */ 
-function dispatch(command, data) {
-    const callback = handlers.get(command);
-
-    if (callback) {
-        callback(data);
-    }
-}
-/*****************************************************************************/
-
-
-
-/*****************************************************************************/
 /**
  * @brief Javascript structure to hold the state of the hot tub controller.
  */
-const hottub = {
+export const hottub = {
     safetySwitch: false,
     heaterOn: false,
     autoMode: false,
@@ -122,6 +90,15 @@ function hottub_status_get_callback(payload) {
     }
 }
 //--------------------------------------------------------------------------- 
+
+// // Asynchronous handler - works natively without changing dispatch()
+// async function hottub_pump_state_set_callback(data) {
+//     const ack = await sendRpcOverWebSocket("hottub.pump.state.set", data);
+//     updatePumpUI(ack.state);
+//     return ack.success;
+// }
+
+
 
 function hottub_auto_mode_get_callback(payload) {
     if (payload && payload.response) {
@@ -363,28 +340,23 @@ function hottub_error_set_callback(payload) {
 /*****************************************************************************/
 /*****************************************************************************/
 function system_status_get_callback(payload) {
-    console.log("System Status Callback Invoked");
+    const statusView = document.getElementById('systemStatusView');
+    // console.log("System Status Callback Invoked");
+
     if (payload && payload.response) {
         const response = payload.response;
-        console.log("System Status Response:", response);
-        // Update the system status view with the response data
-        if (statusView) {
-            statusView.textContent = JSON.stringify(response, null, 2);
-        }
-
+        // console.log("System Status Response:", response);
     }
+    statusView.textContent = JSON.stringify(payload, null, 2);
 }
 
 
 /**
- * @brief Array of callback functions for the hot tub controller commands.
- *
- * Each entry in the array consists of a command string and its corresponding callback function.
- * The array is terminated with a sentinel value (NULL, NULL).
+ * @brief Object of callback functions for the hot tub controller commands.
  */
-const hot_tub_callbacks[] = {
+export const callbacks = {
     "system.status.get": system_status_get_callback,
-    "hottub.status.get":hottub_status_get_callback,
+    "hottub.status.get": hottub_status_get_callback,
     "hottub.automode.get": hottub_auto_mode_get_callback,
     "hottub.automode.set": hottub_auto_mode_set_callback,
     "hottub.heater.status.get": hottub_heater_status_get_callback,
@@ -419,26 +391,15 @@ const hot_tub_callbacks[] = {
     "hottub.pump.post.run.time.set": hottub_pump_post_run_time_set_callback,
     "hottub.error.get": hottub_error_get_callback,
     "hottub.error.set": hottub_error_set_callback,
-    "": null // Sentinel value to mark the end of the array
 };
 //-----------------------------------------------------------------------------
-
-
-// Function to register the callbacks to the handlers map
-hot_tub_callbacks.forEach(([command, callback]) => {
-    if (command && callback) {
-        registerHandler(command, callback);
-    }
-});
 
 
 
 
 export default {
-    registerHandler,
-    dispatch,
     hottub,
-    hot_tub_callbacks,
+    callbacks,
     system_status_get_callback,
     hottub_status_get_callback,
     hottub_auto_mode_get_callback,

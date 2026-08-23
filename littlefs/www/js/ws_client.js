@@ -1,5 +1,7 @@
 import {callback_manager} from './callback_manager.js';
-import { parseHotTubMessage } from '/js/message_parser.js';
+import { parseMessage } from '/js/message_parser.js';
+// import { hot_tub_callbacks } from '/js/hottub_callbacks.js';
+import { callbacks } from '/js/callbacks.js';
 
 /**
  * @file ws_client.js
@@ -21,25 +23,13 @@ import { parseHotTubMessage } from '/js/message_parser.js';
  */
   
 
-export function createWebSocketClient({ url, onOpen, onClose, onError, onMessage, reconnectDelay = 1500, routes = {} }) {
+export function createWebSocketClient({ url, onOpen, onClose, onError, onMessage, reconnectDelay = 1500 }) {
   let socket = null;
   let reconnectTimer = null;
   let closedManually = false;
 
-  function dispatch(handler, ...args) {
-    console.log('Dispatching handler:', handler?.name || 'anonymous', 'with args:', args);
-    if (typeof handler === 'function') {
-      try {
-        handler(...args);
-      } catch (err) {
-        console.error('WebSocket handler error:', err);
-      }
-    }
-  }
-
-  if (routes && typeof routes === 'object' && !Array.isArray(routes)) {
-    callback_manager.registerHandlers(routes);
-  }
+  // console.log('[ws_client] Registering routes:', Object.keys(callbacks));
+  callback_manager.registerHandlers(callbacks);
 
   function connect() {
     if (closedManually) {
@@ -49,30 +39,59 @@ export function createWebSocketClient({ url, onOpen, onClose, onError, onMessage
     socket = new WebSocket(url);
 
     socket.addEventListener('open', () => {
-      dispatch(onOpen);
+      if (typeof onOpen === 'function') {
+        try {
+          onOpen();
+        } catch (err) {
+          console.error('WebSocket onOpen handler error:', err);
+        }
+      }
     });
 
     socket.addEventListener('message', async (event) => {
       if (!event.data) { return null; }
 
-      try {
-        const parsed = parseHotTubMessage(event.data);
-        if (parsed.valid && parsed.payload) {
+      try 
+      {
+        const parsed = parseMessage(event.data);
+        // console.log('[ws_client] Received WS message', parsed);
+
+        if (parsed.valid && parsed.payload) 
+        {
           const command = parsed.payload.cmd || parsed.payload.command;
-          if (command) {
+          // console.log('[ws_client] Parsed command:', command);
+          if (command) 
+          {
             await callback_manager.dispatch(command, parsed.payload);
+          } else {
+            console.warn('[ws_client] No cmd found in payload:', parsed.payload);
           }
+        } 
+        else 
+        {
+          console.warn('[ws_client] Invalid parsed message, skipping callback dispatch');
         }
-        dispatch(onMessage, parsed);
-      } catch (err) {
+
+        if (typeof onMessage === 'function') 
+        {
+          onMessage(parsed);
+        }
+      } 
+      catch (err) 
+      {
         console.error('Failed to process WebSocket message:', err);
-        dispatch(onMessage, { valid: false, reason: err.message });
+        if (typeof onMessage === 'function') 
+        {
+          onMessage({ valid: false, reason: err.message });
+        }
       }
     });
 
 
     socket.addEventListener('close', (event) => {
-      dispatch(onClose, event);
+      if (typeof onClose === 'function') {
+        onClose(event);
+      }
       if (!closedManually) {
         reconnectTimer = window.setTimeout(() => {
           reconnectTimer = null;
@@ -82,7 +101,9 @@ export function createWebSocketClient({ url, onOpen, onClose, onError, onMessage
     });
 
     socket.addEventListener('error', (event) => {
-      dispatch(onError, event);
+      if (typeof onError === 'function') {
+        onError(event);
+      }
     });
   }
 

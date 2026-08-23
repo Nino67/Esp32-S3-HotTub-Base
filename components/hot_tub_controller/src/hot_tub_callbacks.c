@@ -76,7 +76,7 @@ void hottub_callback_response(cJSON *root, cJSON *response) {
 
 void hottub_broadcast_status_callback(void) 
 {
-    char * pub_json = "{\"id\":0,\"type\":\"pub\",\"cmd\":\"hottub.status\",\"params\":\"\"}";
+    char * pub_json = "{\"id\":0,\"type\":\"pub\",\"cmd\":\"hottub.status.get\",\"params\":\"\"}";
     cJSON *pub_root = cJSON_Parse(pub_json);
     hottub_status_get_callback(pub_root);
     char *encoded_msg = json_service_crc32_envelope_encode(pub_root);

@@ -24,7 +24,7 @@ import { parseAndVerifyCrc32Wrapper } from '/js/crc32_wrapper.js';
  * @param {string} raw - Raw message text from the WebSocket.
  * @returns {Object} - A parse result with validity, payload, state, and optional reason.
  */
-export function parseHotTubMessage(raw) {
+export function parseMessage(raw) {
   if (typeof raw !== 'string') {
     return { valid: false, reason: 'message must be a string' };
   }

@@ -20,10 +20,10 @@
 
 import { createCrc32JsonWrapper } from '/js/crc32_wrapper.js';
 import { createWebSocketClient } from '/js/ws_client.js';
-import { parseHotTubMessage } from '/js/message_parser.js';
+import { parseMessage } from '/js/message_parser.js';
 import { createAppState } from '/js/app_state.js';
 import { createChartManager } from '/js/chart_manager.js';
-import { hot_tub_callbacks } from '/js/hottub_callbacks.js';
+import { callbacks } from '/js/callbacks.js';
 
 // UI Elements
 const badge = document.getElementById('connBadge');
@@ -36,6 +36,7 @@ const otaStatus = document.getElementById('otaStatus');
 const otaProgressBar = document.getElementById('otaProgressBar');
 const sendBtn = document.getElementById('sendBtn');
 const systemStatusBtn = document.getElementById('sendSystemStatusBtn');
+const clearSystemStatusBtn = document.getElementById('clearSystemStatusBtn');
 const otaBtn = document.getElementById('otaBtn');
 const otaManifestBtn = document.getElementById('otaManifestBtn');
 const chartContainer = document.getElementById('chartContainer');
@@ -338,8 +339,15 @@ async function hardwareInit() {
   setHeatControlState(false, false);
   setPumpControlState(0, false);
 
+  clearSystemStatusBtn.addEventListener('click', () => {
+    safeSetText(systemStatusView, '');
+    console.log('Clearing system status...');
+  }); 
+
+
+
   systemStatusBtn.addEventListener('click', () => {
-    console.log('Requesting system status...');
+    // console.log('Requesting system status...');
 
     if (!client || client.readyState !== WebSocket.OPEN) {
       safeSetText(statusView, 'Socket is not open. Waiting for connection...');
@@ -353,7 +361,7 @@ async function hardwareInit() {
       params: '',
     };
 
-    console.log('Requesting system status:', payload);
+    // console.log('Requesting system status:', payload);
 
     try {
       client.send(createCrc32JsonWrapper(payload));
@@ -507,35 +515,17 @@ function handleSocketError() {
 
 function handleSocketMessage(rawOrParsed) {
   const parsed = typeof rawOrParsed === 'string'
-    ? parseHotTubMessage(rawOrParsed)
+    ? parseMessage(rawOrParsed)
     : rawOrParsed;
 
   renderParsedMessage(parsed, typeof rawOrParsed === 'string' ? rawOrParsed : JSON.stringify(parsed.payload || parsed, null, 2));
 
-  if (parsed && parsed.valid) {
-    updateOtaState(parsed.payload);
-    updateAppState(parsed, typeof rawOrParsed === 'string' ? rawOrParsed : JSON.stringify(parsed.payload || parsed, null, 2));
-    updateTemperatureChart(parsed.state);
-
-    const response = parsed.payload && parsed.payload.response && typeof parsed.payload.response === 'object'
-      ? parsed.payload.response
-      : {};
-
-    syncControlStateFromPayload(response);
-
-    const filteredTemp = response.filteredWaterTemp ?? null;
-    // console.log('Filtered Water Temp:', filteredTemp);
-    if (filteredTemp !== null && !isNaN(filteredTemp)) {
-      const roundedTemp = Math.round(filteredTemp * 10) / 10;
-      const displayTemp = roundedTemp.toFixed(1);
-      safeSetText(filteredTemperatureDisplay, `${displayTemp}°C`);
-    } else {
-      safeSetText(filteredTemperatureDisplay, '--°C');
-    }
-
-  } else {
-    console.warn('Invalid CRC32 payload:', raw, parsed);
+  if (!(parsed && parsed.valid)) {
+    console.warn('Invalid CRC32 payload:', rawOrParsed, parsed);
+    return;
   }
+
+  // console.log('[app] Parsed WebSocket payload received:', parsed.payload);
 }
 
 function updateTemperatureChart(state) {
@@ -581,7 +571,7 @@ function connect() {
     onClose: handleSocketClose,
     onError: handleSocketError,
     onMessage: handleSocketMessage,
-    routes: hot_tub_callbacks,
+    routes: callbacks,
   });
 }
 
@@ -599,7 +589,7 @@ hardwareInit();
 //  * Each entry in the array consists of a command string and its corresponding callback function.
 //  * The array is terminated with a sentinel value (NULL, NULL).
 //  */
-// callbacks_t hot_tub_callbacks[] = {
+// const hot_tub_callbacks = {
 //     {"hottub.status.get", hottub_status_get_callback},
 //     {"hottub.automode.get", hottub_auto_mode_get_callback},
 //     {"hottub.automode.set", hottub_auto_mode_set_callback},

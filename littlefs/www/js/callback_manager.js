@@ -34,6 +34,7 @@ const handlers = new Map();
  */
 function registerHandler(command, callback) {
     handlers.set(command, callback);
+    // console.log(`[CallbackManager] Registered handler for: ${command}`);
 }
 //-----------------------------------------------------------------------------
 
@@ -43,7 +44,9 @@ function registerHandler(command, callback) {
  * @param {Object} routes - An object where keys are command strings and values are callback functions.
  */
 function registerHandlers(routes) {
-    Object.entries(routes).forEach(([command, callback]) => {
+    const entries = Object.entries(routes);
+    // console.log(`[CallbackManager] Registering ${entries.length} routes`);
+    entries.forEach(([command, callback]) => {
         if (command && typeof callback === 'function') {
             registerHandler(command, callback);
         }
@@ -60,19 +63,18 @@ function registerHandlers(routes) {
  */
 async function dispatch(command, data) {
     const callback = handlers.get(command);
-
     if (!callback) {
-        console.warn(`[Dispatch] No handler registered for: ${command}`);
+        console.warn(`[CallbackManager] No handler registered for: ${command}`);
         return null;
     }
 
+    // console.log(`[CallbackManager] Dispatching command: ${command}`);
     try {
         // 'await' seamlessly resolves both sync returns and async Promises
         return await callback(data);
     } catch (error) {
-        console.error(`[Dispatch Error] Failed executing '${command}':`, error);
-        // Rethrow or return an error object depending on your RPC spec
-        throw error; 
+        console.error(`[CallbackManager] Failed executing '${command}':`, error);
+        throw error;
     }
 }
 //-----------------------------------------------------------------------------
