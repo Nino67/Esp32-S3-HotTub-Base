@@ -2,6 +2,8 @@ import {callback_manager} from './callback_manager.js';
 import { parseMessage } from '/js/message_parser.js';
 // import { hot_tub_callbacks } from '/js/hottub_callbacks.js';
 import { callbacks } from '/js/callbacks.js';
+import { updateHotTubState } from '/js/globals.js';
+
 
 /**
  * @file ws_client.js
@@ -56,12 +58,18 @@ export function createWebSocketClient({ url, onOpen, onClose, onError, onMessage
         const parsed = parseMessage(event.data);
         // console.log('[ws_client] Received WS message', parsed);
 
-        if (parsed.valid && parsed.payload) 
-        {
+        if (parsed.valid && parsed.payload) {
+          
+          const type = parsed.payload.type || parsed.payload.cmd_type;
           const command = parsed.payload.cmd || parsed.payload.command;
-          // console.log('[ws_client] Parsed command:', command);
-          if (command) 
-          {
+           
+          if (type === 'pub') {
+              console.log('[ws_client] Received publish message:', parsed.payload);
+              updateHotTubState(parsed.payload.response);
+
+            }
+              
+          if (command) {
             await callback_manager.dispatch(command, parsed.payload);
           } else {
             console.warn('[ws_client] No cmd found in payload:', parsed.payload);

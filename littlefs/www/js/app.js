@@ -24,6 +24,8 @@ import { parseMessage } from '/js/message_parser.js';
 import { createAppState } from '/js/app_state.js';
 import { createChartManager } from '/js/chart_manager.js';
 import { callbacks } from '/js/callbacks.js';
+import { hottub } from '/js/globals.js';
+import { safeSetText, safeSetStyle } from '/js/globals.js';
 
 // UI Elements
 const badge = document.getElementById('connBadge');
@@ -57,19 +59,6 @@ const chartManager = createChartManager();
 let temperatureChartId = null;
 
 
-// Helper Functions
-
-const safeSetText = (element, value) => {
-  if (element) {
-    element.textContent = value;
-  }
-};
-
-const safeSetStyle = (element, property, value) => {
-  if (element) {
-    element.style[property] = value;
-  }
-};
 
 function setHeatControlState(isOn, pending = false) {
   if (!heatToggle) {

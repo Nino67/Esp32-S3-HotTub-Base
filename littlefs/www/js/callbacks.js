@@ -19,37 +19,37 @@
 /*****************************************************************************/
 /*****************************************************************************/
 
+import { hottub } from '/js/globals.js';
 
-
-/*****************************************************************************/
-/**
- * @brief Javascript structure to hold the state of the hot tub controller.
- */
-export const hottub = {
-    safetySwitch: false,
-    heaterOn: false,
-    autoMode: false,
-    tempUnitCelsius: true,
-    pumpOnLight: false,
-    heaterOnLight: false,
-    waterTemp: 0.0,
-    filteredWaterTemp: 0.0,
-    airTemp: 0.0,
-    humidity: 0.0,
-    setpointTemp: 0.0,
-    lowPassFilterAlpha: 0.0,
-    highHysteresis: 0.0,
-    lowHysteresis: 0.0,
-    pumpPreRunTime: 0.0,
-    pumpPostRunTime: 0.0,
-    pumpState: 0,
-    initialStartTime: "",
-    lastUpdateTime: "",
-    simulationMode: 0,
-    errorCode: 0
-};
-/*****************************************************************************/ 
-/*****************************************************************************/
+// /*****************************************************************************/
+// /**
+//  * @brief Javascript structure to hold the state of the hot tub controller.
+//  */
+// export const hottub = {
+//     safetySwitch: false,
+//     heaterOn: false,
+//     autoMode: false,
+//     tempUnitCelsius: true,
+//     pumpOnLight: false,
+//     heaterOnLight: false,
+//     waterTemp: 0.0,
+//     filteredWaterTemp: 0.0,
+//     airTemp: 0.0,
+//     humidity: 0.0,
+//     setpointTemp: 0.0,
+//     lowPassFilterAlpha: 0.0,
+//     highHysteresis: 0.0,
+//     lowHysteresis: 0.0,
+//     pumpPreRunTime: 0.0,
+//     pumpPostRunTime: 0.0,
+//     pumpState: 0,
+//     initialStartTime: "",
+//     lastUpdateTime: "",
+//     simulationMode: 0,
+//     errorCode: 0
+// };
+// /*****************************************************************************/ 
+// /*****************************************************************************/
 
 
 /*****************************************************************************/
