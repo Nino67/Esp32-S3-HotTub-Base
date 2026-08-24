@@ -34,6 +34,20 @@ static const char *TAG = "hot_tub_struct_io";
 SemaphoreHandle_t s_mutex = NULL;
 HotTubController_t hottub_ctl = {0};
 
+#define HOT_TUB_STATE_LOCK_TIMEOUT_MS 100
+
+static esp_err_t take_state_lock(void)
+{
+    if (!s_mutex)
+    {
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    return xSemaphoreTake(s_mutex, pdMS_TO_TICKS(HOT_TUB_STATE_LOCK_TIMEOUT_MS)) == pdTRUE
+               ? ESP_OK
+               : ESP_ERR_TIMEOUT;
+}
+
 /**
  * @brief Take a snapshot of the current hot tub controller state.
  *
@@ -43,11 +57,16 @@ HotTubController_t hottub_ctl = {0};
 esp_err_t hot_tub_controller_snapshot_get(HotTubController_t *state)
 {
     if (!state) {return ESP_ERR_INVALID_ARG;}
-    
-    lock_state();
+
+    esp_err_t err = take_state_lock();
+    if (err != ESP_OK)
+    {
+        return err;
+    }
+
     *state = hottub_ctl;
     unlock_state();
-    
+
     return ESP_OK;
 } // end of hot_tub_controller_snapshot_get()
 //-----------------------------------------------------------------------------
@@ -56,8 +75,13 @@ esp_err_t hot_tub_controller_snapshot_get(HotTubController_t *state)
 esp_err_t hot_tub_controller_snapshot_set(const HotTubController_t *state)
 {
     if (!state) {return ESP_ERR_INVALID_ARG;}
-    
-    lock_state();
+
+    esp_err_t err = take_state_lock();
+    if (err != ESP_OK)
+    {
+        return err;
+    }
+
     hottub_ctl = *state;
     unlock_state();
 

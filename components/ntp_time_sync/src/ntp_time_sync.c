@@ -326,17 +326,12 @@ void time_maintenance_task(void *arg)
     const char *ntp_server = NULL;               // use default in utils
     time_t last_sync = 0;
 
-    ESP_LOGI(TAG, "time_maintenance_task: starting initial NTP sync");
-    // esp_err_t err = ntp_utils_time_sync_blocking(ntp_server, tz, 15000);
-    esp_err_t err = ntp_utils_time_sync_blocking(ntp_server, tz, 15000);
-    // if (err == ESP_OK) {
-    //     time(&last_sync);
-    //     hot_tub_controller_set_initial_start_time(ctime(&last_sync));
-
-    //     ESP_LOGI(TAG, "time_maintenance_task: initial NTP sync OK");
-    // } else {
-    //     ESP_LOGW(TAG, "time_maintenance_task: initial NTP sync failed: %s", esp_err_to_name(err));
-    // }
+    ESP_LOGI(TAG, "time_maintenance_task: starting NTP service");
+    esp_err_t err = ntp_utils_time_sync_nonblocking(ntp_server, tz, 0);
+    if (err != ESP_OK)
+    {
+        ESP_LOGW(TAG, "Failed to start NTP service: %s", esp_err_to_name(err));
+    }
 
     time_maintenance_register_watchdog();
 
@@ -366,14 +361,19 @@ void time_maintenance_task(void *arg)
         time_t now = 0;
         time(&now);
 
-        if (last_sync == 0 || (now - last_sync) >= NTP_RESYNC_INTERVAL_SEC) {
+        if (now >= UTILS_TIME_VALID_EPOCH && last_sync == 0) {
+            last_sync = now;
+            ESP_LOGI(TAG, "time_maintenance_task: initial NTP sync OK");
+        }
+
+        if (last_sync != 0 && (now - last_sync) >= NTP_RESYNC_INTERVAL_SEC) {
             ESP_LOGI(TAG, "time_maintenance_task: performing daily NTP resync");
-            esp_err_t r = ntp_utils_time_sync_blocking(ntp_server, tz, 15000);
+            esp_err_t r = ntp_utils_time_sync_nonblocking(ntp_server, tz, 0);
             if (r == ESP_OK) {
                 last_sync = now;
-                ESP_LOGI(TAG, "time_maintenance_task: daily NTP resync OK");
+                ESP_LOGI(TAG, "time_maintenance_task: daily NTP resync started");
             } else {
-                ESP_LOGW(TAG, "time_maintenance_task: daily NTP resync failed: %s", esp_err_to_name(r));
+                ESP_LOGW(TAG, "time_maintenance_task: daily NTP resync start failed: %s", esp_err_to_name(r));
             }
         }
     }

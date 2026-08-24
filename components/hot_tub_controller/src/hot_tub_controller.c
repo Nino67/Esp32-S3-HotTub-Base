@@ -24,6 +24,7 @@
 #include "app_watchdog.h"
 #include "hot_tub_callbacks.h"
 #include "hot_tub_controller.h"
+#include "hot_tub_controller_nvs.h"
 #include "hot_tub_struct_io.h"
 #include "hot_tub_ds18b20.h"
 #include "hot_tub_sim.h"
@@ -33,6 +34,9 @@ static const char *TAG = "hot_tub_controller";
 #ifndef DEFAULT_HOTTUB_TIMING_LOOP_DELAY_MS
 #define DEFAULT_HOTTUB_TIMING_LOOP_DELAY_MS 1000
 #endif
+
+#define HOT_TUB_STATUS_TASK_STACK_SIZE 4096
+#define HOT_TUB_STATUS_TASK_PRIORITY 2
 
 
 /// Define a structure to hold the hot tub status for publishing
@@ -80,6 +84,15 @@ void hot_tub_controller_set_safety_switch(safety_switch_t state);
 void hot_tub_controller_set_error_code(int error_code);
 void hottub_error_get_callback(cJSON *root);
 void hottub_error_set_callback(cJSON *root);
+
+static void hot_tub_status_publisher_task(void *arg)
+{
+    while (true)
+    {
+        hottub_broadcast_status_callback();
+        vTaskDelay(pdMS_TO_TICKS(DEFAULT_HOTTUB_TIMING_LOOP_DELAY_MS));
+    }
+}
 
 
 
@@ -250,13 +263,19 @@ void hot_tub_controller_main_task(void *arg)
 {
     HotTubController_t snapshot;
 
+    if (app_watchdog_register_current_task("hot_tub_control") != ESP_OK)
+    {
+        ESP_LOGE(TAG, "Failed to register controller task with watchdog");
+        vTaskDelete(NULL);
+        return;
+    }
+
     // Timing variables for the hot tub main loop
     TickType_t xFrequency = pdMS_TO_TICKS(1000);
     TickType_t xLastWakeTime = xTaskGetTickCount();
 
     // Track ownership: Did the auto-controller start the pump for heating?
     bool auto_started_pump = false;
-    pump_state_t current_pump_state = PUMP_OFF;
 
     // Timers for pump delays (in seconds)
     int pre_pump_timer = 0;
@@ -296,18 +315,22 @@ void hot_tub_controller_main_task(void *arg)
         // Wait for the next cycle (1Hz).
         xTaskDelayUntil( &xLastWakeTime, xFrequency );
 
-        // Take a snapshot of the current state, if it fails reload settings from NVS
+
+        if (app_watchdog_feed_current_task() != ESP_OK)
+        {
+            ESP_LOGW(TAG, "hot tub controller main task failed to feed watchdog");
+        }
+
+        // Take a snapshot of the current state.
         if (hot_tub_controller_snapshot_get(&snapshot) != ESP_OK) 
         {
-            ESP_LOGW(TAG, "Failed to get snapshot, reloading settings from NVS");
-            if (hot_tub_controller_settings_load_from_nvs() != ESP_OK) 
-            {
-                ESP_LOGE(TAG, "Failed to reload settings from NVS.");
-            }
+            ESP_LOGE(TAG, "State lock timed out; skipping control cycle");
+            app_watchdog_feed_current_task();
+            continue;
         }   
         
         // If simulation mode is enabled, simulate temperature instead 
-        if (hot_tub_controller_get_simulation_mode() != SIM_NONE)
+        if (snapshot.simulationMode != SIM_NONE)
         {
             // Simulated temperature reading
             // snapshot.waterTemp = get_simulated_temperature();
@@ -500,9 +523,6 @@ void hot_tub_controller_main_task(void *arg)
             ESP_LOGE(TAG, "Failed to save hot tub controller snapshot: %s", esp_err_to_name(err));
         }
 
-        // Broadcast the updated status to any connected clients
-        hottub_broadcast_status_callback(); 
-   
         // // Call to update the GPIOs based on the new state
         // err = hot_tub_controller_gpio_update(&snapshot);
         // if (err != ESP_OK) {
@@ -544,6 +564,13 @@ esp_err_t hot_tub_controller_init(void)
         if (!s_mutex) { return ESP_ERR_NO_MEM; }
     }
 
+    err = hot_tub_controller_persistence_init();
+    if (err != ESP_OK)
+    {
+        ESP_LOGE(TAG, "Failed to start persistence task: %s", esp_err_to_name(err));
+        return err;
+    }
+
     // Initialize the hottub_ctl structure to zero values
     lock_state();
     memset(&hottub_ctl, 0, sizeof(hottub_ctl));
@@ -568,11 +595,11 @@ esp_err_t hot_tub_controller_init(void)
     BaseType_t result = xTaskCreatePinnedToCore(
                             hot_tub_controller_main_task,
                             "hot_tub_controller_main_task",
-                            4096,
+                            HOT_TUB_CONTROLLER_TASK_STACK_SIZE,
                             NULL,
-                            6,
+                            HOT_TUB_CONTROLLER_TASK_PRIORITY,
                             &task_handle,
-                            0);
+                            HOT_TUB_CONTROLLER_TASK_CORE);
 
     if (result != pdPASS) 
     {
@@ -580,11 +607,17 @@ esp_err_t hot_tub_controller_init(void)
         return ESP_ERR_NO_MEM;
     }
 
-    if (app_watchdog_register_task(task_handle, "hot_tub_controller_main_task") != ESP_OK)
+    result = xTaskCreatePinnedToCore(hot_tub_status_publisher_task,
+                                     "hottub_status",
+                                     HOT_TUB_STATUS_TASK_STACK_SIZE,
+                                     NULL,
+                                     HOT_TUB_STATUS_TASK_PRIORITY,
+                                     NULL,
+                                     CORE_0);
+    if (result != pdPASS)
     {
-        ESP_LOGE(TAG, "Failed to register hot tub controller main task with watchdog");
-        vTaskDelete(task_handle);
-        return ESP_FAIL;
+        ESP_LOGE(TAG, "Failed to create status publisher task");
+        return ESP_ERR_NO_MEM;
     }
 
     return ESP_OK;

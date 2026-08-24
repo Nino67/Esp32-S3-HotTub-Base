@@ -233,7 +233,7 @@ esp_err_t cycle_rgb_led_colors(void)
             break;
     }    
     
-    if (color < 0 || color > 2) {
+    if (color > 2) {
         color = 0; // Reset to color is out of bounds
     }
 
@@ -250,6 +250,13 @@ esp_err_t cycle_rgb_led_colors(void)
  */
 static void heartbeat_loop_task(void *arg)
 {
+    if (app_watchdog_register_current_task("heartbeat") != ESP_OK)
+    {
+        ESP_LOGE(TAG, "Failed to register heartbeat task with watchdog");
+        vTaskDelete(NULL);
+        return;
+    }
+
     for (;;) 
     {
         ESP_ERROR_CHECK(cycle_rgb_led_colors());
@@ -301,13 +308,6 @@ esp_err_t rgb_led_heartbeat(void)
     if (result != pdPASS) {
         ESP_LOGE(TAG, "Failed to create heartbeat task");
         return ESP_ERR_NO_MEM;
-    }
-
-    if (app_watchdog_register_task(task_handle, "heartbeat_loop") != ESP_OK)
-    {
-        ESP_LOGE(TAG, "Failed to register heartbeat task with watchdog");
-        vTaskDelete(task_handle);
-        return ESP_FAIL;
     }
 
     return ESP_OK;

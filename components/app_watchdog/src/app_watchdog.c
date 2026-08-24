@@ -62,7 +62,7 @@ static esp_err_t configure_twdt(const app_watchdog_config_t *config)
     esp_task_wdt_config_t twdt_config = {
         .timeout_ms = config->twdt_timeout_s * 1000U,
         .idle_core_mask = (1U << portNUM_PROCESSORS) - 1U,
-        .trigger_panic = true,
+        .trigger_panic = config->twdt_panic_on_timeout,
     };
 
     esp_err_t ret = esp_task_wdt_reconfigure(&twdt_config);
@@ -85,8 +85,9 @@ static esp_err_t configure_twdt(const app_watchdog_config_t *config)
     }
 
     ESP_LOGI(TAG,
-             "TWDT configured: timeout=%" PRIu32 "s, panic/reboot on timeout enabled",
-             config->twdt_timeout_s);
+             "TWDT configured: timeout=%" PRIu32 "s, panic=%s",
+             config->twdt_timeout_s,
+             config->twdt_panic_on_timeout ? "enabled" : "disabled");
     return ESP_OK;
 }
 

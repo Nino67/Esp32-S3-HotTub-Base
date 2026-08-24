@@ -60,6 +60,31 @@ let temperatureChartId = null;
 
 
 
+// create a main task loop that runs at 1hz
+setInterval(() => {
+  // Update the latest hot tub state in the app state
+  appState.latestHotTubState = { ...hottub };
+
+  // Update the UI elements based on the new state    
+  // const filteredTemperatureDisplay = document.getElementById('filteredTemperature');
+  if (filteredTemperatureDisplay) {
+      const tempUnit = hottub.tempUnitCelsius ? '°C' : '°F';
+      safeSetText(filteredTemperatureDisplay, `${hottub.filteredWaterTemp.toFixed(1)} ${tempUnit}`);
+  } else {
+      console.warn('[ws_client] filteredTemperature element not found');
+  }
+
+
+  // Update the temperature chart with the latest hot tub state
+  updateTemperatureChart(appState.latestHotTubState);
+
+  // Update the UI elements based on the latest hot tub state
+  syncControlStateFromPayload(appState.latestHotTubState);
+}, 1000);
+
+
+
+
 function setHeatControlState(isOn, pending = false) {
   if (!heatToggle) {
     return;

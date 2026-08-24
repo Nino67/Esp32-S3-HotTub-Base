@@ -83,27 +83,17 @@ esp_err_t hot_tub_ds18b20_init(void)
     BaseType_t result = xTaskCreatePinnedToCore(
                             water_temperature_monitoring_task,
                             "water_temperature_monitoring_task",
-                            2048,
+                            HOT_TUB_TEMPERATURE_TASK_STACK_SIZE,
                             NULL,
-                            5,
+                            HOT_TUB_TEMPERATURE_TASK_PRIORITY,
                             &task_handle,
-                            0);
+                            HOT_TUB_TEMPERATURE_TASK_CORE);
 
     if (result != pdPASS) 
     {
         ESP_LOGE(TAG, "Failed to create water temperature monitoring task");
         return ESP_ERR_NO_MEM;
     }
-
-    // Register the task with the watchdog
-    if (app_watchdog_register_task(task_handle, "water_temperature_monitoring_task") != ESP_OK)
-    {
-        ESP_LOGE(TAG, "Failed to register water temperature monitoring task with watchdog");
-        vTaskDelete(task_handle);
-        return ESP_FAIL;
-    }
-
-
 
     return ESP_OK;
 }
@@ -123,6 +113,13 @@ void water_temperature_monitoring_task(void *arg)
 {
     TickType_t xLastWakeTime = xTaskGetTickCount();
     const TickType_t xFrequency = pdMS_TO_TICKS(1000); // 1 second
+
+    if (app_watchdog_register_current_task("water_temp") != ESP_OK)
+    {
+        ESP_LOGE(TAG, "Failed to register temperature task with watchdog");
+        vTaskDelete(NULL);
+        return;
+    }
 
     while (1) 
     {

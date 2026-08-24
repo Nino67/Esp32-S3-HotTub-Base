@@ -41,24 +41,24 @@ export const updateHotTubState = (newState) => {
         return;
     }
 
-    // Update the hottub state with new values
-    Object.keys(newState).forEach(key => {
-        console.log(`[updateHotTubState] Processing key: ${key}, value: ${newState[key]}`);
-        if (key in hottub) {
-            hottub[key] = newState[key];
-        } else {
-            console.warn(`[updateHotTubState] Unknown property: ${key}`);
-        }
-    });
+    // // Update the hottub state with new values
+    // Object.keys(newState).forEach(key => {
+    //     console.log(`[updateHotTubState] Processing key: ${key}, value: ${newState[key]}`);
+    //     if (key in hottub) {
+    //         hottub[key] = newState[key];
+    //     } else {
+    //         console.warn(`[updateHotTubState] Unknown property: ${key}`);
+    //     }
+    // });
 
-    // Update the UI elements based on the new state    
-    const filteredTemperatureDisplay = document.getElementById('filteredTemperature');
-    if (filteredTemperatureDisplay) {
-        const tempUnit = hottub.tempUnitCelsius ? '°C' : '°F';
-        safeSetText(filteredTemperatureDisplay, `${hottub.filteredWaterTemp.toFixed(1)} ${tempUnit}`);
-    } else {
-        console.warn('[updateHotTubState] filteredTemperature element not found');
-    }   
+    // // Update the UI elements based on the new state    
+    // const filteredTemperatureDisplay = document.getElementById('filteredTemperature');
+    // if (filteredTemperatureDisplay) {
+    //     const tempUnit = hottub.tempUnitCelsius ? '°C' : '°F';
+    //     safeSetText(filteredTemperatureDisplay, `${hottub.filteredWaterTemp.toFixed(1)} ${tempUnit}`);
+    // } else {
+    //     console.warn('[updateHotTubState] filteredTemperature element not found');
+    // }   
 
 };
 /*****************************************************************************/

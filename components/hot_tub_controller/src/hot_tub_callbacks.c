@@ -74,6 +74,12 @@ void hottub_callback_response(cJSON *root, cJSON *response) {
     // err = httpd_ws_send_frame(req, &out_frame);
 
 
+/**
+ * @brief Broadcast the current hot tub status to all connected WebSocket clients.
+ *
+ * This function retrieves the current hot tub status, converts it to a JSON object,
+ * and broadcasts it to all connected WebSocket clients.
+ */
 void hottub_broadcast_status_callback(void) 
 {
     char * pub_json = "{\"id\":0,\"type\":\"pub\",\"cmd\":\"hottub.status.get\",\"params\":\"\"}";

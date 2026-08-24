@@ -70,7 +70,6 @@ async function dispatch(command, data) {
 
     // console.log(`[CallbackManager] Dispatching command: ${command}`);
     try {
-        // 'await' seamlessly resolves both sync returns and async Promises
         return await callback(data);
     } catch (error) {
         console.error(`[CallbackManager] Failed executing '${command}':`, error);

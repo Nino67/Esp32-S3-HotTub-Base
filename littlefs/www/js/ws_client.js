@@ -1,8 +1,8 @@
 import {callback_manager} from './callback_manager.js';
 import { parseMessage } from '/js/message_parser.js';
-// import { hot_tub_callbacks } from '/js/hottub_callbacks.js';
 import { callbacks } from '/js/callbacks.js';
-import { updateHotTubState } from '/js/globals.js';
+// import { updateHotTubState, hottub, safeSetText } from '/js/globals.js';
+import { hottub, safeSetText } from '/js/globals.js';
 
 
 /**
@@ -30,7 +30,6 @@ export function createWebSocketClient({ url, onOpen, onClose, onError, onMessage
   let reconnectTimer = null;
   let closedManually = false;
 
-  // console.log('[ws_client] Registering routes:', Object.keys(callbacks));
   callback_manager.registerHandlers(callbacks);
 
   function connect() {
@@ -56,24 +55,39 @@ export function createWebSocketClient({ url, onOpen, onClose, onError, onMessage
       try 
       {
         const parsed = parseMessage(event.data);
-        // console.log('[ws_client] Received WS message', parsed);
 
         if (parsed.valid && parsed.payload) {
-          
           const type = parsed.payload.type || parsed.payload.cmd_type;
           const command = parsed.payload.cmd || parsed.payload.command;
            
+          // check if the message is a 'pub' type, which indicates a state update
           if (type === 'pub') {
-              console.log('[ws_client] Received publish message:', parsed.payload);
-              updateHotTubState(parsed.payload.response);
+            // Update the hottub state with new values
+            const newState = parsed.payload.response;
+            Object.keys(newState).forEach(key => {
+              if (key in hottub) {
+                hottub[key] = newState[key];
+              } else {
+                console.warn(`[updateHotTubState] Unknown property: ${key}`);
+              }
+            });
 
-            }
-              
-          if (command) {
-            await callback_manager.dispatch(command, parsed.payload);
-          } else {
-            console.warn('[ws_client] No cmd found in payload:', parsed.payload);
+            // // Update the UI elements based on the new state    
+            // const filteredTemperatureDisplay = document.getElementById('filteredTemperature');
+            // if (filteredTemperatureDisplay) {
+            //     const tempUnit = hottub.tempUnitCelsius ? '°C' : '°F';
+            //     safeSetText(filteredTemperatureDisplay, `${parsed.payload.response.filteredWaterTemp.toFixed(1)} ${tempUnit}`);
+            // } else {
+            //     console.warn('[ws_client] filteredTemperature element not found');
+            // }   
           }
+          else {
+            if (command) {
+              await callback_manager.dispatch(command, parsed.payload);
+            } else {
+              console.warn('[ws_client] No cmd found in payload:', parsed.payload);
+            }
+          }  
         } 
         else 
         {
@@ -93,7 +107,7 @@ export function createWebSocketClient({ url, onOpen, onClose, onError, onMessage
           onMessage({ valid: false, reason: err.message });
         }
       }
-    });
+    }); // end of message event listener
 
 
     socket.addEventListener('close', (event) => {
