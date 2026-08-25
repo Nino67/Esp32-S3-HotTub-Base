@@ -25,12 +25,44 @@ import { hottub, safeSetText } from '/js/globals.js';
  */
   
 
-export function createWebSocketClient({ url, onOpen, onClose, onError, onMessage, reconnectDelay = 1500 }) {
+export function createWebSocketClient({
+  url,
+  onOpen,
+  onClose,
+  onError,
+  onMessage,
+  reconnectDelay = 1500,
+  messageTimeoutMs = 60000,
+}) {
   let socket = null;
   let reconnectTimer = null;
+  let staleTimer = null;
+  let lastMessageAt = 0;
   let closedManually = false;
 
   callback_manager.registerHandlers(callbacks);
+
+  function stopStaleTimer() {
+    if (staleTimer !== null) {
+      clearInterval(staleTimer);
+      staleTimer = null;
+    }
+  }
+
+  function startStaleTimer() {
+    stopStaleTimer();
+    staleTimer = window.setInterval(() => {
+      if (!socket || socket.readyState !== WebSocket.OPEN) {
+        return;
+      }
+
+      const now = Date.now();
+      if (lastMessageAt > 0 && (now - lastMessageAt) > messageTimeoutMs) {
+        console.warn(`[ws_client] No messages for ${now - lastMessageAt}ms; reconnecting socket`);
+        socket.close();
+      }
+    }, Math.max(1000, Math.floor(messageTimeoutMs / 3)));
+  }
 
   function connect() {
     if (closedManually) {
@@ -40,6 +72,9 @@ export function createWebSocketClient({ url, onOpen, onClose, onError, onMessage
     socket = new WebSocket(url);
 
     socket.addEventListener('open', () => {
+      lastMessageAt = Date.now();
+      startStaleTimer();
+
       if (typeof onOpen === 'function') {
         try {
           onOpen();
@@ -51,6 +86,8 @@ export function createWebSocketClient({ url, onOpen, onClose, onError, onMessage
 
     socket.addEventListener('message', async (event) => {
       if (!event.data) { return null; }
+
+      lastMessageAt = Date.now();
 
       try 
       {
@@ -111,6 +148,7 @@ export function createWebSocketClient({ url, onOpen, onClose, onError, onMessage
 
 
     socket.addEventListener('close', (event) => {
+      stopStaleTimer();
       if (typeof onClose === 'function') {
         onClose(event);
       }
@@ -138,6 +176,7 @@ export function createWebSocketClient({ url, onOpen, onClose, onError, onMessage
 
   function close() {
     closedManually = true;
+    stopStaleTimer();
     if (reconnectTimer !== null) {
       clearTimeout(reconnectTimer);
       reconnectTimer = null;

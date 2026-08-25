@@ -64,7 +64,7 @@ let temperatureChartId = null;
 setInterval(() => {
   // Update the latest hot tub state in the app state
   appState.latestHotTubState = { ...hottub };
-
+  
   // Update the UI elements based on the new state    
   // const filteredTemperatureDisplay = document.getElementById('filteredTemperature');
   if (filteredTemperatureDisplay) {
@@ -186,7 +186,7 @@ function requestStatusSnapshot() {
   const payload = {
     id: requestId += 1,
     type: 'req',
-    cmd: 'system.status.get',
+    cmd: 'hottub.status.get',
     params: '',
   };
 
@@ -497,7 +497,7 @@ function handleSocketOpen() {
     input.disabled = false;
   });
   safeSetText(sendView, 'Connected. Ready to send.');
-  // startStatusPolling();
+  startStatusPolling();
 }
 
 function handleSocketClose() {
@@ -511,7 +511,7 @@ function handleSocketClose() {
   });
   safeSetText(sendView, 'Connection closed. Reconnecting...');
   stopOtaPolling();
-  // stopStatusPolling();
+  stopStatusPolling();
 }
 
 function handleSocketError() {
@@ -524,7 +524,7 @@ function handleSocketError() {
     input.disabled = true;
   });
   safeSetText(sendView, 'WebSocket error. Check console.');
-  // stopStatusPolling();
+  stopStatusPolling();
 }
 
 function handleSocketMessage(rawOrParsed) {

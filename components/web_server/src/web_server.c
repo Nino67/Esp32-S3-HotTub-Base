@@ -566,10 +566,12 @@ esp_err_t web_server_broadcast_json(const char *json)
     {
         if (s_ws_clients[i] != 0)
         {
-            esp_err_t err = httpd_ws_send_frame_async(s_server, s_ws_clients[i], &frame);
+            int client_fd = s_ws_clients[i];
+            esp_err_t err = httpd_ws_send_frame_async(s_server, client_fd, &frame);
             if (err != ESP_OK)
             {
                 s_ws_clients[i] = 0;
+                httpd_sess_trigger_close(s_server, client_fd);
                 result = err;
             }
         }
