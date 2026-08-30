@@ -36,9 +36,31 @@ static bool s_time_maintenance_watchdog_registered = false;
 // Flag indicating if time has been synchronized
 static bool s_time_synced = false;
 
+// Ensures the controller's initialStartTime is corrected only on the first real sync
+static bool s_initial_start_time_updated = false;
+
 // Clock_synchronization: initial NTP sync, if there is a network connection
 static const char *tz = TIME_ZONE;   // America/Toronto
 static const char *ntp_server = NULL;               // use default in utils
+
+/**
+ * @brief SNTP notification callback, invoked by lwIP as soon as the time is set/synced.
+ *
+ * Used to correct HotTubController_t.initialStartTime, which is otherwise captured
+ * at task startup before NTP has had a chance to sync (i.e. before "now" is valid).
+ */
+static void ntp_time_sync_notification_cb(struct timeval *tv)
+{
+    s_time_synced = true;
+
+    if (!s_initial_start_time_updated) {
+        char strftime_buf[TIME_BUFFER_SIZE];
+        get_current_time(strftime_buf, sizeof(strftime_buf));
+        hot_tub_controller_set_initial_start_time(strftime_buf);
+        s_initial_start_time_updated = true;
+        ESP_LOGI(TAG, "initialStartTime corrected after NTP sync: %s", strftime_buf);
+    }
+}
 
 
 
@@ -73,6 +95,7 @@ esp_err_t ntp_utils_time_sync_nonblocking(const char *ntp_server,
 
     esp_sntp_setoperatingmode(SNTP_OPMODE_POLL);
     esp_sntp_setservername(0, ntp_server);
+    esp_sntp_set_time_sync_notification_cb(ntp_time_sync_notification_cb);
     esp_sntp_init();
 
     return ESP_OK;
@@ -125,6 +148,7 @@ esp_err_t ntp_utils_time_sync_blocking(const char *ntp_server,
 
     esp_sntp_setoperatingmode(SNTP_OPMODE_POLL);
     esp_sntp_setservername(0, ntp_server);
+    esp_sntp_set_time_sync_notification_cb(ntp_time_sync_notification_cb);
     esp_sntp_init();
 
     // Wait for time to be set

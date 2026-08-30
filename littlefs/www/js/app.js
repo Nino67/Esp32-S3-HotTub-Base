@@ -18,14 +18,15 @@
  */
 
 
-import { createCrc32JsonWrapper } from '/js/crc32_wrapper.js';
-import { createWebSocketClient } from '/js/ws_client.js';
-import { parseMessage } from '/js/message_parser.js';
+
+import { createCrc32JsonWrapper } from '/js/communication/crc32_wrapper.js';
+// import { createWebSocketClient } from '/js/communication/ws_client.js';
+import { parseMessage } from '/js/communication/message_parser.js';
 import { createAppState } from '/js/app_state.js';
 import { createChartManager } from '/js/chart_manager.js';
-import { callbacks } from '/js/callbacks.js';
 import { hottub } from '/js/globals.js';
 import { safeSetText, safeSetStyle } from '/js/globals.js';
+import { ws_manager } from '/js/communication/ws_manager.js';
 
 // UI Elements
 const badge = document.getElementById('connBadge');
@@ -44,23 +45,26 @@ const otaManifestBtn = document.getElementById('otaManifestBtn');
 const chartContainer = document.getElementById('chartContainer');
 const filteredTemperatureDisplay = document.getElementById('filteredTemperature');
 const heatToggle = document.getElementById('heatToggle');
+const autoModeToggle = document.getElementById('autoModeToggle');
 const pumpModeInputs = Array.from(document.querySelectorAll('input[name="pumpMode"]'));
 const pumpTrack = document.querySelector('.pump-track');
 // const temperatureLabel = document.getElementById('temperature-label');
 
 
 // Application State
-let client = null;
+// let client = null;
 let otaPollingInterval = null;
 let statusPollingInterval = null;
-let requestId = 100;
+let requestId = 1;
 const appState = createAppState({ latestRawMessage: null, latestPayload: null, latestHotTubState: null });
 const chartManager = createChartManager();
 let temperatureChartId = null;
 
 
 
-// create a main task loop that runs at 1hz
+/**
+ * @brief Main application loop running at 1Hz.
+ */
 setInterval(() => {
   // Update the latest hot tub state in the app state
   appState.latestHotTubState = { ...hottub };
@@ -74,13 +78,29 @@ setInterval(() => {
       console.warn('[ws_client] filteredTemperature element not found');
   }
 
-
   // Update the temperature chart with the latest hot tub state
   updateTemperatureChart(appState.latestHotTubState);
 
   // Update the UI elements based on the latest hot tub state
   syncControlStateFromPayload(appState.latestHotTubState);
 }, 1000);
+//-----------------------------------------------------------------------------
+
+
+// function setAutoModeControlState(isOn, pending = false) {
+//   if (!autoModeToggle) {
+//     return;
+//   }
+
+//   autoModeToggle.checked = Boolean(isOn);
+//   autoModeToggle.disabled = Boolean(pending);
+
+//   const row = autoModeToggle.closest('.toggle-row');
+//   if (row) {
+//     row.classList.toggle('is-pending', Boolean(pending));
+//   }
+//   sendHotTubCommand('hottub.automode.set', { 'autoMode': Boolean(isOn) });
+// }
 
 
 
@@ -98,6 +118,8 @@ function setHeatControlState(isOn, pending = false) {
     row.classList.toggle('is-pending', Boolean(pending));
   }
 }
+
+
 
 function setPumpControlState(level, pending = false) {
   const pumpLevel = Number(level) || 0;
@@ -125,13 +147,19 @@ function syncControlStateFromPayload(response = {}) {
     setHeatControlState(response.heaterOn, false);
   }
 
+  // if (typeof response.autoMode === 'boolean' && autoModeToggle) {
+  //   setAutoModeControlState(response.autoMode, false);
+  // }
+
   if (typeof response.pumpState !== 'undefined' && pumpModeInputs.length) {
     setPumpControlState(response.pumpState, false);
   }
 }
 
+
+
 function sendHotTubCommand(command, params) {
-  if (!client || client.readyState !== WebSocket.OPEN) {
+  if (!ws_manager || ws_manager.readyState !== WebSocket.OPEN) {
     safeSetText(sendView, 'Socket is not open. Waiting for connection...');
     return;
   }
@@ -144,7 +172,7 @@ function sendHotTubCommand(command, params) {
   };
 
   try {
-    client.send(createCrc32JsonWrapper(payload));
+    ws_manager.send(createCrc32JsonWrapper(payload));
     safeSetText(sendView, JSON.stringify(payload));
     console.log('Sending:', payload);
   } catch (err) {
@@ -179,7 +207,7 @@ function stopStatusPolling() {
 }
 
 function requestStatusSnapshot() {
-  if (!client || client.readyState !== WebSocket.OPEN) {
+  if (!ws_manager || ws_manager.readyState !== WebSocket.OPEN) {
     return;
   }
 
@@ -191,7 +219,7 @@ function requestStatusSnapshot() {
   };
 
   try {
-    client.send(createCrc32JsonWrapper(payload));
+    ws_manager.send(createCrc32JsonWrapper(payload));
   } catch (err) {
     console.error('Failed to request status snapshot:', err);
   }
@@ -355,18 +383,13 @@ async function hardwareInit() {
 
   clearSystemStatusBtn.addEventListener('click', () => {
     safeSetText(systemStatusView, '');
-    console.log('Clearing system status...');
+    // console.log('Clearing system status...');
   }); 
 
 
 
   systemStatusBtn.addEventListener('click', () => {
     // console.log('Requesting system status...');
-
-    if (!client || client.readyState !== WebSocket.OPEN) {
-      safeSetText(statusView, 'Socket is not open. Waiting for connection...');
-      return;
-    }
 
     const payload = {
       id: requestId = 1,
@@ -375,12 +398,18 @@ async function hardwareInit() {
       params: '',
     };
 
-    // console.log('Requesting system status:', payload);
+    console.log('Requesting system status:', payload);
+
+    const socketClient = ws_manager && typeof ws_manager.send === 'function' ? ws_manager : null;
+    if (!socketClient || socketClient.readyState !== WebSocket.OPEN) {
+      safeSetText(statusView, 'Socket is not open. Waiting for connection...');
+      return;
+    }
 
     try {
-      client.send(createCrc32JsonWrapper(payload));
+      socketClient.send(createCrc32JsonWrapper(payload));
       safeSetText(statusView, JSON.stringify(payload));
-      // console.log('Sending system status request:', payload);
+      console.log('Sending system status request:', payload);
     } catch (err) {
       safeSetText(statusView, `Invalid payload: ${err.message}`);
       console.error('Failed to send system status request:', err);
@@ -389,14 +418,14 @@ async function hardwareInit() {
   
   
   sendBtn.addEventListener('click', () => {
-    if (!client || client.readyState !== WebSocket.OPEN) {
+    if (!ws_manager || ws_manager.readyState !== WebSocket.OPEN) {
       safeSetText(sendView, 'Socket is not open. Waiting for connection...');
       return;
     }
 
     try {
       const wrapped = createCrc32JsonWrapper(commandInput.value);
-      client.send(wrapped);
+      ws_manager.send(wrapped);
       safeSetText(sendView, wrapped);
       // console.log('Sending:', wrapped);
     } catch (err) {
@@ -406,7 +435,7 @@ async function hardwareInit() {
   });
 
   otaBtn.addEventListener('click', () => {
-    if (!client || client.readyState !== WebSocket.OPEN) {
+    if (!ws_manager || ws_manager.readyState !== WebSocket.OPEN) {
       safeSetText(sendView, 'Socket is not open. Waiting for connection...');
       return;
     }
@@ -431,7 +460,7 @@ async function hardwareInit() {
 
     try {
       const wrapped = createCrc32JsonWrapper(payload);
-      client.send(wrapped);
+      ws_manager.send(wrapped);
       safeSetText(sendView, wrapped);
       console.log('Sending OTA update request:', wrapped);
     } catch (err) {
@@ -443,7 +472,7 @@ async function hardwareInit() {
 
   if (otaManifestBtn) {
     otaManifestBtn.addEventListener('click', () => {
-      if (!client || client.readyState !== WebSocket.OPEN) {
+      if (!ws_manager || ws_manager.readyState !== WebSocket.OPEN) {
         safeSetText(sendView, 'Socket is not open. Waiting for connection...');
         return;
       }
@@ -466,7 +495,7 @@ async function hardwareInit() {
 
       try {
         const wrapped = createCrc32JsonWrapper(payload);
-        client.send(wrapped);
+        ws_manager.send(wrapped);
         safeSetText(sendView, wrapped);
         console.log('Sending OTA manifest request:', wrapped);
       } catch (err) {
@@ -477,70 +506,70 @@ async function hardwareInit() {
     });
   }
 
-  connect();
-
+  ws_manager.connect();
+  
 } // end of hardwareInit()
 //-----------------------------------------------------------------------------
 
 
 
 
-// WebSocket Event Handlers
+// // WebSocket Event Handlers
 
-function handleSocketOpen() {
-  // setBadge('connected', 'ok');
-  sendBtn.disabled = false;
-  if (heatToggle) {
-    heatToggle.disabled = false;
-  }
-  pumpModeInputs.forEach((input) => {
-    input.disabled = false;
-  });
-  safeSetText(sendView, 'Connected. Ready to send.');
-  startStatusPolling();
-}
+// function handleSocketOpen() {
+//   // setBadge('connected', 'ok');
+//   sendBtn.disabled = false;
+//   if (heatToggle) {
+//     heatToggle.disabled = false;
+//   }
+//   pumpModeInputs.forEach((input) => {
+//     input.disabled = false;
+//   });
+//   safeSetText(sendView, 'Connected. Ready to send.');
+//   // startStatusPolling();
+// }
 
-function handleSocketClose() {
-  // setBadge('reconnecting', 'warn');
-  sendBtn.disabled = true;
-  if (heatToggle) {
-    heatToggle.disabled = true;
-  }
-  pumpModeInputs.forEach((input) => {
-    input.disabled = true;
-  });
-  safeSetText(sendView, 'Connection closed. Reconnecting...');
-  stopOtaPolling();
-  stopStatusPolling();
-}
+// function handleSocketClose() {
+//   // setBadge('reconnecting', 'warn');
+//   sendBtn.disabled = true;
+//   if (heatToggle) {
+//     heatToggle.disabled = true;
+//   }
+//   pumpModeInputs.forEach((input) => {
+//     input.disabled = true;
+//   });
+//   safeSetText(sendView, 'Connection closed. Reconnecting...');
+//   stopOtaPolling();
+//   stopStatusPolling();
+// }
 
-function handleSocketError() {
-  // setBadge('error', 'bad');
-  sendBtn.disabled = true;
-  if (heatToggle) {
-    heatToggle.disabled = true;
-  }
-  pumpModeInputs.forEach((input) => {
-    input.disabled = true;
-  });
-  safeSetText(sendView, 'WebSocket error. Check console.');
-  stopStatusPolling();
-}
+// function handleSocketError() {
+//   // setBadge('error', 'bad');
+//   sendBtn.disabled = true;
+//   if (heatToggle) {
+//     heatToggle.disabled = true;
+//   }
+//   pumpModeInputs.forEach((input) => {
+//     input.disabled = true;
+//   });
+//   safeSetText(sendView, 'WebSocket error. Check console.');
+//   stopStatusPolling();
+// }
 
-function handleSocketMessage(rawOrParsed) {
-  const parsed = typeof rawOrParsed === 'string'
-    ? parseMessage(rawOrParsed)
-    : rawOrParsed;
+// function handleSocketMessage(rawOrParsed) {
+//   const parsed = typeof rawOrParsed === 'string'
+//     ? parseMessage(rawOrParsed)
+//     : rawOrParsed;
 
-  renderParsedMessage(parsed, typeof rawOrParsed === 'string' ? rawOrParsed : JSON.stringify(parsed.payload || parsed, null, 2));
+//   renderParsedMessage(parsed, typeof rawOrParsed === 'string' ? rawOrParsed : JSON.stringify(parsed.payload || parsed, null, 2));
 
-  if (!(parsed && parsed.valid)) {
-    console.warn('Invalid CRC32 payload:', rawOrParsed, parsed);
-    return;
-  }
+//   if (!(parsed && parsed.valid)) {
+//     console.warn('Invalid CRC32 payload:', rawOrParsed, parsed);
+//     return;
+//   }
 
-  // console.log('[app] Parsed WebSocket payload received:', parsed.payload);
-}
+//   // console.log('[app] Parsed WebSocket payload received:', parsed.payload);
+// }
 
 function updateTemperatureChart(state) {
   if (!temperatureChartId || !state) {
@@ -577,17 +606,17 @@ function updateTemperatureChart(state) {
   });
 }
 
-function connect() {
-  const proto = window.location.protocol === 'https:' ? 'wss' : 'ws';
-  client = createWebSocketClient({
-    url: `${proto}://${window.location.host}/ws`,
-    onOpen: handleSocketOpen,
-    onClose: handleSocketClose,
-    onError: handleSocketError,
-    onMessage: handleSocketMessage,
-    routes: callbacks,
-  });
-}
+// function connect() {
+//   const proto = window.location.protocol === 'https:' ? 'wss' : 'ws';
+//   client = createWebSocketClient({
+//     url: `${proto}://${window.location.host}/ws`,
+//     onOpen: handleSocketOpen,
+//     onClose: handleSocketClose,
+//     onError: handleSocketError,
+//     onMessage: handleSocketMessage,
+//     routes: callbacks,
+//   });
+// }
 
 hardwareInit();
 

@@ -17,7 +17,7 @@
  *
  */
 
-import { parseAndVerifyCrc32Wrapper } from '/js/crc32_wrapper.js';
+import { parseAndVerifyCrc32Wrapper } from '/js/communication/crc32_wrapper.js';
 
 /**
  * Parse a CRC32-wrapped hot tub message and normalize it into a reusable state object.

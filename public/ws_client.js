@@ -1,10 +1,3 @@
-import {callback_manager} from './callback_manager.js';
-import { parseMessage } from '/js/message_parser.js';
-import { callbacks } from '/js/callbacks.js';
-// import { updateHotTubState, hottub, safeSetText } from '/js/globals.js';
-import { hottub, safeSetText } from '/js/globals.js';
-
-
 /**
  * @file ws_client.js
  * @author Gaetano (Nino) Ricca (gricca1967@gmail.com)
@@ -23,7 +16,16 @@ import { hottub, safeSetText } from '/js/globals.js';
  * @copyright Copyright (c) 2026
  *
  */
-  
+
+
+import {callback_manager} from '/js/communication/callback_manager.js';
+import { parseMessage } from '/js/communication/message_parser.js';
+import { callbacks } from '/js/callbacks.js';
+import { hottub } from '/js/globals.js';
+
+
+export let client = null;
+
 
 export function createWebSocketClient({
   url,
@@ -108,15 +110,6 @@ export function createWebSocketClient({
                 console.warn(`[updateHotTubState] Unknown property: ${key}`);
               }
             });
-
-            // // Update the UI elements based on the new state    
-            // const filteredTemperatureDisplay = document.getElementById('filteredTemperature');
-            // if (filteredTemperatureDisplay) {
-            //     const tempUnit = hottub.tempUnitCelsius ? '°C' : '°F';
-            //     safeSetText(filteredTemperatureDisplay, `${parsed.payload.response.filteredWaterTemp.toFixed(1)} ${tempUnit}`);
-            // } else {
-            //     console.warn('[ws_client] filteredTemperature element not found');
-            // }   
           }
           else {
             if (command) {
@@ -200,3 +193,5 @@ export function createWebSocketClient({
     },
   };
 }
+
+

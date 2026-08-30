@@ -64,15 +64,6 @@ void hottub_callback_response(cJSON *root, cJSON *response) {
 //----------------------------------------------------------------------------- 
 
 
-    // char *encoded_msg = json_service_crc32_envelope_encode(root);
-    // int len = strlen(encoded_msg);
-    // httpd_ws_frame_t out_frame = {
-    //     .type = HTTPD_WS_TYPE_TEXT,
-    //     .payload = (uint8_t *)encoded_msg,
-    //     .len = len,
-    // };
-    // err = httpd_ws_send_frame(req, &out_frame);
-
 
 /**
  * @brief Broadcast the current hot tub status to all connected WebSocket clients.

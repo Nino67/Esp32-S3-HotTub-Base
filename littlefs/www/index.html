@@ -21,7 +21,7 @@
           <h2>Controls</h2>
         </header>
 
-        <div class="controls-stack">
+        <!-- <div class="controls-stack">
           <label class="toggle-row" for="heatToggle">
             <span class="switch-control">
               <input id="heatToggle" type="checkbox" class="switch-input" />
@@ -30,6 +30,17 @@
               </span>
             </span>
             <span class="switch-label">Heat</span>
+          </label> -->
+
+        <div class="controls-stack">
+          <label class="toggle-row" for="autoModeToggle">
+            <span class="switch-control">
+              <input id="autoModeToggle" type="checkbox" class="switch-input" />
+              <span class="switch-track">
+                <span class="switch-thumb"></span>
+              </span>
+            </span>
+            <span class="switch-label">Heat Mode</span>
           </label>
 
           <div class="pump-row">
@@ -145,7 +156,7 @@
         <button id="otaBtn" class="secondary">OTA Update</button>
         <button id="otaManifestBtn" class="secondary">OTA Manifest</button>
         <div class="ota-status-panel">
-          <div class="ota-status-row">
+          <div class="ota-status-row"> 
             <strong>OTA status</strong>
             <span id="otaStatus">idle</span>
           </div>

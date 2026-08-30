@@ -465,13 +465,13 @@ esp_err_t web_server_start(void)
         .method = HTTP_GET,
         .handler = asset_handler,
     };
-    httpd_uri_t ws_client_uri = {
-        .uri = "/js/ws_client.js",
-        .method = HTTP_GET,
-        .handler = asset_handler,
-    };
+    // httpd_uri_t ws_client_uri = {
+    //     .uri = "/js/communication/ws_client.js",
+    //     .method = HTTP_GET,
+    //     .handler = asset_handler,
+    // };
     httpd_uri_t message_parser_uri = {
-        .uri = "/js/message_parser.js",
+        .uri = "/js/communication/message_parser.js",
         .method = HTTP_GET,
         .handler = asset_handler,
     };
@@ -486,12 +486,22 @@ esp_err_t web_server_start(void)
         .handler = asset_handler,
     };
     httpd_uri_t crc_wrapper_uri = {
-        .uri = "/js/crc32_wrapper.js",
+        .uri = "/js/communication/crc32_wrapper.js",
+        .method = HTTP_GET,
+        .handler = asset_handler,
+    };
+    // httpd_uri_t ws_api_uri = {
+    //     .uri = "/js/communication/ws_api.js",
+    //     .method = HTTP_GET,
+    //     .handler = asset_handler,
+    // };
+    httpd_uri_t ws_manager_uri = {
+        .uri = "/js/communication/ws_manager.js",
         .method = HTTP_GET,
         .handler = asset_handler,
     };
     httpd_uri_t callback_manager_uri = {
-        .uri = "/js/callback_manager.js",
+        .uri = "/js/communication/callback_manager.js",
         .method = HTTP_GET,
         .handler = asset_handler,
     };
@@ -524,10 +534,11 @@ esp_err_t web_server_start(void)
     
     ESP_RETURN_ON_ERROR(httpd_register_uri_handler(s_server, &index_uri), TAG, "index handler failed");
     ESP_RETURN_ON_ERROR(httpd_register_uri_handler(s_server, &app_js_uri), TAG, "app_js handler failed");
-    ESP_RETURN_ON_ERROR(httpd_register_uri_handler(s_server, &ws_client_uri), TAG, "ws_client handler failed");
+    // ESP_RETURN_ON_ERROR(httpd_register_uri_handler(s_server, &ws_client_uri), TAG, "ws_client handler failed");
     ESP_RETURN_ON_ERROR(httpd_register_uri_handler(s_server, &message_parser_uri), TAG, "message_parser handler failed");
     ESP_RETURN_ON_ERROR(httpd_register_uri_handler(s_server, &app_state_uri), TAG, "app_state handler failed");
     ESP_RETURN_ON_ERROR(httpd_register_uri_handler(s_server, &chart_manager_uri), TAG, "chart_manager handler failed");
+    ESP_RETURN_ON_ERROR(httpd_register_uri_handler(s_server, &ws_manager_uri), TAG, "ws_manager handler failed");
     ESP_RETURN_ON_ERROR(httpd_register_uri_handler(s_server, &crc_wrapper_uri), TAG, "crc wrapper handler failed");
     ESP_RETURN_ON_ERROR(httpd_register_uri_handler(s_server, &callback_manager_uri), TAG, "callback_manager handler failed");
     ESP_RETURN_ON_ERROR(httpd_register_uri_handler(s_server, &globals_uri), TAG, "globals handler failed");
