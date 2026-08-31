@@ -61,6 +61,7 @@ let requestId = 1;
 let settingsUnlocked = false;
 let otaProgressTimer = null;
 let otaProgressValue = 0;
+let otaReloadScheduled = false;
 const chartManager = createChartManager();
 let temperatureChartId = null;
 
@@ -240,6 +241,20 @@ function setOtaProgress(value) {
   safeSetText(otaProgressBar, `${pct}%`);
 }
 
+function scheduleOtaReload(statusText, progressValue) {
+  const isCompleteStatus = /success|completed|done|reboot|pending_reboot/i.test(String(statusText || ''));
+  const isCompleteProgress = Number(progressValue) >= 100;
+  if (!isCompleteStatus || !isCompleteProgress || otaReloadScheduled) {
+    return;
+  }
+
+  otaReloadScheduled = true;
+  safeSetText(otaStatus, `${statusText} - reloading page...`);
+  window.setTimeout(() => {
+    window.location.reload();
+  }, 3500);
+}
+
 function stopOtaProgressFallback() {
   if (otaProgressTimer) {
     window.clearInterval(otaProgressTimer);
@@ -317,6 +332,7 @@ function updateOtaUiFromParsed(parsed) {
 
   const rawProgress = otaSpecificProgress ?? firmwareProgress ?? (isOtaMessage ? fallbackProgress : undefined);
   const rawStatus = otaSpecificStatus ?? (isOtaMessage ? fallbackStatus : undefined);
+  let latestProgress = null;
 
   if (typeof rawStatus !== 'undefined' && rawStatus !== null) {
     const statusText = String(rawStatus);
@@ -327,6 +343,8 @@ function updateOtaUiFromParsed(parsed) {
       stopOtaProgressFallback();
       if (/success|completed|done|reboot|pending_reboot/i.test(statusText)) {
         setOtaProgress(100);
+        latestProgress = 100;
+        scheduleOtaReload(statusText, 100);
       }
     }
   }
@@ -342,7 +360,12 @@ function updateOtaUiFromParsed(parsed) {
       const normalized = value > 0 && value <= 1 ? value * 100 : value;
       stopOtaProgressFallback();
       setOtaProgress(normalized);
+      latestProgress = normalized;
     }
+  }
+
+  if (typeof rawStatus !== 'undefined' && rawStatus !== null && latestProgress !== null) {
+    scheduleOtaReload(rawStatus, latestProgress);
   }
 
   // Keep send view useful for OTA command payload context.
