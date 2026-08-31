@@ -21,17 +21,6 @@
           <h2>Controls</h2>
         </header>
 
-        <!-- <div class="controls-stack">
-          <label class="toggle-row" for="heatToggle">
-            <span class="switch-control">
-              <input id="heatToggle" type="checkbox" class="switch-input" />
-              <span class="switch-track">
-                <span class="switch-thumb"></span>
-              </span>
-            </span>
-            <span class="switch-label">Heat</span>
-          </label> -->
-
         <div class="controls-stack">
           <label class="toggle-row" for="autoModeToggle">
             <span class="switch-control">
@@ -64,6 +53,14 @@
       </section>
 
       <section class="panel">
+        <header>
+          <h2>Temperature Plot</h2>
+        </header>
+        <div id="chartContainer" class="chart-placeholder">
+        </div>
+      </section>
+
+      <!-- <section class="panel">
         <header>
           <h2>Settings</h2>
         </header>
@@ -99,7 +96,7 @@
           </span>
           <br/>
         </div>
-      </section>
+      </section> -->
 
 
       <!-- <section class="panel">
@@ -114,22 +111,14 @@
       </section> -->
 
 
-      <section class="panel">
+      <!-- <section class="panel">
         <header>
           <h2>Status</h2>
           <span id="connBadge" class="badge">connecting</span>
         </header>
         <pre id="stateView">waiting for state...</pre>
-      </section>
+      </section> -->
 
-      <section class="panel">
-        <header>
-          <h2>Temperature Plot</h2>
-        </header>
-        <div id="chartContainer" class="chart-placeholder">
-        </div>
-      </section>
-      
       <section class="panel">
         <header>
           <h2>System Status</h2>
@@ -142,13 +131,13 @@
 
 
 
-      <section class="panel">
-        <header>
-          <h2>Send JSON</h2>
-        </header>
+      <!-- <section class="panel"> -->
+        <!-- <header> -->
+          <!-- <h2>Send JSON</h2> -->
+        <!-- </header> -->
         <!-- <textarea id="commandInput" spellcheck="false">{"id":1,"type":"req","cmd":"system.status.get","params":""}</textarea> -->
             <!-- hottub.automode.set -->
-        <textarea id="commandInput" spellcheck="false">{"id":1,"type":"req","cmd":"hottub.automode.set","params":{"autoMode":true}}</textarea>
+        <!-- <textarea id="commandInput" spellcheck="false">{"id":1,"type":"req","cmd":"hottub.automode.set","params":{"autoMode":true}}</textarea> -->
 
 
             <!-- <textarea id="commandInput" spellcheck="false">{"id":1,"type":"req","cmd":""}</textarea> -->
@@ -164,14 +153,16 @@
             <div id="otaProgressBar" class="progress__bar">0%</div>
           </div>
         </div>
-        <div class="debug-row">
+
+        <!-- <div class="debug-row">
           <strong>Wrapped send payload</strong>
           <pre id="sendView">waiting to send...</pre>
-        </div>
-        <div class="debug-row">
+        </div> -->
+        <!-- <div class="debug-row">
           <strong>Last received payload</strong>
           <pre id="receiveView">waiting for response...</pre>
-        </div>
+        </div> -->
+
       </section>
     </main>
 

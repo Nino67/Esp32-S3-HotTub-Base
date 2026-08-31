@@ -10,9 +10,17 @@
 #include "json_service.h"
 #include "web_server.h"
 
+
+#ifndef DEFAULT_BROADCAST_STATUS_COMMAND
+#define DEFAULT_BROADCAST_STATUS_COMMAND "{\"id\":0,\"type\":\"pub\",\"cmd\":\"hottub.status.get\",\"params\":\"\"}"
+#endif
+
+
 static const char *TAG = "hot_tub_callbacks";
 
+
 void get_current_time(char *strftime_buf, size_t buf_size);
+
 
 
 /**
@@ -73,7 +81,7 @@ void hottub_callback_response(cJSON *root, cJSON *response) {
  */
 void hottub_broadcast_status_callback(void) 
 {
-    char * pub_json = "{\"id\":0,\"type\":\"pub\",\"cmd\":\"hottub.status.get\",\"params\":\"\"}";
+    char * pub_json = DEFAULT_BROADCAST_STATUS_COMMAND;
     cJSON *pub_root = cJSON_Parse(pub_json);
     hottub_status_get_callback(pub_root);
     char *encoded_msg = json_service_crc32_envelope_encode(pub_root);

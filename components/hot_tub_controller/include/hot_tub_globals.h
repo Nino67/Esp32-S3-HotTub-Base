@@ -24,6 +24,7 @@
 #define PUMP_DEAD_TIME_MS 2000
 
 #define DEFAULT_HOTTUB_TIMING_LOOP_DELAY_MS 1000
+#define DEFAULT_BROADCAST_STATUS_COMMAND "{\"id\":0,\"type\":\"pub\",\"cmd\":\"hottub.status.get\",\"params\":\"\"}"
 
 #define DEFAULT_SAFETY_SWITCH_STATE false
 #define DEFAULT_SETPOINT_TEMP 32.0

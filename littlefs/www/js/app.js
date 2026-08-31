@@ -174,7 +174,7 @@ function sendHotTubCommand(command, params) {
   try {
     ws_manager.send(createCrc32JsonWrapper(payload));
     safeSetText(sendView, JSON.stringify(payload));
-    console.log('Sending:', payload);
+    // console.log('Sending:', payload);
   } catch (err) {
     safeSetText(sendView, `Invalid payload: ${err.message}`);
     console.error('Failed to send command:', err);
@@ -212,7 +212,7 @@ function requestStatusSnapshot() {
   }
 
   const payload = {
-    id: requestId += 1,
+    id: requestId = 1,
     type: 'req',
     cmd: 'hottub.status.get',
     params: '',
@@ -240,7 +240,7 @@ function startOtaPolling() {
   }
 
   otaPollingInterval = setInterval(() => {
-    if (client && client.readyState === WebSocket.OPEN) {
+    if (ws_manager && ws_manager.readyState === WebSocket.OPEN) {
       // reserved for future polling commands
     } else {
       stopOtaPolling();
@@ -259,7 +259,7 @@ function updateOtaState(state) {
   }
 }
 
-function renderParsedMessage(parsed, raw) {
+export function renderParsedMessage(parsed, raw) {
   safeSetText(receiveView, raw);
   if (parsed.valid) {
     safeSetText(stateView, JSON.stringify(parsed.payload, null, 2));
@@ -398,7 +398,7 @@ async function hardwareInit() {
       params: '',
     };
 
-    console.log('Requesting system status:', payload);
+    // console.log('Requesting system status:', payload);
 
     const socketClient = ws_manager && typeof ws_manager.send === 'function' ? ws_manager : null;
     if (!socketClient || socketClient.readyState !== WebSocket.OPEN) {
@@ -409,7 +409,7 @@ async function hardwareInit() {
     try {
       socketClient.send(createCrc32JsonWrapper(payload));
       safeSetText(statusView, JSON.stringify(payload));
-      console.log('Sending system status request:', payload);
+      // console.log('Sending system status request:', payload);
     } catch (err) {
       safeSetText(statusView, `Invalid payload: ${err.message}`);
       console.error('Failed to send system status request:', err);
@@ -512,65 +512,6 @@ async function hardwareInit() {
 //-----------------------------------------------------------------------------
 
 
-
-
-// // WebSocket Event Handlers
-
-// function handleSocketOpen() {
-//   // setBadge('connected', 'ok');
-//   sendBtn.disabled = false;
-//   if (heatToggle) {
-//     heatToggle.disabled = false;
-//   }
-//   pumpModeInputs.forEach((input) => {
-//     input.disabled = false;
-//   });
-//   safeSetText(sendView, 'Connected. Ready to send.');
-//   // startStatusPolling();
-// }
-
-// function handleSocketClose() {
-//   // setBadge('reconnecting', 'warn');
-//   sendBtn.disabled = true;
-//   if (heatToggle) {
-//     heatToggle.disabled = true;
-//   }
-//   pumpModeInputs.forEach((input) => {
-//     input.disabled = true;
-//   });
-//   safeSetText(sendView, 'Connection closed. Reconnecting...');
-//   stopOtaPolling();
-//   stopStatusPolling();
-// }
-
-// function handleSocketError() {
-//   // setBadge('error', 'bad');
-//   sendBtn.disabled = true;
-//   if (heatToggle) {
-//     heatToggle.disabled = true;
-//   }
-//   pumpModeInputs.forEach((input) => {
-//     input.disabled = true;
-//   });
-//   safeSetText(sendView, 'WebSocket error. Check console.');
-//   stopStatusPolling();
-// }
-
-// function handleSocketMessage(rawOrParsed) {
-//   const parsed = typeof rawOrParsed === 'string'
-//     ? parseMessage(rawOrParsed)
-//     : rawOrParsed;
-
-//   renderParsedMessage(parsed, typeof rawOrParsed === 'string' ? rawOrParsed : JSON.stringify(parsed.payload || parsed, null, 2));
-
-//   if (!(parsed && parsed.valid)) {
-//     console.warn('Invalid CRC32 payload:', rawOrParsed, parsed);
-//     return;
-//   }
-
-//   // console.log('[app] Parsed WebSocket payload received:', parsed.payload);
-// }
-
 function updateTemperatureChart(state) {
   if (!temperatureChartId || !state) {
     return;
@@ -606,17 +547,6 @@ function updateTemperatureChart(state) {
   });
 }
 
-// function connect() {
-//   const proto = window.location.protocol === 'https:' ? 'wss' : 'ws';
-//   client = createWebSocketClient({
-//     url: `${proto}://${window.location.host}/ws`,
-//     onOpen: handleSocketOpen,
-//     onClose: handleSocketClose,
-//     onError: handleSocketError,
-//     onMessage: handleSocketMessage,
-//     routes: callbacks,
-//   });
-// }
 
 hardwareInit();
 

@@ -21,7 +21,7 @@ import {callback_manager} from '/js/communication/callback_manager.js';
 import { parseMessage } from '/js/communication/message_parser.js';
 import { callbacks } from '/js/callbacks.js';
 import { hottub } from '/js/globals.js';
-
+import { renderParsedMessage } from '/js/app.js';
 
 let client = null;
 let requestId = 1;
@@ -108,6 +108,7 @@ function createWebSocketClient({
            
           // check if the message is a 'pub' type, which indicates a state update
           if (type === 'pub') {
+            // console.log('[ws_client] Received state update:', parsed.payload.response);
             // Update the hottub state with new values
             const newState = parsed.payload.response;
             Object.keys(newState).forEach(key => {
@@ -252,7 +253,7 @@ function handleSocketMessage(rawOrParsed) {
     ? parseMessage(rawOrParsed)
     : rawOrParsed;
 
-//   renderParsedMessage(parsed, typeof rawOrParsed === 'string' ? rawOrParsed : JSON.stringify(parsed.payload || parsed, null, 2));
+  renderParsedMessage(parsed, typeof rawOrParsed === 'string' ? rawOrParsed : JSON.stringify(parsed.payload || parsed, null, 2));
 
   if (!(parsed && parsed.valid)) {
     console.warn('Invalid CRC32 payload:', rawOrParsed, parsed);
@@ -289,9 +290,9 @@ export const ws_manager = {
   handleSocketMessage,
 };
 
-export function getWsClient() {
-  return client;
-}
+// export function getWsClient() {
+//   return client;
+// }
 
 /*****************************************************************************/
 /*****************************************************************************/
