@@ -22,9 +22,9 @@
         </header>
 
         <div class="controls-stack">
-          <label class="toggle-row" for="autoModeToggle">
+          <label class="toggle-row" for="heatToggle">
             <span class="switch-control">
-              <input id="autoModeToggle" type="checkbox" class="switch-input" />
+              <input id="heatToggle" type="checkbox" class="switch-input" />
               <span class="switch-track">
                 <span class="switch-thumb"></span>
               </span>
@@ -60,64 +60,14 @@
         </div>
       </section>
 
-      <!-- <section class="panel">
-        <header>
-          <h2>Settings</h2>
-        </header>
-        <div class="settings-form">
-          <span class="lede">
-            Set the desired temperature: 
-            <input class="inputs" id="set-setpoint-temp" type="text" placeholder="30" />
-          </span>
-          <br/>
-          <span class="lede">
-            Set the desired temperature unit: 
-            <select id="set-temperature-unit">
-              <option value="C">Celsius</option>
-              <option value="F">Fahrenheit</option>
-            </select>
-          </span>
-          <br/>
-          <span class="lede">
-            Set if heat is requested 
-            <select id="set-pump-mode">
-              <option value="0">Off</option>
-              <option value="1">On</option>
-            </select>
-          </span>
-          <br/>
-          <span class="lede">
-            Set the desired pump speed: 
-            <select id="set-pump-speed">
-              <option value="0">Off</option>
-              <option value="1">Low</option>
-              <option value="3">High</option>
-            </select>
-          </span>
-          <br/>
-        </div>
-      </section> -->
 
 
-      <!-- <section class="panel">
-        <header>
-          <h2>Wi-Fi</h2>
-        </header>
-        <div class="wifi-form">
-          <input id="ssidInput" type="text" placeholder="SSID" />
-          <input id="passInput" type="password" placeholder="Password" />
-          <button id="wifiBtn">Connect</button>
-        </div>
-      </section> -->
-
-
-      <!-- <section class="panel">
+      <section class="panel">
         <header>
           <h2>Status</h2>
-          <span id="connBadge" class="badge">connecting</span>
         </header>
         <pre id="stateView">waiting for state...</pre>
-      </section> -->
+      </section>
 
       <section class="panel">
         <header>
@@ -131,21 +81,18 @@
 
 
 
-      <!-- <section class="panel"> -->
-        <!-- <header> -->
-          <!-- <h2>Send JSON</h2> -->
-        <!-- </header> -->
-        <!-- <textarea id="commandInput" spellcheck="false">{"id":1,"type":"req","cmd":"system.status.get","params":""}</textarea> -->
-            <!-- hottub.automode.set -->
-        <!-- <textarea id="commandInput" spellcheck="false">{"id":1,"type":"req","cmd":"hottub.automode.set","params":{"autoMode":true}}</textarea> -->
-
-
-            <!-- <textarea id="commandInput" spellcheck="false">{"id":1,"type":"req","cmd":""}</textarea> -->
+      <section class="panel">
+        <header>
+          <h2>Send JSON</h2>
+        </header>
+        <div class="send-json-row">
+          <textarea id="commandInput" spellcheck="false">{"id":1,"type":"req","cmd":"system.status.get","params":""}</textarea>
+        </div>
         <button id="sendBtn">Send</button>
         <button id="otaBtn" class="secondary">OTA Update</button>
         <button id="otaManifestBtn" class="secondary">OTA Manifest</button>
         <div class="ota-status-panel">
-          <div class="ota-status-row"> 
+          <div class="ota-status-row">
             <strong>OTA status</strong>
             <span id="otaStatus">idle</span>
           </div>
@@ -153,16 +100,14 @@
             <div id="otaProgressBar" class="progress__bar">0%</div>
           </div>
         </div>
-
-        <!-- <div class="debug-row">
+        <div class="debug-row">
           <strong>Wrapped send payload</strong>
           <pre id="sendView">waiting to send...</pre>
-        </div> -->
-        <!-- <div class="debug-row">
+        </div>
+        <div class="debug-row">
           <strong>Last received payload</strong>
           <pre id="receiveView">waiting for response...</pre>
-        </div> -->
-
+        </div>
       </section>
     </main>
 

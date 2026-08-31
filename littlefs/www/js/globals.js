@@ -35,33 +35,7 @@ export const hottub = {
  * @param {HTMLElement} element - The DOM element to update.
  * @param {string} value - The text value to set.
  */
-export const updateHotTubState = (newState) => {
-    if (typeof newState !== 'object' || newState === null) {
-        console.warn('[updateHotTubState] Invalid state object:', newState);
-        return;
-    }
 
-    // // Update the hottub state with new values
-    // Object.keys(newState).forEach(key => {
-    //     console.log(`[updateHotTubState] Processing key: ${key}, value: ${newState[key]}`);
-    //     if (key in hottub) {
-    //         hottub[key] = newState[key];
-    //     } else {
-    //         console.warn(`[updateHotTubState] Unknown property: ${key}`);
-    //     }
-    // });
-
-    // // Update the UI elements based on the new state    
-    // const filteredTemperatureDisplay = document.getElementById('filteredTemperature');
-    // if (filteredTemperatureDisplay) {
-    //     const tempUnit = hottub.tempUnitCelsius ? '°C' : '°F';
-    //     safeSetText(filteredTemperatureDisplay, `${hottub.filteredWaterTemp.toFixed(1)} ${tempUnit}`);
-    // } else {
-    //     console.warn('[updateHotTubState] filteredTemperature element not found');
-    // }   
-
-};
-/*****************************************************************************/
 
 
 
