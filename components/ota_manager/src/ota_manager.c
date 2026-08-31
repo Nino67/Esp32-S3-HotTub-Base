@@ -42,6 +42,8 @@ bool json_service_register_command(const char *cmd_string,
                                    json_cmd_callback_t callback, 
                                    uint8_t target_core);
 
+esp_err_t web_server_broadcast_json(const char *json);
+
 
 // bool crc32_json_wrapper(const cJSON *json_obj,
 //                         char *output,
@@ -53,6 +55,43 @@ char *json_service_crc32_envelope_encode(const cJSON *json);
 static void ota_manager_update_git_callback(cJSON *root);
 static void ota_manager_update_manifest_callback(cJSON *root);
 
+static void ota_publish_progress_status(const char *status, int progress, int64_t bytes_written, int64_t total_bytes)
+{
+    cJSON *root = cJSON_CreateObject();
+    if (!root) {
+        return;
+    }
+
+    cJSON_AddNumberToObject(root, "id", 0);
+    cJSON_AddStringToObject(root, "type", "pub");
+    cJSON_AddStringToObject(root, "cmd", "ota.manager.progress");
+    cJSON_AddStringToObject(root, "status", "ok");
+
+    cJSON *response = cJSON_AddObjectToObject(root, "response");
+    if (response) {
+        cJSON_AddStringToObject(response, "ota_status", status ? status : "unknown");
+        cJSON_AddNumberToObject(response, "ota_progress", progress);
+        if (bytes_written >= 0) {
+            cJSON_AddNumberToObject(response, "ota_bytes_written", (double)bytes_written);
+        }
+        if (total_bytes >= 0) {
+            cJSON_AddNumberToObject(response, "ota_total_expected_bytes", (double)total_bytes);
+        }
+    }
+
+    char *encoded_msg = json_service_crc32_envelope_encode(root);
+    cJSON_Delete(root);
+    if (!encoded_msg) {
+        return;
+    }
+
+    esp_err_t err = web_server_broadcast_json(encoded_msg);
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "OTA progress broadcast failed: %s", esp_err_to_name(err));
+    }
+    free(encoded_msg);
+}
+
 
 
 static esp_err_t ota_http_event_handler(esp_http_client_event_t *evt)
@@ -61,14 +100,13 @@ static esp_err_t ota_http_event_handler(esp_http_client_event_t *evt)
     switch (evt->event_id)
     {
         case HTTP_EVENT_ON_CONNECTED:
-            // hot_tub_device_state_set_ota_status("started");
-            // hot_tub_device_state_set_ota_progress(0);
-            // if (ctx)
-            // {
-            //     ctx->total_received = 0;
-            //     ctx->content_length = esp_http_client_get_content_length(evt->client);
-            //     ctx->last_progress = 0;
-            // }
+            if (ctx)
+            {
+                ctx->total_received = 0;
+                ctx->content_length = esp_http_client_get_content_length(evt->client);
+                ctx->last_progress = 0;
+            }
+            ota_publish_progress_status("downloading", 0, 0, ctx ? ctx->content_length : -1);
             break;
         case HTTP_EVENT_ON_HEADER:
             if (ctx && evt->header_key && evt->header_value && strcmp(evt->header_key, "Content-Length") == 0)
@@ -94,16 +132,18 @@ static esp_err_t ota_http_event_handler(esp_http_client_event_t *evt)
                 {
                     progress = 100;
                 }
-                ctx->last_progress = progress;
-                // hot_tub_device_state_set_ota_progress(progress);
+                if (progress != ctx->last_progress)
+                {
+                    ctx->last_progress = progress;
+                    ota_publish_progress_status("downloading", progress, ctx->total_received, ctx->content_length);
+                }
             }
             break;
         case HTTP_EVENT_ON_FINISH:
-            // hot_tub_device_state_set_ota_progress(100);
+            ota_publish_progress_status("download_complete", 100, ctx ? ctx->total_received : -1, ctx ? ctx->content_length : -1);
             break;
         case HTTP_EVENT_ERROR:
-            // hot_tub_device_state_set_ota_status("failed");
-            // hot_tub_device_state_set_ota_progress(0);
+            ota_publish_progress_status("failed", ctx ? ctx->last_progress : 0, ctx ? ctx->total_received : -1, ctx ? ctx->content_length : -1);
             break;
         default:
             break;
@@ -506,13 +546,13 @@ esp_err_t ota_manager_trigger_github_ota(const char *url, const char *storage_ur
 
     ESP_LOGI(TAG, "Starting manual OTA update from GitHub: %s", url);
     set_heartbeat_interval(OTA_HEARTBEAT_INTERVAL_MS);
+    ota_publish_progress_status("requested", 0, 0, -1);
 
 
     ota_progress_ctx_t *progress_ctx = calloc(1, sizeof(ota_progress_ctx_t));
     if (progress_ctx == NULL) {
         ESP_LOGE(TAG, "Failed to allocate OTA progress context");
-        // hot_tub_device_state_set_ota_status("failed");
-        // hot_tub_device_state_set_ota_progress(0);
+        ota_publish_progress_status("failed", 0, 0, -1);
         return ESP_ERR_NO_MEM;
     }
 
@@ -533,6 +573,7 @@ esp_err_t ota_manager_trigger_github_ota(const char *url, const char *storage_ur
 
     const char *storage_label = storage_label_for_next_app();
     if (!storage_label) {
+        ota_publish_progress_status("failed", 0, 0, -1);
         free(progress_ctx);
         return ESP_ERR_INVALID_STATE;
     }
@@ -543,6 +584,7 @@ esp_err_t ota_manager_trigger_github_ota(const char *url, const char *storage_ur
         derived_storage_url = derive_storage_image_url(url, storage_label);
         if (!derived_storage_url) {
             ESP_LOGE(TAG, "Unable to derive storage image URL for partition '%s'", storage_label);
+            ota_publish_progress_status("failed", 0, 0, -1);
             free(progress_ctx);
             return ESP_ERR_INVALID_ARG;
         }
@@ -554,11 +596,13 @@ esp_err_t ota_manager_trigger_github_ota(const char *url, const char *storage_ur
     esp_err_t ret = esp_https_ota(&ota_config);
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "OTA upgrade failed: %s", esp_err_to_name(ret));
+        ota_publish_progress_status("failed", progress_ctx->last_progress, progress_ctx->total_received, progress_ctx->content_length);
         free(progress_ctx);
         free(derived_storage_url);
         return ret;
     }
 
+    ota_publish_progress_status("flashing", 100, progress_ctx->total_received, progress_ctx->content_length);
     free(progress_ctx);
 
     // Update both storage partitions so the new OTA slot and its alternate slot both have valid web assets.
@@ -572,6 +616,7 @@ esp_err_t ota_manager_trigger_github_ota(const char *url, const char *storage_ur
         }
         if (!partition_storage_url) {
             ESP_LOGE(TAG, "Unable to derive URL for %s", storage_labels[i]);
+            ota_publish_progress_status("failed", 100, -1, -1);
             free(derived_storage_url);
             return ESP_ERR_INVALID_ARG;
         }
@@ -582,6 +627,7 @@ esp_err_t ota_manager_trigger_github_ota(const char *url, const char *storage_ur
             storage_labels[i]);
         if (!storage_part) {
             ESP_LOGE(TAG, "Storage partition '%s' not found", storage_labels[i]);
+            ota_publish_progress_status("failed", 100, -1, -1);
             free(partition_storage_url);
             free(derived_storage_url);
             return ESP_ERR_NOT_FOUND;
@@ -591,14 +637,14 @@ esp_err_t ota_manager_trigger_github_ota(const char *url, const char *storage_ur
         free(partition_storage_url);
         if (storage_ret != ESP_OK) {
             ESP_LOGE(TAG, "Storage image update for %s failed: %s", storage_labels[i], esp_err_to_name(storage_ret));
+            ota_publish_progress_status("failed", 100, -1, -1);
             free(derived_storage_url);
             return storage_ret;
         }
     }
 
     free(derived_storage_url);
-    // hot_tub_device_state_set_ota_status("success");
-    // hot_tub_device_state_set_ota_progress(100);
+    ota_publish_progress_status("pending_reboot", 100, -1, -1);
     set_heartbeat_interval(HEARTBEAT_INTERVAL_MS);
 
     ESP_LOGI(TAG, "OTA upgrade successful, rebooting into new partition...");
