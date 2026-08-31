@@ -18,12 +18,12 @@
  */
 
 
-
 import { createCrc32JsonWrapper } from '/js/communication/crc32_wrapper.js';
 import { createChartManager } from '/js/chart_manager.js';
 import { hottub } from '/js/globals.js';
 import { safeSetText, safeSetStyle } from '/js/globals.js';
 import { ws_manager } from '/js/communication/ws_manager.js';
+
 
 // UI Elements
 const stateView = document.getElementById('stateView');
@@ -41,11 +41,26 @@ const otaManifestBtn = document.getElementById('otaManifestBtn');
 const chartContainer = document.getElementById('chartContainer');
 const filteredTemperatureDisplay = document.getElementById('filteredTemperature');
 const heatToggle = document.getElementById('heatToggle');
+const settingsToggle = document.getElementById('settingsToggle');
+const settingsPanel = document.getElementById('settingsPanel');
+const settingsFields = document.getElementById('settingsFields');
+const tempUnitSelect = document.getElementById('tempUnitSelect');
+const setpointTempInput = document.getElementById('setpointTempInput');
+const lowPassFilterAlphaInput = document.getElementById('lowPassFilterAlphaInput');
+const highHysteresisInput = document.getElementById('highHysteresisInput');
+const lowHysteresisInput = document.getElementById('lowHysteresisInput');
+const pumpPreRunTimeInput = document.getElementById('pumpPreRunTimeInput');
+const pumpPostRunTimeInput = document.getElementById('pumpPostRunTimeInput');
 const pumpModeInputs = Array.from(document.querySelectorAll('input[name="pumpMode"]'));
 const pumpTrack = document.querySelector('.pump-track');
 
+
+
 // Application State
 let requestId = 1;
+let settingsUnlocked = false;
+let otaProgressTimer = null;
+let otaProgressValue = 0;
 const chartManager = createChartManager();
 let temperatureChartId = null;
 
@@ -89,6 +104,78 @@ function setHeatControlState(isOn, pending = false) {
 }
 
 
+function setSettingsControlState(isOn, pending = false) {
+  if (!settingsToggle) {
+    return;
+  }
+
+  settingsToggle.checked = Boolean(isOn);
+  settingsToggle.disabled = Boolean(pending);
+
+  const row = settingsToggle.closest('.toggle-row');
+  if (row) {
+    row.classList.toggle('is-pending', Boolean(pending));
+  }
+}
+
+function showSettingsPanel(show) {
+  if (!settingsPanel) {
+    return;
+  }
+
+  settingsPanel.hidden = !show;
+  settingsPanel.setAttribute('aria-hidden', show ? 'false' : 'true');
+
+  if (settingsToggle) {
+    settingsToggle.checked = show;
+  }
+
+  if (!show) {
+    settingsUnlocked = false;
+  }
+}
+
+
+function populateSettingsFields(state = {}) {
+  const src = state.response && typeof state.response === 'object' && Object.keys(state.response).length > 0
+    ? state.response
+    : state;
+
+  if (tempUnitSelect) {
+    tempUnitSelect.value = src.tempUnitCelsius ? 'celsius' : 'fahrenheit';
+  }
+
+  if (setpointTempInput) {
+    setpointTempInput.value = typeof src.setpointTemp === 'number' ? String(src.setpointTemp) : '';
+  }
+
+  if (lowPassFilterAlphaInput) {
+    lowPassFilterAlphaInput.value = typeof src.lowPassFilterAlpha === 'number' ? String(src.lowPassFilterAlpha) : '';
+  }
+
+  if (highHysteresisInput) {
+    highHysteresisInput.value = typeof src.highHysteresis === 'number' ? String(src.highHysteresis) : '';
+  }
+
+  if (lowHysteresisInput) {
+    lowHysteresisInput.value = typeof src.lowHysteresis === 'number' ? String(src.lowHysteresis) : '';
+  }
+
+  if (pumpPreRunTimeInput) {
+    pumpPreRunTimeInput.value = typeof src.pumpPreRunTime === 'number' ? String(src.pumpPreRunTime) : '';
+  }
+
+  if (pumpPostRunTimeInput) {
+    pumpPostRunTimeInput.value = typeof src.pumpPostRunTime === 'number' ? String(src.pumpPostRunTime) : '';
+  }
+}
+
+
+function verifySettingsAccess() {
+  const password = prompt('Enter settings password:');
+  return password === 'roland1969';
+}
+
 
 function setPumpControlState(level, pending = false) {
   const pumpLevel = Number(level) || 0;
@@ -110,6 +197,7 @@ function setPumpControlState(level, pending = false) {
     pumpTrack.classList.toggle('is-pending', Boolean(pending));
   }
 }
+
 
 function syncControlStateFromPayload(response = {}) {
   if (typeof response.heaterOn === 'boolean' && heatToggle) {
@@ -152,6 +240,117 @@ function setOtaProgress(value) {
   safeSetText(otaProgressBar, `${pct}%`);
 }
 
+function stopOtaProgressFallback() {
+  if (otaProgressTimer) {
+    window.clearInterval(otaProgressTimer);
+    otaProgressTimer = null;
+  }
+}
+
+function startOtaProgressFallback() {
+  stopOtaProgressFallback();
+  otaProgressValue = 0;
+  setOtaProgress(0);
+  safeSetText(otaStatus, 'downloading');
+
+  otaProgressTimer = window.setInterval(() => {
+    if (otaProgressValue >= 95) {
+      return;
+    }
+
+    const step = otaProgressValue < 40 ? 5 : otaProgressValue < 75 ? 2 : 1;
+    otaProgressValue = Math.min(95, otaProgressValue + step);
+    setOtaProgress(otaProgressValue);
+  }, 1200);
+}
+
+function formatOtaState(value) {
+  if (typeof value === 'number') {
+    const map = {
+      0: 'ready',
+      1: 'downloading',
+      2: 'verifying',
+      3: 'flashing',
+      4: 'failed',
+      5: 'pending_reboot',
+    };
+    return map[value] || String(value);
+  }
+
+  if (typeof value === 'string' && value.length > 0) {
+    return value;
+  }
+
+  return null;
+}
+
+function updateOtaUiFromParsed(parsed) {
+  if (!parsed || !parsed.valid || !parsed.payload) {
+    return;
+  }
+
+  const payload = parsed.payload;
+  const response = payload.response && typeof payload.response === 'object' ? payload.response : {};
+  const params = payload.params && typeof payload.params === 'object' ? payload.params : {};
+  const firmware = response.firmware && typeof response.firmware === 'object' ? response.firmware : {};
+  const cmd = String(payload.cmd || payload.command || '');
+
+  const otaSpecificProgress =
+    response.otaProgress ?? response.ota_progress ?? response.otaPercent ?? response.ota_percent ??
+    payload.otaProgress ?? payload.ota_progress ?? payload.otaPercent ?? payload.ota_percent;
+
+  const otaSpecificStatus =
+    response.otaStatus ?? response.ota_status ?? response.otaState ?? response.ota_state ??
+    payload.otaStatus ?? payload.ota_status ?? payload.otaState ?? payload.ota_state;
+
+  const isOtaMessage = cmd.includes('ota');
+  const fallbackProgress =
+    response.progress ?? response.percentage ?? response.percent ??
+    payload.progress ?? payload.percentage ?? payload.percent;
+  const firmwareProgress =
+    Number(firmware.ota_total_expected_bytes) > 0
+      ? (Number(firmware.ota_bytes_written || 0) / Number(firmware.ota_total_expected_bytes)) * 100
+      : undefined;
+  const fallbackStatus =
+    response.status ?? response.state ?? payload.status ?? payload.state ??
+    formatOtaState(firmware.current_ota_state);
+
+  const rawProgress = otaSpecificProgress ?? firmwareProgress ?? (isOtaMessage ? fallbackProgress : undefined);
+  const rawStatus = otaSpecificStatus ?? (isOtaMessage ? fallbackStatus : undefined);
+
+  if (typeof rawStatus !== 'undefined' && rawStatus !== null) {
+    const statusText = String(rawStatus);
+    safeSetText(otaStatus, statusText);
+
+    const terminalStatus = /failed|error|success|completed|done|reboot|pending_reboot/i.test(statusText);
+    if (terminalStatus) {
+      stopOtaProgressFallback();
+      if (/success|completed|done|reboot|pending_reboot/i.test(statusText)) {
+        setOtaProgress(100);
+      }
+    }
+  }
+
+  if (typeof rawProgress !== 'undefined' && rawProgress !== null) {
+    let progress = rawProgress;
+    if (typeof progress === 'string') {
+      progress = progress.replace('%', '').trim();
+    }
+
+    const value = Number(progress);
+    if (Number.isFinite(value)) {
+      const normalized = value > 0 && value <= 1 ? value * 100 : value;
+      stopOtaProgressFallback();
+      setOtaProgress(normalized);
+    }
+  }
+
+  // Keep send view useful for OTA command payload context.
+  if (isOtaMessage && Object.keys(params).length > 0) {
+    safeSetText(sendView, JSON.stringify(payload));
+  }
+}
+
 export function renderParsedMessage(parsed, raw) {
   safeSetText(receiveView, raw);
   if (parsed.valid) {
@@ -159,6 +358,8 @@ export function renderParsedMessage(parsed, raw) {
   } else {
     safeSetText(stateView, `CRC invalid: ${parsed.reason || `${parsed.computed} != ${parsed.expected}`}`);
   }
+
+  updateOtaUiFromParsed(parsed);
 }
 
 function initializeCharts() {
@@ -244,6 +445,104 @@ async function hardwareInit() {
     });
   }
 
+  if (settingsToggle) {
+    settingsToggle.addEventListener('change', () => {
+      if (settingsToggle.checked) {
+        if (!settingsUnlocked) {
+          const authorized = verifySettingsAccess();
+          if (!authorized) {
+            settingsToggle.checked = false;
+            showSettingsPanel(false);
+            safeSetText(sendView, 'Settings access denied: invalid password.');
+            return;
+          }
+          settingsUnlocked = true;
+          populateSettingsFields(hottub);
+        }
+
+        showSettingsPanel(true);
+        return;
+      }
+
+      showSettingsPanel(false);
+      setSettingsControlState(false, false);
+    });
+  }
+
+  if (tempUnitSelect) {
+    tempUnitSelect.addEventListener('change', () => {
+      sendHotTubCommand('hottub.temperature.unit.set', {
+        'temp.unit.celsius.set': tempUnitSelect.value === 'celsius',
+      });
+    });
+  }
+
+  if (setpointTempInput) {
+    setpointTempInput.addEventListener('change', () => {
+      const value = parseFloat(setpointTempInput.value);
+      if (Number.isFinite(value)) {
+        sendHotTubCommand('hottub.setpoint.temperature.set', {
+          'setpoint.temperature.set': value,
+        });
+      }
+    });
+  }
+
+  if (lowPassFilterAlphaInput) {
+    lowPassFilterAlphaInput.addEventListener('change', () => {
+      const value = parseFloat(lowPassFilterAlphaInput.value);
+      if (Number.isFinite(value)) {
+        sendHotTubCommand('hottub.low.pass.filter.alpha.set', {
+          'low.pass.filter.alpha.set': value,
+        });
+      }
+    });
+  }
+
+  if (highHysteresisInput) {
+    highHysteresisInput.addEventListener('change', () => {
+      const value = parseFloat(highHysteresisInput.value);
+      if (Number.isFinite(value)) {
+        sendHotTubCommand('hottub.high.hysteresis.set', {
+          'high.hysteresis.set': value,
+        });
+      }
+    });
+  }
+
+  if (lowHysteresisInput) {
+    lowHysteresisInput.addEventListener('change', () => {
+      const value = parseFloat(lowHysteresisInput.value);
+      if (Number.isFinite(value)) {
+        sendHotTubCommand('hottub.low.hysteresis.set', {
+          'low.hysteresis.set': value,
+        });
+      }
+    });
+  }
+
+  if (pumpPreRunTimeInput) {
+    pumpPreRunTimeInput.addEventListener('change', () => {
+      const value = parseFloat(pumpPreRunTimeInput.value);
+      if (Number.isFinite(value)) {
+        sendHotTubCommand('hottub.pump.pre.run.time.set', {
+          'pump.pre.run.time.set': value,
+        });
+      }
+    });
+  }
+
+  if (pumpPostRunTimeInput) {
+    pumpPostRunTimeInput.addEventListener('change', () => {
+      const value = parseFloat(pumpPostRunTimeInput.value);
+      if (Number.isFinite(value)) {
+        sendHotTubCommand('hottub.pump.post.run.time.set', {
+          'pump.post.run.time.set': value,
+        });
+      }
+    });
+  }
+
   pumpModeInputs.forEach((input) => {
     input.addEventListener('change', () => {
       if (!input.checked) {
@@ -259,6 +558,7 @@ async function hardwareInit() {
   });
 
   setHeatControlState(false, false);
+  setSettingsControlState(false, false);
   setPumpControlState(0, false);
 
   clearSystemStatusBtn.addEventListener('click', () => {
@@ -336,7 +636,7 @@ async function hardwareInit() {
     };
 
     safeSetText(otaStatus, 'requested');
-    setOtaProgress(0);
+    startOtaProgressFallback();
 
     try {
       const wrapped = createCrc32JsonWrapper(payload);
@@ -346,6 +646,8 @@ async function hardwareInit() {
     } catch (err) {
       safeSetText(sendView, `Invalid OTA payload: ${err.message}`);
       safeSetText(otaStatus, 'failed');
+      stopOtaProgressFallback();
+      setOtaProgress(0);
       console.error('Failed to wrap OTA payload:', err);
     }
   });
@@ -371,7 +673,7 @@ async function hardwareInit() {
       };
 
       safeSetText(otaStatus, 'requested');
-      setOtaProgress(0);
+      startOtaProgressFallback();
 
       try {
         const wrapped = createCrc32JsonWrapper(payload);
@@ -381,6 +683,8 @@ async function hardwareInit() {
       } catch (err) {
         safeSetText(sendView, `Invalid OTA payload: ${err.message}`);
         safeSetText(otaStatus, 'failed');
+        stopOtaProgressFallback();
+        setOtaProgress(0);
         console.error('Failed to wrap OTA payload:', err);
       }
     });

@@ -101,6 +101,7 @@ function createWebSocketClient({
       try 
       {
         const parsed = parseMessage(event.data);
+        // console.log('[ws_client] Parsed WebSocket payload received:', parsed.payload);
 
         if (parsed.valid && parsed.payload) {
           const type = parsed.payload.type || parsed.payload.cmd_type;

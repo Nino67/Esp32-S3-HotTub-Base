@@ -16,23 +16,31 @@
         </div>
       </section>
 
+      <!-- Controls -->
       <section class="panel" id="controlsPanel">
-        <header>
-          <h2>Controls</h2>
-        </header>
-
         <div class="controls-stack">
           <label class="toggle-row" for="heatToggle">
+            <span class="switch-label">Heat Mode</span>
             <span class="switch-control">
               <input id="heatToggle" type="checkbox" class="switch-input" />
               <span class="switch-track">
                 <span class="switch-thumb"></span>
               </span>
             </span>
-            <span class="switch-label">Heat Mode</span>
+          </label>
+
+          <label class="toggle-row" for="settingsToggle">
+            <span class="switch-label">Settings</span>
+            <span class="switch-control">
+              <input id="settingsToggle" type="checkbox" class="switch-input" />
+              <span class="switch-track">
+                <span class="switch-thumb"></span>
+              </span>
+            </span>
           </label>
 
           <div class="pump-row">
+            <span class="switch-label pump-label">Pump</span>
             <div class="pump-selector" role="radiogroup" aria-label="Pump mode">
               <div class="pump-track">
                 <input id="pumpOff" type="radio" name="pumpMode" value="0" checked />
@@ -47,7 +55,6 @@
                 <span class="pump-thumb"></span>
               </div>
             </div>
-            <span class="switch-label pump-label">Pump</span>
           </div>
         </div>
       </section>
@@ -61,6 +68,66 @@
       </section>
 
 
+
+      <section class="panel" id="settingsPanel" hidden aria-hidden="true">
+        <header>
+          <h2>Settings</h2>
+        </header>
+        <div class="controls-stack">
+          <div id="settingsFields" class="settings-fields">
+            <label class="toggle-row" for="tempUnitSelect">
+              <span class="switch-label">Temp Unit</span>
+              <select id="tempUnitSelect">
+                <option value="celsius">°C</option>
+                <option value="fahrenheit">°F</option>
+              </select>
+            </label>
+
+            <label class="toggle-row" for="setpointTempInput">
+              <span class="switch-label">Setpoint</span>
+              <input id="setpointTempInput" type="number" step="0.1" placeholder="°C" />
+            </label>
+
+            <label class="toggle-row" for="lowPassFilterAlphaInput">
+              <span class="switch-label">Low Pass α</span>
+              <input id="lowPassFilterAlphaInput" type="number" step="0.01" min="0" max="1" placeholder="0.00" />
+            </label>
+
+            <label class="toggle-row" for="highHysteresisInput">
+              <span class="switch-label">High Hyst.</span>
+              <input id="highHysteresisInput" type="number" step="0.1" placeholder="°C" />
+            </label>
+
+            <label class="toggle-row" for="lowHysteresisInput">
+              <span class="switch-label">Low Hyst.</span>
+              <input id="lowHysteresisInput" type="number" step="0.1" placeholder="°C" />
+            </label>
+
+            <label class="toggle-row" for="pumpPreRunTimeInput">
+              <span class="switch-label">Pump Pre-Run</span>
+              <input id="pumpPreRunTimeInput" type="number" step="1" min="0" placeholder="sec" />
+            </label>
+
+            <label class="toggle-row" for="pumpPostRunTimeInput">
+              <span class="switch-label">Pump Post-Run</span>
+              <input id="pumpPostRunTimeInput" type="number" step="1" min="0" placeholder="sec" />
+            </label>
+
+            <button id="sendBtn">Send</button>
+            <button id="otaBtn" class="secondary">OTA Update</button>
+            <button id="otaManifestBtn" class="secondary">OTA Manifest</button>
+            <div class="ota-status-panel">
+              <div class="ota-status-row">
+                <strong>OTA status</strong>
+                <span id="otaStatus">idle</span>
+              </div>
+              <div class="progress">
+                <div id="otaProgressBar" class="progress__bar">0%</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
 
       <section class="panel">
         <header>
@@ -88,18 +155,6 @@
         <div class="send-json-row">
           <textarea id="commandInput" spellcheck="false">{"id":1,"type":"req","cmd":"system.status.get","params":""}</textarea>
         </div>
-        <button id="sendBtn">Send</button>
-        <button id="otaBtn" class="secondary">OTA Update</button>
-        <button id="otaManifestBtn" class="secondary">OTA Manifest</button>
-        <div class="ota-status-panel">
-          <div class="ota-status-row">
-            <strong>OTA status</strong>
-            <span id="otaStatus">idle</span>
-          </div>
-          <div class="progress">
-            <div id="otaProgressBar" class="progress__bar">0%</div>
-          </div>
-        </div>
         <div class="debug-row">
           <strong>Wrapped send payload</strong>
           <pre id="sendView">waiting to send...</pre>
@@ -109,6 +164,8 @@
           <pre id="receiveView">waiting for response...</pre>
         </div>
       </section>
+
+
     </main>
 
     <script src="/vendor/uPlot.iife.min.js"></script>

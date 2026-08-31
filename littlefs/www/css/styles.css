@@ -235,6 +235,44 @@ button {
   cursor: pointer;
 }
 
+.settings-fields {
+  display: grid;
+  gap: 12px;
+  width: 100%;
+}
+
+.settings-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+}
+
+.settings-row input,
+.settings-row select,
+.toggle-row input,
+.toggle-row select {
+  width: 100%;
+  min-width: 140px;
+  padding: 12px 14px;
+  border-radius: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(3, 8, 16, 0.82);
+  color: var(--text);
+  font: inherit;
+}
+
+.settings-status-text {
+  color: var(--muted);
+  font-size: 0.95rem;
+  margin-top: 6px;
+}
+
+.settings-row input.is-invalid {
+  border-color: rgba(255, 140, 140, 0.9);
+}
+
 .controls-stack {
   display: grid;
   gap: 10px;
@@ -510,3 +548,5 @@ button {
     min-height: 250px;
   }
 }
+
+
