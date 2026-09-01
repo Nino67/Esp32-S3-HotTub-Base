@@ -108,25 +108,25 @@ function createWebSocketClient({
           const command = parsed.payload.cmd || parsed.payload.command;
            
           // check if the message is a 'pub' type, which indicates a state update
-          if (type === 'pub') {
+          // if (type === 'pub') {
             // console.log('[ws_client] Received state update:', parsed.payload.response);
             // Update the hottub state with new values
-            const newState = parsed.payload.response;
-            Object.keys(newState).forEach(key => {
-              if (key in hottub || key.startsWith('ota_')) {
-                hottub[key] = newState[key];
-              } else {
-                console.warn(`[updateHotTubState] Unknown property: ${key}`);
-              }
-            });
-          }
-          else {
+            // const newState = parsed.payload.response;
+            // Object.keys(newState).forEach(key => {
+              // if (key in hottub || key.startsWith('ota_')) {
+                // hottub[key] = newState[key];
+              // } else {
+              //   console.warn(`[updateHotTubState] Unknown property: ${key}`);
+              // }
+            // });
+          // }
+          // else {
             if (command) {
               await callback_manager.dispatch(command, parsed.payload);
             } else {
               console.warn('[ws_client] No cmd found in payload:', parsed.payload);
             }
-          }  
+          // }  
         } 
         else 
         {
