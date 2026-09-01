@@ -34,7 +34,7 @@ const sendView = document.getElementById('sendView');
 const commandInput = document.getElementById('commandInput');
 const otaStatus = document.getElementById('otaStatus');
 const otaProgressBar = document.getElementById('otaProgressBar');
-const sendBtn = document.getElementById('sendBtn');
+// const sendBtn = document.getElementById('sendBtn');
 const systemStatusBtn = document.getElementById('sendSystemStatusBtn');
 const clearSystemStatusBtn = document.getElementById('clearSystemStatusBtn');
 const otaBtn = document.getElementById('otaBtn');
@@ -526,7 +526,7 @@ function deriveStorageUrl(otaUrl, storageLabel) {
 
 // Main Initialization
 async function hardwareInit() {
-  sendBtn.disabled = true;
+  // sendBtn.disabled = true;
   safeSetText(otaStatus, 'idle');
   setOtaProgress(0);
 
@@ -718,22 +718,22 @@ async function hardwareInit() {
   }); 
   
   
-  sendBtn.addEventListener('click', () => {
-    if (!ws_manager || ws_manager.readyState !== WebSocket.OPEN) {
-      safeSetText(sendView, 'Socket is not open. Waiting for connection...');
-      return;
-    }
+  // sendBtn.addEventListener('click', () => {
+  //   if (!ws_manager || ws_manager.readyState !== WebSocket.OPEN) {
+  //     safeSetText(sendView, 'Socket is not open. Waiting for connection...');
+  //     return;
+  //   }
 
-    try {
-      const wrapped = createCrc32JsonWrapper(commandInput.value);
-      ws_manager.send(wrapped);
-      safeSetText(sendView, wrapped);
-      // console.log('Sending:', wrapped);
-    } catch (err) {
-      safeSetText(sendView, `Invalid JSON: ${err.message}`);
-      console.error('Failed to wrap JSON:', err);
-    }
-  });
+  //   try {
+  //     const wrapped = createCrc32JsonWrapper(commandInput.value);
+  //     ws_manager.send(wrapped);
+  //     safeSetText(sendView, wrapped);
+  //     // console.log('Sending:', wrapped);
+  //   } catch (err) {
+  //     safeSetText(sendView, `Invalid JSON: ${err.message}`);
+  //     console.error('Failed to wrap JSON:', err);
+  //   }
+  // });
 
   otaBtn.addEventListener('click', () => {
     if (!ws_manager || ws_manager.readyState !== WebSocket.OPEN) {
