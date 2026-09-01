@@ -13,6 +13,7 @@ idf_component_register(SRCS "src/hot_tub_controller.c"
                                 nvs_flash
                                 nvs_storage
                                 ntp_time_sync
+                                ota_manager
                                 espressif__cjson
                                 json_service
                                 espressif__onewire_bus

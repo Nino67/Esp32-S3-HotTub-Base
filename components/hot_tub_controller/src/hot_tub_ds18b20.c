@@ -5,6 +5,7 @@
 #include "onewire_bus.h"
 #include "ds18b20.h"
 #include "app_watchdog.h"
+#include "ota_manager.h"
 
 #include "hot_tub_globals.h"
 #include "hot_tub_ds18b20.h"
@@ -12,6 +13,7 @@
 static const char *TAG = "hot_tub_ds18b20";
 static onewire_bus_handle_t s_onewire_bus = NULL;
 static ds18b20_device_handle_t s_ds18b20 = NULL;
+static bool s_monitor_task_created = false;
 
 
 /**
@@ -79,20 +81,24 @@ esp_err_t hot_tub_ds18b20_init(void)
 
 
 
-    TaskHandle_t task_handle = NULL;
-    BaseType_t result = xTaskCreatePinnedToCore(
-                            water_temperature_monitoring_task,
-                            "water_temperature_monitoring_task",
-                            HOT_TUB_TEMPERATURE_TASK_STACK_SIZE,
-                            NULL,
-                            HOT_TUB_TEMPERATURE_TASK_PRIORITY,
-                            &task_handle,
-                            HOT_TUB_TEMPERATURE_TASK_CORE);
+    if (!s_monitor_task_created) {
+        TaskHandle_t task_handle = NULL;
+        BaseType_t result = xTaskCreatePinnedToCore(
+                                water_temperature_monitoring_task,
+                                "water_temperature_monitoring_task",
+                                HOT_TUB_TEMPERATURE_TASK_STACK_SIZE,
+                                NULL,
+                                HOT_TUB_TEMPERATURE_TASK_PRIORITY,
+                                &task_handle,
+                                HOT_TUB_TEMPERATURE_TASK_CORE);
 
-    if (result != pdPASS) 
-    {
-        ESP_LOGE(TAG, "Failed to create water temperature monitoring task");
-        return ESP_ERR_NO_MEM;
+        if (result != pdPASS)
+        {
+            ESP_LOGE(TAG, "Failed to create water temperature monitoring task");
+            return ESP_ERR_NO_MEM;
+        }
+
+        s_monitor_task_created = true;
     }
 
     return ESP_OK;
@@ -113,6 +119,7 @@ void water_temperature_monitoring_task(void *arg)
 {
     TickType_t xLastWakeTime = xTaskGetTickCount();
     const TickType_t xFrequency = pdMS_TO_TICKS(1000); // 1 second
+    bool paused_for_ota = false;
 
     if (app_watchdog_register_current_task("water_temp") != ESP_OK)
     {
@@ -123,6 +130,27 @@ void water_temperature_monitoring_task(void *arg)
 
     while (1) 
     {
+        if (ota_manager_is_update_in_progress()) {
+            if (!paused_for_ota) {
+                hot_tub_ds18b20_cleanup();
+                paused_for_ota = true;
+                ESP_LOGI(TAG, "Pausing DS18B20 polling during OTA update");
+            }
+
+            if (app_watchdog_feed_current_task() != ESP_OK)
+            {
+                ESP_LOGW(TAG, "water temperature monitoring task failed to feed watchdog");
+            }
+
+            vTaskDelayUntil(&xLastWakeTime, xFrequency);
+            continue;
+        }
+
+        if (paused_for_ota) {
+            paused_for_ota = false;
+            ESP_LOGI(TAG, "Resuming DS18B20 polling after OTA update");
+        }
+
         float water_temp = 0.0f;
         esp_err_t err = hot_tub_ds18b20_read_temperature(&water_temp);
         

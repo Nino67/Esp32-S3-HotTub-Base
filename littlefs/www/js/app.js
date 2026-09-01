@@ -69,6 +69,7 @@ let otaLastStatus = 'idle';
 let otaLastProgress = 0;
 let otaLastError = false;
 let otaSessionStartedAt = 0;
+let otaForcedReloadTimer = null;
 let showReceivedPayload = true;
 const chartManager = createChartManager();
 let temperatureChartId = null;
@@ -273,20 +274,36 @@ function setOtaProgress(value) {
   safeSetText(otaProgressBar, `${pct}%`);
 }
 
-function scheduleOtaReload(statusText, progressValue) {
-  const normalizedStatus = String(statusText || '').toLowerCase();
-  const isCompleteStatus = /success|complete|completed|done|reboot|pending_reboot/.test(normalizedStatus);
-  const isCompleteProgress = Number(progressValue) >= 100;
-  if (!isCompleteStatus || !isCompleteProgress || otaReloadScheduled) {
+function clearForcedOtaReloadTimer() {
+  if (otaForcedReloadTimer) {
+    window.clearTimeout(otaForcedReloadTimer);
+    otaForcedReloadTimer = null;
+  }
+}
+
+function scheduleForcedOtaReload(reasonText, delayMs = 3500) {
+  if (otaReloadScheduled || otaLastError) {
     return;
   }
 
   otaReloadScheduled = true;
   otaInProgress = false;
-  safeSetText(otaStatus, `${statusText} - reloading page...`);
-  window.setTimeout(() => {
+  clearForcedOtaReloadTimer();
+  safeSetText(otaStatus, `${reasonText} - reloading page...`);
+  otaForcedReloadTimer = window.setTimeout(() => {
     window.location.reload();
-  }, 3500);
+  }, delayMs);
+}
+
+function scheduleOtaReload(statusText, progressValue) {
+  const normalizedStatus = String(statusText || '').toLowerCase();
+  const isCompleteStatus = /success|complete|completed|done|reboot|pending_reboot|download_complete|flashing|downloading/.test(normalizedStatus);
+  const isCompleteProgress = Number(progressValue) >= 100;
+  if (!isCompleteStatus || !isCompleteProgress || otaReloadScheduled) {
+    return;
+  }
+
+  scheduleForcedOtaReload(String(statusText || 'ota complete'));
 }
 
 function stopOtaProgressFallback() {
@@ -298,6 +315,7 @@ function stopOtaProgressFallback() {
 
 function startOtaProgressFallback() {
   stopOtaProgressFallback();
+  clearForcedOtaReloadTimer();
   otaInProgress = true;
   otaReloadScheduled = false;
   otaLastError = false;
@@ -394,6 +412,7 @@ function updateOtaUiFromParsed(parsed) {
       } else if (/failed|error/i.test(statusText)) {
         otaInProgress = false;
         otaLastError = true;
+        clearForcedOtaReloadTimer();
       }
     }
   }
@@ -412,7 +431,7 @@ function updateOtaUiFromParsed(parsed) {
       otaLastProgress = normalized;
       latestProgress = normalized;
       if (otaInProgress && normalized >= 100) {
-        scheduleOtaReload(otaLastStatus || 'completed', normalized);
+        scheduleForcedOtaReload(otaLastStatus || 'ota complete', 2000);
       }
     }
   }
@@ -442,11 +461,7 @@ window.addEventListener('hottub-ws-close', () => {
   const likelyRebootTransition = /download_complete|flashing|complete|completed|success|done|reboot|pending_reboot|downloading/.test(status);
 
   if (recentOtaSession && likelyRebootTransition) {
-    otaReloadScheduled = true;
-    safeSetText(otaStatus, `${otaLastStatus || 'ota'} - reconnecting...`);
-    window.setTimeout(() => {
-      window.location.reload();
-    }, 3000);
+    scheduleForcedOtaReload(`${otaLastStatus || 'ota'} - reconnecting`, 1500);
   }
 });
 

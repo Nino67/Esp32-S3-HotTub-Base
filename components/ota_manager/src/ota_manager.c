@@ -27,6 +27,7 @@
 
 static const char *TAG = "ota_manager";
 static const uint32_t BOOT_FAILURE_LIMIT = 3;
+static volatile bool s_ota_update_in_progress = false;
 
 typedef struct
 {
@@ -54,6 +55,11 @@ char *json_service_crc32_envelope_encode(const cJSON *json);
 
 static void ota_manager_update_git_callback(cJSON *root);
 static void ota_manager_update_manifest_callback(cJSON *root);
+
+bool ota_manager_is_update_in_progress(void)
+{
+    return s_ota_update_in_progress;
+}
 
 static void ota_publish_progress_status(const char *status, int progress, int64_t bytes_written, int64_t total_bytes)
 {
@@ -85,6 +91,7 @@ static void ota_publish_progress_status(const char *status, int progress, int64_
         return;
     }
 
+    // ESP_LOGI(TAG, "Broadcasting OTA progress: %s", encoded_msg);
     esp_err_t err = web_server_broadcast_json(encoded_msg);
     if (err != ESP_OK) {
         ESP_LOGW(TAG, "OTA progress broadcast failed: %s", esp_err_to_name(err));
@@ -544,6 +551,8 @@ esp_err_t ota_manager_trigger_github_ota(const char *url, const char *storage_ur
         return ESP_ERR_INVALID_ARG;
     }
 
+    s_ota_update_in_progress = true;
+
     ESP_LOGI(TAG, "Starting manual OTA update from GitHub: %s", url);
     set_heartbeat_interval(OTA_HEARTBEAT_INTERVAL_MS);
     ota_publish_progress_status("requested", 0, 0, -1);
@@ -553,6 +562,7 @@ esp_err_t ota_manager_trigger_github_ota(const char *url, const char *storage_ur
     if (progress_ctx == NULL) {
         ESP_LOGE(TAG, "Failed to allocate OTA progress context");
         ota_publish_progress_status("failed", 0, 0, -1);
+        s_ota_update_in_progress = false;
         return ESP_ERR_NO_MEM;
     }
 
@@ -575,6 +585,7 @@ esp_err_t ota_manager_trigger_github_ota(const char *url, const char *storage_ur
     if (!storage_label) {
         ota_publish_progress_status("failed", 0, 0, -1);
         free(progress_ctx);
+        s_ota_update_in_progress = false;
         return ESP_ERR_INVALID_STATE;
     }
 
@@ -586,6 +597,7 @@ esp_err_t ota_manager_trigger_github_ota(const char *url, const char *storage_ur
             ESP_LOGE(TAG, "Unable to derive storage image URL for partition '%s'", storage_label);
             ota_publish_progress_status("failed", 0, 0, -1);
             free(progress_ctx);
+            s_ota_update_in_progress = false;
             return ESP_ERR_INVALID_ARG;
         }
         storage_url_to_use = derived_storage_url;
@@ -599,6 +611,7 @@ esp_err_t ota_manager_trigger_github_ota(const char *url, const char *storage_ur
         ota_publish_progress_status("failed", progress_ctx->last_progress, progress_ctx->total_received, progress_ctx->content_length);
         free(progress_ctx);
         free(derived_storage_url);
+        s_ota_update_in_progress = false;
         return ret;
     }
 
@@ -618,6 +631,7 @@ esp_err_t ota_manager_trigger_github_ota(const char *url, const char *storage_ur
             ESP_LOGE(TAG, "Unable to derive URL for %s", storage_labels[i]);
             ota_publish_progress_status("failed", 100, -1, -1);
             free(derived_storage_url);
+            s_ota_update_in_progress = false;
             return ESP_ERR_INVALID_ARG;
         }
 
@@ -630,6 +644,7 @@ esp_err_t ota_manager_trigger_github_ota(const char *url, const char *storage_ur
             ota_publish_progress_status("failed", 100, -1, -1);
             free(partition_storage_url);
             free(derived_storage_url);
+            s_ota_update_in_progress = false;
             return ESP_ERR_NOT_FOUND;
         }
 
@@ -639,6 +654,7 @@ esp_err_t ota_manager_trigger_github_ota(const char *url, const char *storage_ur
             ESP_LOGE(TAG, "Storage image update for %s failed: %s", storage_labels[i], esp_err_to_name(storage_ret));
             ota_publish_progress_status("failed", 100, -1, -1);
             free(derived_storage_url);
+            s_ota_update_in_progress = false;
             return storage_ret;
         }
     }

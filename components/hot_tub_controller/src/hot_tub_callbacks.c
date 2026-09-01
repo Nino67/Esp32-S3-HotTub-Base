@@ -9,6 +9,7 @@
 #include "esp_http_server.h"
 #include "json_service.h"
 #include "web_server.h"
+#include "ota_manager.h"
 
 
 #ifndef DEFAULT_BROADCAST_STATUS_COMMAND
@@ -81,6 +82,10 @@ void hottub_callback_response(cJSON *root, cJSON *response) {
  */
 void hottub_broadcast_status_callback(void) 
 {
+    if (ota_manager_is_update_in_progress()) {
+        return;
+    }
+
     char * pub_json = DEFAULT_BROADCAST_STATUS_COMMAND;
     cJSON *pub_root = cJSON_Parse(pub_json);
     hottub_status_get_callback(pub_root);
