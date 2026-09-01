@@ -681,24 +681,44 @@ static void ota_manager_update_manifest_callback(cJSON *root) {
              cmd_str ? cmd_str : "null",
              params_str ? params_str : "null");
 
+    esp_err_t ota_result = ESP_FAIL;
     if (params && cJSON_IsObject(params)) {
         cJSON *manifest_url_item = cJSON_GetObjectItemCaseSensitive(params, "manifest_url");
         if (cJSON_IsString(manifest_url_item) && manifest_url_item->valuestring && manifest_url_item->valuestring[0] != '\0') {
             const char *manifest_url = manifest_url_item->valuestring;
             ESP_LOGI(TAG, "Triggering OTA update from manifest URL: %s", manifest_url);
-            esp_err_t ota_result = ota_manager_trigger_manifest_ota(manifest_url);
+            ota_result = ota_manager_trigger_manifest_ota(manifest_url);
             if (ota_result != ESP_OK) {
                 ESP_LOGE(TAG, "Manifest OTA update failed with error: %s", esp_err_to_name(ota_result));
             }
         } else {
             ESP_LOGE(TAG, "Invalid or missing 'manifest_url' parameter for OTA update.");
+            ota_result = ESP_ERR_INVALID_ARG;
         }
     } else {
         ESP_LOGE(TAG, "Missing 'params' object for OTA update command.");
+        ota_result = ESP_ERR_INVALID_ARG;
     }
 
-    cJSON_AddStringToObject(root, "status", "ok");
-    cJSON_AddItemToObject(root, "response", cJSON_CreateString("ota manifest update completed"));
+    if (ota_result == ESP_OK) {
+        cJSON_AddStringToObject(root, "status", "ok");
+        cJSON *response = cJSON_CreateObject();
+        if (response) {
+            cJSON_AddStringToObject(response, "message", "ota manifest update completed");
+            cJSON_AddStringToObject(response, "ota_status", "pending_reboot");
+            cJSON_AddItemToObject(root, "response", response);
+        }
+    } else {
+        cJSON_AddStringToObject(root, "status", "error");
+        cJSON *response = cJSON_CreateObject();
+        if (response) {
+            cJSON_AddStringToObject(response, "message", "ota manifest update failed");
+            cJSON_AddStringToObject(response, "error", esp_err_to_name(ota_result));
+            cJSON_AddNumberToObject(response, "error_code", ota_result);
+            cJSON_AddStringToObject(response, "ota_status", "failed");
+            cJSON_AddItemToObject(root, "response", response);
+        }
+    }
     cJSON_SetValuestring(type_item, "res");
 }
 
@@ -719,6 +739,7 @@ static void ota_manager_update_git_callback(cJSON *root) {
              cmd_str ? cmd_str : "null",
              params_str ? params_str : "null");
 
+    esp_err_t ota_result = ESP_FAIL;
     if (params && cJSON_IsObject(params)) {
         cJSON *url_item = cJSON_GetObjectItemCaseSensitive(params, "url");
         if (cJSON_IsString(url_item) && url_item->valuestring != NULL) {
@@ -743,7 +764,7 @@ static void ota_manager_update_git_callback(cJSON *root) {
                      ota_url,
                      storage_url_to_report ? storage_url_to_report : "(none)");
 
-            esp_err_t ota_result = ota_manager_trigger_github_ota(ota_url, storage_url);
+            ota_result = ota_manager_trigger_github_ota(ota_url, storage_url);
             if (ota_result != ESP_OK) {
                 ESP_LOGE(TAG, "OTA update failed with error: %s", esp_err_to_name(ota_result));
             }
@@ -753,13 +774,32 @@ static void ota_manager_update_git_callback(cJSON *root) {
             free(derived_storage_url);
         } else {
             ESP_LOGE(TAG, "Invalid or missing 'url' parameter for OTA update.");
+            ota_result = ESP_ERR_INVALID_ARG;
         }
     } else {
         ESP_LOGE(TAG, "Missing 'params' object for OTA update command.");
+        ota_result = ESP_ERR_INVALID_ARG;
     }
 
-    cJSON_AddStringToObject(root, "status", "ok");
-    cJSON_AddItemToObject(root, "response", cJSON_CreateString("ota update completed"));
+    if (ota_result == ESP_OK) {
+        cJSON_AddStringToObject(root, "status", "ok");
+        cJSON *response = cJSON_CreateObject();
+        if (response) {
+            cJSON_AddStringToObject(response, "message", "ota update completed");
+            cJSON_AddStringToObject(response, "ota_status", "pending_reboot");
+            cJSON_AddItemToObject(root, "response", response);
+        }
+    } else {
+        cJSON_AddStringToObject(root, "status", "error");
+        cJSON *response = cJSON_CreateObject();
+        if (response) {
+            cJSON_AddStringToObject(response, "message", "ota update failed");
+            cJSON_AddStringToObject(response, "error", esp_err_to_name(ota_result));
+            cJSON_AddNumberToObject(response, "error_code", ota_result);
+            cJSON_AddStringToObject(response, "ota_status", "failed");
+            cJSON_AddItemToObject(root, "response", response);
+        }
+    }
     cJSON_SetValuestring(type_item, "res");
 }
 

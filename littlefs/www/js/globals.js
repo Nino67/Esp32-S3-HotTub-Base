@@ -24,7 +24,11 @@ export const hottub = {
     initialStartTime: "",
     lastUpdateTime: "",
     simulationMode: 0,
-    errorCode: 0
+    errorCode: 0,
+    ota_status: "idle",
+    ota_progress: 0,
+    ota_bytes_written: 0,
+    ota_total_expected_bytes: 0
 };
 /*****************************************************************************/ 
 /*****************************************************************************/

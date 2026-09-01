@@ -29,6 +29,7 @@ import { ws_manager } from '/js/communication/ws_manager.js';
 const stateView = document.getElementById('stateView');
 const statusView = document.getElementById('systemStatusView');
 const receiveView = document.getElementById('receiveView');
+const receivePayloadToggle = document.getElementById('receivePayloadToggle');
 const sendView = document.getElementById('sendView');
 const commandInput = document.getElementById('commandInput');
 const otaStatus = document.getElementById('otaStatus');
@@ -53,6 +54,7 @@ const pumpPreRunTimeInput = document.getElementById('pumpPreRunTimeInput');
 const pumpPostRunTimeInput = document.getElementById('pumpPostRunTimeInput');
 const pumpModeInputs = Array.from(document.querySelectorAll('input[name="pumpMode"]'));
 const pumpTrack = document.querySelector('.pump-track');
+const RECEIVE_PAYLOAD_TOGGLE_KEY = 'hottub.receivePayloadVisible';
 
 
 
@@ -62,8 +64,38 @@ let settingsUnlocked = false;
 let otaProgressTimer = null;
 let otaProgressValue = 0;
 let otaReloadScheduled = false;
+let otaInProgress = false;
+let otaLastStatus = 'idle';
+let otaLastProgress = 0;
+let otaLastError = false;
+let otaSessionStartedAt = 0;
+let showReceivedPayload = true;
 const chartManager = createChartManager();
 let temperatureChartId = null;
+
+function loadReceivePayloadPreference() {
+  try {
+    const saved = window.localStorage.getItem(RECEIVE_PAYLOAD_TOGGLE_KEY);
+    if (saved === '0') {
+      return false;
+    }
+    if (saved === '1') {
+      return true;
+    }
+  } catch (err) {
+    console.warn('Failed to read receive payload preference:', err);
+  }
+
+  return Boolean(receivePayloadToggle ? receivePayloadToggle.checked : true);
+}
+
+function saveReceivePayloadPreference(isVisible) {
+  try {
+    window.localStorage.setItem(RECEIVE_PAYLOAD_TOGGLE_KEY, isVisible ? '1' : '0');
+  } catch (err) {
+    console.warn('Failed to save receive payload preference:', err);
+  }
+}
 
 
 
@@ -242,13 +274,15 @@ function setOtaProgress(value) {
 }
 
 function scheduleOtaReload(statusText, progressValue) {
-  const isCompleteStatus = /success|completed|done|reboot|pending_reboot/i.test(String(statusText || ''));
+  const normalizedStatus = String(statusText || '').toLowerCase();
+  const isCompleteStatus = /success|complete|completed|done|reboot|pending_reboot/.test(normalizedStatus);
   const isCompleteProgress = Number(progressValue) >= 100;
   if (!isCompleteStatus || !isCompleteProgress || otaReloadScheduled) {
     return;
   }
 
   otaReloadScheduled = true;
+  otaInProgress = false;
   safeSetText(otaStatus, `${statusText} - reloading page...`);
   window.setTimeout(() => {
     window.location.reload();
@@ -264,6 +298,12 @@ function stopOtaProgressFallback() {
 
 function startOtaProgressFallback() {
   stopOtaProgressFallback();
+  otaInProgress = true;
+  otaReloadScheduled = false;
+  otaLastError = false;
+  otaLastStatus = 'downloading';
+  otaLastProgress = 0;
+  otaSessionStartedAt = Date.now();
   otaProgressValue = 0;
   setOtaProgress(0);
   safeSetText(otaStatus, 'downloading');
@@ -334,17 +374,26 @@ function updateOtaUiFromParsed(parsed) {
   const rawStatus = otaSpecificStatus ?? (isOtaMessage ? fallbackStatus : undefined);
   let latestProgress = null;
 
+  if (isOtaMessage) {
+    otaInProgress = true;
+  }
+
   if (typeof rawStatus !== 'undefined' && rawStatus !== null) {
     const statusText = String(rawStatus);
+    otaLastStatus = statusText;
     safeSetText(otaStatus, statusText);
 
-    const terminalStatus = /failed|error|success|completed|done|reboot|pending_reboot/i.test(statusText);
+    const terminalStatus = /failed|error|success|complete|completed|done|reboot|pending_reboot/i.test(statusText);
     if (terminalStatus) {
       stopOtaProgressFallback();
-      if (/success|completed|done|reboot|pending_reboot/i.test(statusText)) {
+      if (/success|complete|completed|done|reboot|pending_reboot/i.test(statusText)) {
         setOtaProgress(100);
+        otaLastProgress = 100;
         latestProgress = 100;
         scheduleOtaReload(statusText, 100);
+      } else if (/failed|error/i.test(statusText)) {
+        otaInProgress = false;
+        otaLastError = true;
       }
     }
   }
@@ -360,7 +409,11 @@ function updateOtaUiFromParsed(parsed) {
       const normalized = value > 0 && value <= 1 ? value * 100 : value;
       stopOtaProgressFallback();
       setOtaProgress(normalized);
+      otaLastProgress = normalized;
       latestProgress = normalized;
+      if (otaInProgress && normalized >= 100) {
+        scheduleOtaReload(otaLastStatus || 'completed', normalized);
+      }
     }
   }
 
@@ -374,8 +427,36 @@ function updateOtaUiFromParsed(parsed) {
   }
 }
 
+window.addEventListener('hottub-ws-close', () => {
+  if (otaReloadScheduled || !otaInProgress) {
+    return;
+  }
+
+  if (otaLastError) {
+    otaInProgress = false;
+    return;
+  }
+
+  const status = String(otaLastStatus || '').toLowerCase();
+  const recentOtaSession = otaSessionStartedAt > 0 && (Date.now() - otaSessionStartedAt) < (20 * 60 * 1000);
+  const likelyRebootTransition = /download_complete|flashing|complete|completed|success|done|reboot|pending_reboot|downloading/.test(status);
+
+  if (recentOtaSession && likelyRebootTransition) {
+    otaReloadScheduled = true;
+    safeSetText(otaStatus, `${otaLastStatus || 'ota'} - reconnecting...`);
+    window.setTimeout(() => {
+      window.location.reload();
+    }, 3000);
+  }
+});
+
 export function renderParsedMessage(parsed, raw) {
-  safeSetText(receiveView, raw);
+  if (showReceivedPayload) {
+    safeSetText(receiveView, raw);
+  } else {
+    safeSetText(receiveView, '');
+  }
+
   if (parsed.valid) {
     safeSetText(stateView, JSON.stringify(parsed.payload, null, 2));
   } else {
@@ -448,6 +529,23 @@ async function hardwareInit() {
   sendBtn.disabled = true;
   safeSetText(otaStatus, 'idle');
   setOtaProgress(0);
+
+  showReceivedPayload = loadReceivePayloadPreference();
+
+  if (receivePayloadToggle) {
+    receivePayloadToggle.checked = showReceivedPayload;
+    if (!showReceivedPayload) {
+      safeSetText(receiveView, '');
+    }
+
+    receivePayloadToggle.addEventListener('change', () => {
+      showReceivedPayload = Boolean(receivePayloadToggle.checked);
+      saveReceivePayloadPreference(showReceivedPayload);
+      if (!showReceivedPayload) {
+        safeSetText(receiveView, '');
+      }
+    });
+  }
 
   if (!window.uPlot) {
     const loaded = await ensureUPlotLoaded();

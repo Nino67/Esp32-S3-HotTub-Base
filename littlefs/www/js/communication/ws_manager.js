@@ -113,7 +113,7 @@ function createWebSocketClient({
             // Update the hottub state with new values
             const newState = parsed.payload.response;
             Object.keys(newState).forEach(key => {
-              if (key in hottub) {
+              if (key in hottub || key.startsWith('ota_')) {
                 hottub[key] = newState[key];
               } else {
                 console.warn(`[updateHotTubState] Unknown property: ${key}`);
@@ -223,6 +223,7 @@ function handleSocketOpen() {
 }
 
 function handleSocketClose() {
+  window.dispatchEvent(new CustomEvent('hottub-ws-close'));
   // setBadge('reconnecting', 'warn');
 //   sendBtn.disabled = true;
 //   if (heatToggle) {

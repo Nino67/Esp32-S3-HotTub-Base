@@ -350,12 +350,32 @@ function system_status_get_callback(payload) {
     statusView.textContent = JSON.stringify(payload, null, 2);
 }
 
+function ota_manager_update_github_callback(payload) {
+    if (payload && payload.response) {
+        const statusView = document.getElementById('systemStatusView');
+        if (statusView) {
+            statusView.textContent = JSON.stringify(payload, null, 2);
+        }
+    }
+}
+
+function ota_manager_update_manifest_callback(payload) {
+    if (payload && payload.response) {
+        const statusView = document.getElementById('systemStatusView');
+        if (statusView) {
+            statusView.textContent = JSON.stringify(payload, null, 2);
+        }
+    }
+}
+
 
 /**
  * @brief Object of callback functions for the hot tub controller commands.
  */
 export const callbacks = {
     "system.status.get": system_status_get_callback,
+    "ota.manager.update.github": ota_manager_update_github_callback,
+    "ota.manager.update.manifest": ota_manager_update_manifest_callback,
     "hottub.status.get": hottub_status_get_callback,
     "hottub.automode.get": hottub_auto_mode_get_callback,
     "hottub.automode.set": hottub_auto_mode_set_callback,

@@ -136,7 +136,15 @@
           <button id="clearSystemStatusBtn">Clear</button>
         </section>
         <div class="debug-row">
-          <strong>Last received payload</strong>
+          <label class="toggle-row" for="receivePayloadToggle">
+            <span class="switch-label">Last received payload</span>
+            <span class="switch-control">
+              <input id="receivePayloadToggle" type="checkbox" class="switch-input" checked />
+              <span class="switch-track">
+                <span class="switch-thumb"></span>
+              </span>
+            </span>
+          </label>
           <pre id="receiveView">waiting for response...</pre>
         </div>
       </section>
