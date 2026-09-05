@@ -1,7 +1,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <time.h>
-// #include <math.h>
+#include <math.h>
 #include "esp_err.h"
 #include "esp_log.h"
 // #include "esp_ota_ops.h"
@@ -240,8 +240,8 @@ static float hottub_controller_temperature_filter(float new_temp, float prev_tem
         alpha = 1.0f;
     }
     
-    // Apply low-pass filter formula and return the filtered temperature
-    return alpha * new_temp + (1.0f - alpha) * prev_temp;
+    // Apply low-pass filter formula and return the filtered temperature round to 1 decimal place
+    return roundf((alpha * new_temp + (1.0f - alpha) * prev_temp) * 10.0f) / 10.0f;
 } // end of hottub_controller_temperature_filter()
 //-----------------------------------------------------------------------------
 
@@ -250,15 +250,12 @@ static float hottub_controller_temperature_filter(float new_temp, float prev_tem
 
 
 
-/**
- * @brief Main loop for the hot tub controller task.
- *
- * This function runs in a FreeRTOS task and continuously monitors the hot tub's state,
- * controlling the heater and pump based on the current temperature, setpoint, and hysteresis values.
- *
- * @param arg Pointer to any arguments passed to the task (not used).
- * @return ESP_OK on successful execution, or an error code on failure.
- */
+
+
+
+
+
+
 void hot_tub_controller_main_task(void *arg)
 {
     HotTubController_t snapshot;
@@ -270,274 +267,420 @@ void hot_tub_controller_main_task(void *arg)
         return;
     }
 
-    // Timing variables for the hot tub main loop
     TickType_t xFrequency = pdMS_TO_TICKS(1000);
     TickType_t xLastWakeTime = xTaskGetTickCount();
 
-    // Track ownership: Did the auto-controller start the pump for heating?
     bool auto_started_pump = false;
-
-    // Timers for pump delays (in seconds)
+    bool was_heating = false;
     int pre_pump_timer = 0;
     int post_pump_timer = 0;
 
-    // Ensure the heater is off at startup
     hot_tub_controller_set_heater_on(false);
-    
-    // Ensure the pump is off at startup
     hot_tub_controller_set_pump_state(PUMP_OFF);
-
-    ESP_LOGW(TAG, "PUMP_STATE: %d", hot_tub_controller_get_pump_state());
-
-    // Default to no simulation mode
     hot_tub_controller_set_simulation_mode(SIM_NONE); 
-    // hot_tub_controller_set_simulation_mode(SIM_TRIANGLE); // For testing, set to triangle wave simulation
- 
-    // Set the safety switch to its default state (false/off) at startup
     hot_tub_controller_set_safety_switch(DEFAULT_SAFETY_SWITCH_STATE);
+    hot_tub_controller_set_error_code(HOT_TUB_ERR_NONE);
 
-    // Clear any error codes at startup
-    hot_tub_controller_set_error_code(HOT_TUB_ERR_NONE); // Clear any error codes at startup
-    esp_err_t err = ESP_OK;
-
-    // Clear the snapshot structure
     memset(&snapshot, 0, sizeof(snapshot));
-    
-    // Set the initial start time to the current time at startup and save in in the NVS
     get_current_time(snapshot.initialStartTime, sizeof(snapshot.initialStartTime));
     hot_tub_controller_set_initial_start_time(snapshot.initialStartTime);
 
-
     while (1) 
     {
-        /******** Start of controller loop (read and verify) temperature ********/
+        xTaskDelayUntil(&xLastWakeTime, xFrequency);
+        app_watchdog_feed_current_task();
 
-        // Wait for the next cycle (1Hz).
-        xTaskDelayUntil( &xLastWakeTime, xFrequency );
-
-
-        if (app_watchdog_feed_current_task() != ESP_OK)
-        {
-            ESP_LOGW(TAG, "hot tub controller main task failed to feed watchdog");
-        }
-
-        // Take a snapshot of the current state.
-        if (hot_tub_controller_snapshot_get(&snapshot) != ESP_OK) 
-        {
-            ESP_LOGE(TAG, "State lock timed out; skipping control cycle");
-            app_watchdog_feed_current_task();
+        if (hot_tub_controller_snapshot_get(&snapshot) != ESP_OK) {
             continue;
         }   
-        
-        // If simulation mode is enabled, simulate temperature instead 
-        if (snapshot.simulationMode != SIM_NONE)
-        {
-            // Simulated temperature reading
-            // snapshot.waterTemp = get_simulated_temperature();
-            ESP_LOGI(TAG, "Simulated water temperature:");
-        }
-        else 
-        {
-            // Pass the water_temp to the filter function to get the filtered temperature
+
+        // Temperature filtering
+        if (snapshot.simulationMode == SIM_NONE) {
             snapshot.filteredWaterTemp = hottub_controller_temperature_filter(snapshot.waterTemp, snapshot.filteredWaterTemp, 0.1f);
         } 
 
-        // if (snapshot.safetySwitch == SAFETY_SWITCH_OFF) 
-        // {
-        //     // Safety switch is OFF, disable heater and pump
-        //     if (snapshot.heaterOn) 
-        //     {
-        //         snapshot.heaterOn = false;
-        //         ESP_LOGW(TAG, "Safety switch OFF: Heater turned OFF");
-        //     }
-        //     if (snapshot.pumpState != PUMP_OFF) 
-        //     {
-        //         snapshot.pumpState = PUMP_OFF;
-        //         ESP_LOGW(TAG, "Safety switch OFF: Pump turned OFF");
-        //     }
-        // }
-
-
-        /******** Start of auto temperature control logic ********/
-
-        // --- AUTO TEMPERATURE CONTROL LOGIC ---
-        if(snapshot.autoMode) 
-        {
-            ESP_LOGI(TAG, "Auto temperature control enabled. Current water temp: %.2f, Setpoint: %.2f", snapshot.waterTemp, snapshot.setpointTemp);
-            
-            // Verify hysteresis values are within safe limits
-            if (hot_tub_controller_verify_hysteresis(&snapshot) != ESP_OK) 
-            {
-                ESP_LOGE(TAG, "Failed to verify hysteresis");
-            }
-                    
-            // Verify pump delay times are within safe limits
-            if (hot_tub_controller_verify_pump_delay_times(&snapshot) != ESP_OK) 
-            {
-                ESP_LOGE(TAG, "Failed to verify pump delay times: %s", esp_err_to_name(err));
-            }
-
-            bool needs_heat = (snapshot.waterTemp < snapshot.setpointTemp - snapshot.lowHysteresis);
-            bool heat_satisfied = (snapshot.waterTemp > snapshot.setpointTemp + snapshot.highHysteresis);
-  
-            // --- HEATING LOGIC ---
-            if (needs_heat) 
-            {
-                if (snapshot.heaterOn) 
-                {
-                    // Already heating, keep going.
-                    ESP_LOGI(TAG, "Heating in progress. Current water temp: %.2f, Setpoint: %.2f", snapshot.waterTemp, snapshot.setpointTemp);
-                } 
-                else  
-                {
-                    ESP_LOGI(TAG, "Heating required. Current water temp: %.2f, Setpoint: %.2f", snapshot.waterTemp, snapshot.setpointTemp);
-                    
-                    // We need to start heating. Check if pump is running.
-                    if (snapshot.pumpState != PUMP_OFF)
-                    {
-                        // Pump is running.
-                        // Logic: If WE started it (auto_started_pump) and timer is ticking, we wait.
-                        //        If USER started it (pump_running check passed but auto_started_pump might be false), 
-                        //        OR if timer is finished, we heat immediately.
-                        if (auto_started_pump && pre_pump_timer > 0) 
-                        {
-                            // Wait for our pre-pump timer to finish.
-                            ESP_LOGI(TAG, "Waiting for pre-pump delay: %d", pre_pump_timer);
-                        } 
-                        else 
-                        {
-                            // Ready to heat.
-                            // If user started pump manually, 'auto_started_pump' is false. 
-                            // We turn heater ON and do NOT claim 'auto_started_pump' (so we don't shut it off later).
-                            // If we started it, timer is 0 now.
-                            snapshot.heaterOn = true;
-                            ESP_LOGI(TAG, "Heater turned ON");
-                        } // End of if (auto_started_pump && pre_pump_timer > 0)
-
-                    } 
-                    else // Pump is OFF. We need to start it first. 
-                    {
-                        // Pump is OFF. Start sequence.
-                        snapshot.pumpState = PUMP_LOW; // Start pump
-                        auto_started_pump = true;      // Claim ownership
-                        pre_pump_timer = snapshot.pumpPreRunTime;    // Start delay
-                        ESP_LOGI(TAG, "Pump started for heating. Pre-delay: %d s", pre_pump_timer);
-                    } // End of if (snapshot.heaterOn)
-                } // End of if (snapshot.pumpState != PUMP_OFF)
-            } // End of if(needs_heat)
-            //---------------------------------------------------------------------
-            // --- COOLING / SATISFIED LOGIC ---
-            else if (heat_satisfied) 
-            {
-                if (snapshot.heaterOn) 
-                {
-                    // Turn Heater OFF first
-                    snapshot.heaterOn = false;
-                    ESP_LOGI(TAG, "Heater turned OFF");
-
-                    // If we own the pump, engage cooldown.
-                    if (auto_started_pump) 
-                    {
-                        post_pump_timer = snapshot.pumpPostRunTime;
-                        ESP_LOGI(TAG, "Starting post-heat cool down: %d s", snapshot.pumpPostRunTime);
-                    } 
-                    else 
-                    {
-                        // Manual mode: Leave pump running.
-                        ESP_LOGI(TAG, "Pump left ON (User Manual Mode)");
-                    }
-                }
-            } // End of else if(heat_satisfied) 
-            //---------------------------------------------------------------------
-            // --- PUMP SHUTDOWN LOGIC (runs every loop) ---
-            // Shut down the pump if:
-            // 1. Heater is OFF (safety)
-            // 2. WE started it (auto_started_pump)
-            // 3. Post-heat delay has expired (post_pump_timer == 0)
-            // 4. We do NOT currently need heat (prevents shutdown during pre-heat delay)
-            if (!snapshot.heaterOn && auto_started_pump && post_pump_timer == 0 && !needs_heat && pre_pump_timer == 0) 
-            {
-                snapshot.pumpState = PUMP_OFF;
-                auto_started_pump = false;
-                ESP_LOGI(TAG, "Pump turned OFF (Cool down complete)");
-            }
-            // Else (In Deadband): Do nothing, maintain state.
-            
-            // --- SAFETY INTERLOCK (runs every loop) ---
-            // CRITICAL: Ensure pump is NEVER off when heater is on
-            if (snapshot.heaterOn && snapshot.pumpState == PUMP_OFF) 
-            {
-                ESP_LOGE(TAG, "SAFETY VIOLATION: Heater ON with pump OFF! Forcing pump to LOW.");
-                snapshot.pumpState = PUMP_LOW;
-                auto_started_pump = true; // Claim ownership for safety
-            }
-        } 
-        else // Else of if(snapshot.autoMode) 
-        {
-            // Auto temp is disabled - clean up any auto-started equipment
-            if (auto_started_pump) 
-            {
-                // Turn off heater if it's on
-                if (snapshot.heaterOn) 
-                {
-                    snapshot.heaterOn = false;
-                    ESP_LOGI(TAG, "Heater turned OFF (auto_temp disabled)");
-                }
-                // Turn off pump if we started it
-                if (snapshot.pumpState != PUMP_OFF) 
-                {
-                    snapshot.pumpState = PUMP_OFF;
-                    ESP_LOGI(TAG, "Pump turned OFF (auto_temp disabled)");
-                }
-                auto_started_pump = false;
-                pre_pump_timer = 0;
-                post_pump_timer = 0;
-
-            } // End of if(auto_started_pump)
-        } // End of else (autoMode disabled)
-        
-        // Decrement timers after logic 
-        // { later on need to isolate and actually use seconds }
+        // Decrement timers once per 1Hz loop
         if (pre_pump_timer > 0) pre_pump_timer--;
         if (post_pump_timer > 0) post_pump_timer--;
-        
-        // if (ntp_utils_time_get_local(&now_tm) == ESP_OK) {
 
-        // // Update timestamp
-        // struct tm now_time;
-        // if (ntp_utils_time_get_local(&now_time) == ESP_OK) 
-        // {
-        //     // Convert struct tm to time_t
-        //     time_t now_epoch = mktime(&now_time);
-        //     snapshot.lastUpdateTime = now_epoch;
-        // } 
-        // else 
-        // {
-        //     ESP_LOGW(TAG, "Failed to get local time"); 
-        //     snapshot.lastUpdateTime = time(NULL); // Fallback to system time
-        // }
-
-        // Save the updated snapshot back to the controller state
-        err = hot_tub_controller_snapshot_set(&snapshot);
-        if (err != ESP_OK) {
-            ESP_LOGE(TAG, "Failed to save hot tub controller snapshot: %s", esp_err_to_name(err));
-        }
-
-        // // Call to update the GPIOs based on the new state
-        // err = hot_tub_controller_gpio_update(&snapshot);
-        // if (err != ESP_OK) {
-        //     ESP_LOGE(TAG, "Failed to update GPIOs: %s", esp_err_to_name(err));
-        // }   
-        
-        if (app_watchdog_feed_current_task() != ESP_OK)
+        // =================================================================
+        // 1. MANUAL OVERRIDE & HARDWARE SAFETY INTERLOCK
+        // =================================================================
+        if (snapshot.pumpState == PUMP_OFF && snapshot.heaterOn) 
         {
-            ESP_LOGW(TAG, "hot tub controller main task failed to feed watchdog");
+            snapshot.heaterOn = false;   // Turn off heater immediately
+            auto_started_pump = false;  // Release auto ownership
+            pre_pump_timer = 0;         // Cancel pre-delay
+            ESP_LOGW(TAG, "Pump stopped during heating. Shutting down heater.");
         }
 
-     } // End of hot_tub_controller_main_task while(1) loop 
+        // =================================================================
+        // 2. AUTO TEMPERATURE CONTROL LOGIC
+        // =================================================================
+        if (snapshot.autoMode) 
+        {
+            hot_tub_controller_verify_hysteresis(&snapshot);
+            hot_tub_controller_verify_pump_delay_times(&snapshot);
 
-} // end of hot_tub_controller_main_loop()
-//-----------------------------------------------------------------------------
+            bool needs_heat = (snapshot.filteredWaterTemp < (snapshot.setpointTemp - snapshot.lowHysteresis));
+            bool heat_satisfied = (snapshot.filteredWaterTemp > (snapshot.setpointTemp + snapshot.highHysteresis));
+
+            // --- HEATING REQUEST ---
+            if (needs_heat && post_pump_timer == 0) 
+            {
+                if (!snapshot.heaterOn) 
+                {
+                    if (snapshot.pumpState == PUMP_OFF && pre_pump_timer == 0) {
+                        snapshot.pumpState = PUMP_LOW;
+                        auto_started_pump = true;
+                        pre_pump_timer = (int)snapshot.pumpPreRunTime;
+                        ESP_LOGI(TAG, "Pump started for heating. Pre-delay: %d s", pre_pump_timer);
+                    } 
+                    else if (snapshot.pumpState != PUMP_OFF && pre_pump_timer == 0 && !auto_started_pump) {
+                        auto_started_pump = true; // Claim ownership
+                        pre_pump_timer = (int)snapshot.pumpPreRunTime;
+                        ESP_LOGI(TAG, "Pump running manually. Arming pre-delay: %d s", pre_pump_timer);
+                    }
+                    else if (pre_pump_timer == 0) {
+                        snapshot.heaterOn = true;
+                        ESP_LOGI(TAG, "Pre-purge complete. Heater turned ON.");
+                    }
+                }
+            } 
+            // --- HEAT SATISFIED ---
+            else if (heat_satisfied) 
+            {
+                pre_pump_timer = 0;
+
+                if (snapshot.heaterOn) {
+                    snapshot.heaterOn = false; // Falling-edge detector will trigger post_pump_timer below
+                    ESP_LOGI(TAG, "Setpoint reached. Turning heater OFF.");
+                }
+            }
+        } 
+        else // AutoMode Disabled
+        {
+            if (snapshot.heaterOn) {
+                snapshot.heaterOn = false;
+            }
+
+            pre_pump_timer = 0;
+        }
+
+        // =================================================================
+        // 3. FALLING-EDGE HEATER DETECTOR & POST-PURGE EXECUTION
+        // =================================================================
+        if (was_heating && !snapshot.heaterOn) 
+        {
+            post_pump_timer = (int)snapshot.pumpPostRunTime;
+            pre_pump_timer = 0; // Abort pre-purge
+            ESP_LOGW(TAG, "Heater shut down! Enforcing post-purge cooldown for %d s", post_pump_timer);
+        }
+        
+        was_heating = snapshot.heaterOn;
+
+        // Keep pump running on LOW while post_pump_timer is active
+        if (post_pump_timer > 0) 
+        {
+            snapshot.pumpState = PUMP_LOW;
+        }
+        // ONLY shut down pump if post_purge is finished AND we aren't currently in pre-purge delay!
+        else if (post_pump_timer == 0 && pre_pump_timer == 0 && auto_started_pump && !snapshot.heaterOn) 
+        {
+            snapshot.pumpState = PUMP_OFF;
+            auto_started_pump = false;
+            ESP_LOGI(TAG, "Post-purge complete. Auto-pump turned OFF.");
+        }
+
+        // =================================================================
+        // 4. PERSIST STATE TO SYSTEM & SETTERS
+        // =================================================================
+        hot_tub_controller_set_heater_on(snapshot.heaterOn);
+        hot_tub_controller_set_pump_state(snapshot.pumpState);
+        hot_tub_controller_snapshot_set(&snapshot);
+
+        app_watchdog_feed_current_task();
+    }
+}
+
+
+
+
+
+
+// /**
+//  * @brief Main loop for the hot tub controller task.
+//  *
+//  * This function runs in a FreeRTOS task and continuously monitors the hot tub's state,
+//  * controlling the heater and pump based on the current temperature, setpoint, and hysteresis values.
+//  *
+//  * @param arg Pointer to any arguments passed to the task (not used).
+//  * @return ESP_OK on successful execution, or an error code on failure.
+//  */
+// void hot_tub_controller_main_task(void *arg)
+// {
+//     HotTubController_t snapshot;
+
+//     if (app_watchdog_register_current_task("hot_tub_control") != ESP_OK)
+//     {
+//         ESP_LOGE(TAG, "Failed to register controller task with watchdog");
+//         vTaskDelete(NULL);
+//         return;
+//     }
+
+//     // Timing variables for the hot tub main loop
+//     TickType_t xFrequency = pdMS_TO_TICKS(1000);
+//     TickType_t xLastWakeTime = xTaskGetTickCount();
+
+//     // Track ownership: Did the auto-controller start the pump for heating?
+//     bool auto_started_pump = false;
+
+//     // Timers for pump delays (in seconds)
+//     int pre_pump_timer = 0;
+//     int post_pump_timer = 0;
+
+//     // Ensure the heater is off at startup
+//     hot_tub_controller_set_heater_on(false);
+    
+//     // Ensure the pump is off at startup
+//     hot_tub_controller_set_pump_state(PUMP_OFF);
+
+//     ESP_LOGW(TAG, "PUMP_STATE: %d", hot_tub_controller_get_pump_state());
+
+//     // Default to no simulation mode
+//     hot_tub_controller_set_simulation_mode(SIM_NONE); 
+//     // hot_tub_controller_set_simulation_mode(SIM_TRIANGLE); // For testing, set to triangle wave simulation
+ 
+//     // Set the safety switch to its default state (false/off) at startup
+//     hot_tub_controller_set_safety_switch(DEFAULT_SAFETY_SWITCH_STATE);
+
+//     // Clear any error codes at startup
+//     hot_tub_controller_set_error_code(HOT_TUB_ERR_NONE); // Clear any error codes at startup
+//     esp_err_t err = ESP_OK;
+
+//     // Clear the snapshot structure
+//     memset(&snapshot, 0, sizeof(snapshot));
+    
+//     // Set the initial start time to the current time at startup and save in in the NVS
+//     get_current_time(snapshot.initialStartTime, sizeof(snapshot.initialStartTime));
+//     hot_tub_controller_set_initial_start_time(snapshot.initialStartTime);
+
+
+//     while (1) 
+//     {
+//         /******** Start of controller loop (read and verify) temperature ********/
+
+//         // Wait for the next cycle (1Hz).
+//         xTaskDelayUntil( &xLastWakeTime, xFrequency );
+
+
+//         if (app_watchdog_feed_current_task() != ESP_OK)
+//         {
+//             ESP_LOGW(TAG, "hot tub controller main task failed to feed watchdog");
+//         }
+
+//         // Take a snapshot of the current state.
+//         if (hot_tub_controller_snapshot_get(&snapshot) != ESP_OK) 
+//         {
+//             ESP_LOGE(TAG, "State lock timed out; skipping control cycle");
+//             app_watchdog_feed_current_task();
+//             continue;
+//         }   
+        
+//         // If simulation mode is enabled, simulate temperature instead 
+//         if (snapshot.simulationMode != SIM_NONE)
+//         {
+//             // Simulated temperature reading
+//             // snapshot.waterTemp = get_simulated_temperature();
+//             ESP_LOGI(TAG, "Simulated water temperature:");
+//         }
+//         else 
+//         {
+//             // Pass the water_temp to the filter function to get the filtered temperature
+//             snapshot.filteredWaterTemp = hottub_controller_temperature_filter(snapshot.waterTemp, snapshot.filteredWaterTemp, 0.1f);
+//         } 
+
+//         // if (snapshot.safetySwitch == SAFETY_SWITCH_OFF) 
+//         // {
+//         //     // Safety switch is OFF, disable heater and pump
+//         //     if (snapshot.heaterOn) 
+//         //     {
+//         //         snapshot.heaterOn = false;
+//         //         ESP_LOGW(TAG, "Safety switch OFF: Heater turned OFF");
+//         //     }
+//         //     if (snapshot.pumpState != PUMP_OFF) 
+//         //     {
+//         //         snapshot.pumpState = PUMP_OFF;
+//         //         ESP_LOGW(TAG, "Safety switch OFF: Pump turned OFF");
+//         //     }
+//         // }
+
+
+//         /******** Start of auto temperature control logic ********/
+
+//         // --- AUTO TEMPERATURE CONTROL LOGIC ---
+//         if(snapshot.autoMode) 
+//         {
+//             ESP_LOGI(TAG, "Auto temperature control enabled. Current water temp: %.2f, Setpoint: %.2f", snapshot.waterTemp, snapshot.setpointTemp);
+            
+//             // Verify hysteresis values are within safe limits
+//             if (hot_tub_controller_verify_hysteresis(&snapshot) != ESP_OK) 
+//             {
+//                 ESP_LOGE(TAG, "Failed to verify hysteresis");
+//             }
+                    
+//             // Verify pump delay times are within safe limits
+//             if (hot_tub_controller_verify_pump_delay_times(&snapshot) != ESP_OK) 
+//             {
+//                 ESP_LOGE(TAG, "Failed to verify pump delay times: %s", esp_err_to_name(err));
+//             }
+
+//             bool needs_heat = (snapshot.waterTemp < snapshot.setpointTemp - snapshot.lowHysteresis);
+//             bool heat_satisfied = (snapshot.waterTemp > snapshot.setpointTemp + snapshot.highHysteresis);
+  
+//             // --- HEATING LOGIC ---
+//             if (needs_heat) 
+//             {
+//                 if (snapshot.heaterOn) 
+//                 {
+//                     // Already heating, keep going.
+//                     ESP_LOGI(TAG, "Heating in progress. Current water temp: %.2f, Setpoint: %.2f", snapshot.waterTemp, snapshot.setpointTemp);
+//                 } 
+//                 else  
+//                 {
+//                     ESP_LOGI(TAG, "Heating required. Current water temp: %.2f, Setpoint: %.2f", snapshot.waterTemp, snapshot.setpointTemp);
+                    
+//                     // We need to start heating. Check if pump is running.
+//                     if (snapshot.pumpState != PUMP_OFF)
+//                     {
+//                         // Pump is running.
+//                         // Logic: If WE started it (auto_started_pump) and timer is ticking, we wait.
+//                         //        If USER started it (pump_running check passed but auto_started_pump might be false), 
+//                         //        OR if timer is finished, we heat immediately.
+//                         if (auto_started_pump && pre_pump_timer > 0) 
+//                         {
+//                             // Wait for our pre-pump timer to finish.
+//                             ESP_LOGI(TAG, "Waiting for pre-pump delay: %d", pre_pump_timer);
+//                         } 
+//                         else 
+//                         {
+//                             // Ready to heat.
+//                             // If user started pump manually, 'auto_started_pump' is false. 
+//                             // We turn heater ON and do NOT claim 'auto_started_pump' (so we don't shut it off later).
+//                             // If we started it, timer is 0 now.
+//                             snapshot.heaterOn = true;
+//                             ESP_LOGI(TAG, "Heater turned ON");
+//                         } // End of if (auto_started_pump && pre_pump_timer > 0)
+
+//                     } 
+//                     else // Pump is OFF. We need to start it first. 
+//                     {
+//                         // Pump is OFF. Start sequence.
+//                         snapshot.pumpState = PUMP_LOW; // Start pump
+//                         auto_started_pump = true;      // Claim ownership
+//                         pre_pump_timer = snapshot.pumpPreRunTime;    // Start delay
+//                         ESP_LOGI(TAG, "Pump started for heating. Pre-delay: %d s", pre_pump_timer);
+//                     } // End of if (snapshot.heaterOn)
+//                 } // End of if (snapshot.pumpState != PUMP_OFF)
+//             } // End of if(needs_heat)
+//             //---------------------------------------------------------------------
+//             // --- COOLING / SATISFIED LOGIC ---
+//             else if (heat_satisfied) 
+//             {
+//                 if (snapshot.heaterOn) 
+//                 {
+//                     // Turn Heater OFF first
+//                     snapshot.heaterOn = false;
+//                     ESP_LOGI(TAG, "Heater turned OFF");
+
+//                     // If we own the pump, engage cooldown.
+//                     if (auto_started_pump) 
+//                     {
+//                         post_pump_timer = snapshot.pumpPostRunTime;
+//                         ESP_LOGI(TAG, "Starting post-heat cool down: %d s", snapshot.pumpPostRunTime);
+//                     } 
+//                     else 
+//                     {
+//                         // Manual mode: Leave pump running.
+//                         ESP_LOGI(TAG, "Pump left ON (User Manual Mode)");
+//                     }
+//                 }
+//             } // End of else if(heat_satisfied) 
+//             //---------------------------------------------------------------------
+//             // --- PUMP SHUTDOWN LOGIC (runs every loop) ---
+//             // Shut down the pump if:
+//             // 1. Heater is OFF (safety)
+//             // 2. WE started it (auto_started_pump)
+//             // 3. Post-heat delay has expired (post_pump_timer == 0)
+//             // 4. We do NOT currently need heat (prevents shutdown during pre-heat delay)
+//             if (!snapshot.heaterOn && auto_started_pump && post_pump_timer == 0 && !needs_heat && pre_pump_timer == 0) 
+//             {
+//                 snapshot.pumpState = PUMP_OFF;
+//                 auto_started_pump = false;
+//                 ESP_LOGI(TAG, "Pump turned OFF (Cool down complete)");
+//             }
+//             // Else (In Deadband): Do nothing, maintain state.
+            
+//             // --- SAFETY INTERLOCK (runs every loop) ---
+//             // CRITICAL: Ensure pump is NEVER off when heater is on
+//             if (snapshot.heaterOn && snapshot.pumpState == PUMP_OFF) 
+//             {
+//                 ESP_LOGE(TAG, "SAFETY VIOLATION: Heater ON with pump OFF! Forcing pump to LOW.");
+//                 snapshot.pumpState = PUMP_LOW;
+//                 auto_started_pump = true; // Claim ownership for safety
+//             }
+//         } 
+//         else // Else of if(snapshot.autoMode) 
+//         {
+//             // Auto temp is disabled - clean up any auto-started equipment
+//             if (auto_started_pump) 
+//             {
+//                 // Turn off heater if it's on
+//                 if (snapshot.heaterOn) 
+//                 {
+//                     snapshot.heaterOn = false;
+//                     ESP_LOGI(TAG, "Heater turned OFF (auto_temp disabled)");
+//                 }
+//                 // Turn off pump if we started it
+//                 if (snapshot.pumpState != PUMP_OFF) 
+//                 {
+//                     snapshot.pumpState = PUMP_OFF;
+//                     ESP_LOGI(TAG, "Pump turned OFF (auto_temp disabled)");
+//                 }
+//                 auto_started_pump = false;
+//                 pre_pump_timer = 0;
+//                 post_pump_timer = 0;
+
+//             } // End of if(auto_started_pump)
+//         } // End of else (autoMode disabled)
+        
+//         // Decrement timers after logic 
+//         // { later on need to isolate and actually use seconds }
+//         if (pre_pump_timer > 0) pre_pump_timer--;
+//         if (post_pump_timer > 0) post_pump_timer--;
+        
+    
+//         // Save the updated snapshot back to the controller state
+//         err = hot_tub_controller_snapshot_set(&snapshot);
+//         if (err != ESP_OK) {
+//             ESP_LOGE(TAG, "Failed to save hot tub controller snapshot: %s", esp_err_to_name(err));
+//         }
+
+//         // // Call to update the GPIOs based on the new state
+//         // err = hot_tub_controller_gpio_update(&snapshot);
+//         // if (err != ESP_OK) {
+//         //     ESP_LOGE(TAG, "Failed to update GPIOs: %s", esp_err_to_name(err));
+//         // }   
+        
+//         if (app_watchdog_feed_current_task() != ESP_OK)
+//         {
+//             ESP_LOGW(TAG, "hot tub controller main task failed to feed watchdog");
+//         }
+
+//      } // End of hot_tub_controller_main_task while(1) loop 
+
+// } // end of hot_tub_controller_main_loop()
+// //-----------------------------------------------------------------------------
 
 
 

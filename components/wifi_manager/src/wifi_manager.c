@@ -103,6 +103,17 @@ static void wifi_event_handler(void *arg, esp_event_base_t event_base, int32_t e
     else if (event_base == IP_EVENT && event_id == IP_EVENT_STA_GOT_IP)
     {
         const ip_event_got_ip_t *event = (const ip_event_got_ip_t *)event_data;
+
+        esp_err_t ps_err = esp_wifi_set_ps(WIFI_PS_NONE);
+        if (ps_err != ESP_OK)
+        {
+            ESP_LOGW(TAG, "Failed to disable STA power-save after IP: %s", esp_err_to_name(ps_err));
+        }
+        else
+        {
+            ESP_LOGI(TAG, "STA power-save disabled (WIFI_PS_NONE)");
+        }
+
         lock_state();
         s_status.sta_connected = true;
         update_sta_ip(event);

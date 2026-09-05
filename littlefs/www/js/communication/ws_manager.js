@@ -68,8 +68,6 @@ function createWebSocketClient({
     }, Math.max(1000, Math.floor(messageTimeoutMs / 3)));
   }
 
-
-
   /**
    * Connect to the WebSocket server.
    */

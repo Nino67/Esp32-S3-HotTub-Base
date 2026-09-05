@@ -234,8 +234,8 @@ function setPumpControlState(level, pending = false) {
 
 
 function syncControlStateFromPayload(response = {}) {
-  if (typeof response.heaterOn === 'boolean' && heatToggle) {
-    setHeatControlState(response.heaterOn, false);
+  if (typeof response.autoMode === 'boolean' && heatToggle) {
+    setHeatControlState(response.autoMode, false);
   }
 
   if (typeof response.pumpState !== 'undefined' && pumpModeInputs.length) {
@@ -575,8 +575,8 @@ async function hardwareInit() {
     heatToggle.addEventListener('change', () => {
       const desiredState = heatToggle.checked;
       setHeatControlState(desiredState, true);
-      sendHotTubCommand('hottub.heater.status.set', {
-        'heaterOn': desiredState,
+      sendHotTubCommand('hottub.automode.set', {
+        'autoMode': desiredState,
       });
     });
   }

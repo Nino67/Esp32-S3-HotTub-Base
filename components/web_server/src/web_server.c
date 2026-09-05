@@ -25,13 +25,18 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdbool.h>
+#include <stdint.h>
+#include <errno.h>
 
 #include "esp_check.h"
 #include "esp_http_server.h"
 #include "esp_littlefs.h"
 #include "esp_log.h"
 #include "esp_ota_ops.h"
+#include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
+#include "freertos/semphr.h"
 #include "freertos/task.h"
 #include "cJSON.h"
 
@@ -50,8 +55,18 @@ static const char *LFS_BASE_PATH = "/littlefs";
 static const char *LFS_INDEX = "/littlefs/www/index.html";
 static httpd_handle_t s_server;
 static int s_ws_clients[4];
+static uint8_t s_ws_fail_count[4];
+static uint8_t s_ws_send_inflight[4];
+static int64_t s_ws_retry_after_us[4];
+static int64_t s_ws_last_ok_us[4];
+static SemaphoreHandle_t s_ws_mutex;
 // static TaskHandle_t s_state_broadcast_task;
 //------------------------------------------------------------------------------
+
+typedef struct {
+    int fd;
+    char *payload;
+} ws_async_send_ctx_t;
 
 esp_err_t web_server_ota_update_requested(cJSON *);
 
@@ -304,18 +319,44 @@ static void ota_update_task(void *arg)
 
 static void track_client(int fd)
 {
+    if (fd <= 0 || s_ws_mutex == NULL)
+    {
+        return;
+    }
+
+    if (xSemaphoreTake(s_ws_mutex, pdMS_TO_TICKS(100)) != pdTRUE)
+    {
+        ESP_LOGW(TAG, "track_client mutex timeout");
+        return;
+    }
+
+    const int64_t now_us = esp_timer_get_time();
+
     for (size_t i = 0; i < sizeof(s_ws_clients) / sizeof(s_ws_clients[0]); ++i)
     {
         if (s_ws_clients[i] == fd)
         {
+            s_ws_fail_count[i] = 0;
+            s_ws_send_inflight[i] = 0;
+            s_ws_retry_after_us[i] = 0;
+            s_ws_last_ok_us[i] = now_us;
+            xSemaphoreGive(s_ws_mutex);
             return;
         }
         if (s_ws_clients[i] == 0)
         {
             s_ws_clients[i] = fd;
+            s_ws_fail_count[i] = 0;
+            s_ws_send_inflight[i] = 0;
+            s_ws_retry_after_us[i] = 0;
+            s_ws_last_ok_us[i] = now_us;
+            xSemaphoreGive(s_ws_mutex);
             return;
         }
     }
+
+    xSemaphoreGive(s_ws_mutex);
+    ESP_LOGW(TAG, "WS client table full, cannot track fd=%d", fd);
 } // End of track_client
 //-----------------------------------------------------------------------------
 
@@ -328,16 +369,98 @@ static void track_client(int fd)
  */
 static void untrack_client(int fd)
 {
+    if (fd <= 0 || s_ws_mutex == NULL)
+    {
+        return;
+    }
+
+    if (xSemaphoreTake(s_ws_mutex, pdMS_TO_TICKS(100)) != pdTRUE)
+    {
+        ESP_LOGW(TAG, "untrack_client mutex timeout");
+        return;
+    }
+
     for (size_t i = 0; i < sizeof(s_ws_clients) / sizeof(s_ws_clients[0]); ++i)
     {
         if (s_ws_clients[i] == fd)
         {
             s_ws_clients[i] = 0;
+            s_ws_fail_count[i] = 0;
+            s_ws_send_inflight[i] = 0;
+            s_ws_retry_after_us[i] = 0;
+            s_ws_last_ok_us[i] = 0;
+            xSemaphoreGive(s_ws_mutex);
             return;
         }
     }
+
+    xSemaphoreGive(s_ws_mutex);
 } // End of untrack_client
 //-----------------------------------------------------------------------------
+
+static void clear_client_slot_by_fd(int fd, bool close_session)
+{
+    if (fd <= 0 || s_ws_mutex == NULL)
+    {
+        return;
+    }
+
+    if (xSemaphoreTake(s_ws_mutex, pdMS_TO_TICKS(100)) != pdTRUE)
+    {
+        ESP_LOGW(TAG, "clear_client_slot_by_fd mutex timeout");
+        return;
+    }
+
+    for (size_t i = 0; i < sizeof(s_ws_clients) / sizeof(s_ws_clients[0]); ++i)
+    {
+        if (s_ws_clients[i] == fd)
+        {
+            s_ws_clients[i] = 0;
+            s_ws_fail_count[i] = 0;
+            s_ws_send_inflight[i] = 0;
+            s_ws_retry_after_us[i] = 0;
+            s_ws_last_ok_us[i] = 0;
+            break;
+        }
+    }
+
+    xSemaphoreGive(s_ws_mutex);
+
+    if (close_session && s_server != NULL)
+    {
+        httpd_sess_trigger_close(s_server, fd);
+    }
+}
+
+static void ws_async_send_complete(esp_err_t err, int socket, void *arg)
+{
+    ws_async_send_ctx_t *ctx = (ws_async_send_ctx_t *)arg;
+
+    if (s_ws_mutex != NULL && xSemaphoreTake(s_ws_mutex, pdMS_TO_TICKS(100)) == pdTRUE)
+    {
+        for (size_t i = 0; i < sizeof(s_ws_clients) / sizeof(s_ws_clients[0]); ++i)
+        {
+            if (s_ws_clients[i] == socket)
+            {
+                s_ws_send_inflight[i] = 0;
+                if (err == ESP_OK)
+                {
+                    s_ws_fail_count[i] = 0;
+                    s_ws_retry_after_us[i] = 0;
+                    s_ws_last_ok_us[i] = esp_timer_get_time();
+                }
+                break;
+            }
+        }
+        xSemaphoreGive(s_ws_mutex);
+    }
+
+    if (ctx != NULL)
+    {
+        free(ctx->payload);
+        free(ctx);
+    }
+}
 
 
 
@@ -446,6 +569,16 @@ esp_err_t web_server_start(void)
     }
 
     ESP_RETURN_ON_ERROR(mount_littlefs(), TAG, "littlefs mount failed");
+
+    if (s_ws_mutex == NULL)
+    {
+        s_ws_mutex = xSemaphoreCreateMutex();
+        if (s_ws_mutex == NULL)
+        {
+            ESP_LOGE(TAG, "Failed to create WS mutex");
+            return ESP_ERR_NO_MEM;
+        }
+    }
 
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
     config.stack_size = 8192;
@@ -561,7 +694,7 @@ esp_err_t web_server_start(void)
  */
 esp_err_t web_server_broadcast_json(const char *json)
 {
-    if (!s_server || !json)
+    if (!s_server || !json || s_ws_mutex == NULL)
     {
         return ESP_ERR_INVALID_STATE;
     }
@@ -572,23 +705,168 @@ esp_err_t web_server_broadcast_json(const char *json)
         .len = strlen(json),
     };
 
-    esp_err_t result = ESP_OK;
-    for (size_t i = 0; i < sizeof(s_ws_clients) / sizeof(s_ws_clients[0]); ++i)
+    const size_t ws_slots = sizeof(s_ws_clients) / sizeof(s_ws_clients[0]);
+    int client_fds[4] = {0};
+    int64_t retry_after_us[4] = {0};
+    int64_t last_ok_us[4] = {0};
+    uint8_t send_inflight[4] = {0};
+    const int64_t now_us = esp_timer_get_time();
+
+    if (xSemaphoreTake(s_ws_mutex, pdMS_TO_TICKS(100)) != pdTRUE)
     {
-        if (s_ws_clients[i] != 0)
+        ESP_LOGW(TAG, "broadcast mutex timeout");
+        return ESP_OK;
+    }
+
+    for (size_t i = 0; i < ws_slots; ++i)
+    {
+        client_fds[i] = s_ws_clients[i];
+        retry_after_us[i] = s_ws_retry_after_us[i];
+        last_ok_us[i] = s_ws_last_ok_us[i];
+        send_inflight[i] = s_ws_send_inflight[i];
+    }
+    xSemaphoreGive(s_ws_mutex);
+
+    size_t active_clients = 0;
+    size_t successful_sends = 0;
+    size_t hard_failures = 0;
+
+    for (size_t i = 0; i < ws_slots; ++i)
+    {
+        int client_fd = client_fds[i];
+        if (client_fd > 0)
         {
-            int client_fd = s_ws_clients[i];
-            esp_err_t err = httpd_ws_send_frame_async(s_server, client_fd, &frame);
+            active_clients++;
+
+            if (send_inflight[i] != 0)
+            {
+                continue;
+            }
+
+            if (retry_after_us[i] > now_us)
+            {
+                continue;
+            }
+
+            if (httpd_ws_get_fd_info(s_server, client_fd) != HTTPD_WS_CLIENT_WEBSOCKET)
+            {
+                clear_client_slot_by_fd(client_fd, false);
+                continue;
+            }
+
+            ws_async_send_ctx_t *ctx = calloc(1, sizeof(ws_async_send_ctx_t));
+            if (ctx == NULL)
+            {
+                continue;
+            }
+
+            ctx->payload = strdup(json);
+            if (ctx->payload == NULL)
+            {
+                free(ctx);
+                continue;
+            }
+            ctx->fd = client_fd;
+
+            frame.payload = (uint8_t *)ctx->payload;
+            frame.len = strlen(ctx->payload);
+
+            if (xSemaphoreTake(s_ws_mutex, pdMS_TO_TICKS(100)) == pdTRUE)
+            {
+                if (s_ws_clients[i] == client_fd)
+                {
+                    s_ws_send_inflight[i] = 1;
+                }
+                xSemaphoreGive(s_ws_mutex);
+            }
+
+            esp_err_t err = httpd_ws_send_data_async(s_server, client_fd, &frame, ws_async_send_complete, ctx);
+            int sock_errno = errno;
+
+            if (err == ESP_OK)
+            {
+                successful_sends++;
+                continue;
+            }
+
+            if (xSemaphoreTake(s_ws_mutex, pdMS_TO_TICKS(100)) == pdTRUE)
+            {
+                if (s_ws_clients[i] == client_fd)
+                {
+                    s_ws_send_inflight[i] = 0;
+                }
+                xSemaphoreGive(s_ws_mutex);
+            }
+
+            free(ctx->payload);
+            free(ctx);
+
+            if (err == ESP_ERR_INVALID_ARG)
+            {
+                ESP_LOGW(TAG, "WS async send invalid client fd=%d err=%s", client_fd, esp_err_to_name(err));
+                clear_client_slot_by_fd(client_fd, false);
+                continue;
+            }
+
+            if (sock_errno == EAGAIN || sock_errno == ENOBUFS)
+            {
+                if (xSemaphoreTake(s_ws_mutex, pdMS_TO_TICKS(100)) == pdTRUE)
+                {
+                    if (s_ws_clients[i] == client_fd)
+                    {
+                        uint8_t next_fail_count = (uint8_t)(s_ws_fail_count[i] + 1U);
+                        s_ws_fail_count[i] = next_fail_count;
+                        // Back off briefly on socket backpressure instead of disconnecting.
+                        s_ws_retry_after_us[i] = now_us + 1500000;
+
+                        // Recycle clients that remain send-blocked for too long.
+                        bool stale_client = (last_ok_us[i] > 0) && ((now_us - last_ok_us[i]) > 30000000);
+                        if (stale_client || next_fail_count >= 30U)
+                        {
+                            ESP_LOGW(TAG, "Closing stalled WS client fd=%d fail_count=%u stalled_ms=%lld", client_fd, (unsigned)next_fail_count, (long long)((now_us - last_ok_us[i]) / 1000));
+                            s_ws_clients[i] = 0;
+                            s_ws_fail_count[i] = 0;
+                            s_ws_send_inflight[i] = 0;
+                            s_ws_retry_after_us[i] = 0;
+                            s_ws_last_ok_us[i] = 0;
+                            xSemaphoreGive(s_ws_mutex);
+                            httpd_sess_trigger_close(s_server, client_fd);
+                            continue;
+                        }
+
+                        if ((next_fail_count % 10U) == 1U)
+                        {
+                            ESP_LOGW(TAG, "WS backpressure fd=%d consecutive=%u errno=%d", client_fd, (unsigned)next_fail_count, sock_errno);
+                        }
+                    }
+                    xSemaphoreGive(s_ws_mutex);
+                }
+                continue;
+            }
+
+            if (sock_errno == ECONNRESET || sock_errno == EBADF)
+            {
+                ESP_LOGW(TAG, "WS async send hard socket error fd=%d err=%s errno=%d", client_fd, esp_err_to_name(err), sock_errno);
+                hard_failures++;
+                clear_client_slot_by_fd(client_fd, true);
+                continue;
+            }
+
             if (err != ESP_OK)
             {
-                s_ws_clients[i] = 0;
-                httpd_sess_trigger_close(s_server, client_fd);
-                result = err;
+                ESP_LOGW(TAG, "WS async send failed fd=%d err=%s errno=%d", client_fd, esp_err_to_name(err), sock_errno);
+                hard_failures++;
+                clear_client_slot_by_fd(client_fd, true);
             }
         }
     }
 
-    return result;
+    if (active_clients == 0 || successful_sends > 0 || hard_failures == 0)
+    {
+        return ESP_OK;
+    }
+
+    return ESP_FAIL;
 } // End of web_server_broadcast_json
 //-----------------------------------------------------------------------------
 

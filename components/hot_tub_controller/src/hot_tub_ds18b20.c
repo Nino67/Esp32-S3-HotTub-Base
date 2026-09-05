@@ -1,3 +1,4 @@
+#include <math.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "esp_err.h"
@@ -156,6 +157,7 @@ void water_temperature_monitoring_task(void *arg)
         
         if (err == ESP_OK) 
         {
+            water_temp = roundf(water_temp * 10.0f) / 10.0f; // Round to 1 decimal place
             lock_state();
             hottub_ctl.waterTemp = water_temp;
             unlock_state();
