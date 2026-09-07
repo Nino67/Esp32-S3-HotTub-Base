@@ -26,7 +26,9 @@ void get_current_time(char *strftime_buf, size_t buf_size);
 esp_err_t hot_tub_controller_register_callbacks();
 void hottub_callback_response(cJSON *root, cJSON *response);
 
+// Hot tub status callback in use
 void hottub_status_get_callback(cJSON *root);
+
 void hottub_auto_mode_get_callback(cJSON *root);
 void hottub_auto_mode_set_callback(cJSON *root);
 void hottub_heater_status_get_callback(cJSON *root);

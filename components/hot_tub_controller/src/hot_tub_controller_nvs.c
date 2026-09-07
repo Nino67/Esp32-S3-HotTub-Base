@@ -24,31 +24,29 @@ static QueueHandle_t s_persistence_queue;
 static void persistence_task(void *arg)
 {
     uint8_t dirty_notification;
-    bool dirty = false;
 
     while (true)
     {
-        if (xQueueReceive(s_persistence_queue,
-                          &dirty_notification,
-                          pdMS_TO_TICKS(PERSISTENCE_FLUSH_INTERVAL_MS)) == pdTRUE)
+        /* Wait indefinitely for the first dirty notification */
+        if (xQueueReceive(s_persistence_queue, &dirty_notification, portMAX_DELAY) == pdTRUE)
         {
-            dirty = true;
-            continue;
-        }
+            /* Drain any additional pending notifications immediately */
+            while (xQueueReceive(s_persistence_queue, &dirty_notification, 0) == pdTRUE) {
+                /* drained */
+            }
 
-        if (!dirty)
-        {
-            continue;
-        }
+            /* Debounce interval: wait before flushing to coalesce rapid updates */
+            vTaskDelay(pdMS_TO_TICKS(PERSISTENCE_FLUSH_INTERVAL_MS));
 
-        esp_err_t err = hot_tub_controller_settings_save_to_nvs();
-        if (err == ESP_OK)
-        {
-            dirty = false;
-        }
-        else
-        {
-            ESP_LOGE(TAG, "Deferred settings save failed: %s", esp_err_to_name(err));
+            esp_err_t err = hot_tub_controller_settings_save_to_nvs();
+            if (err == ESP_OK)
+            {
+                
+            }
+            else
+            {
+                ESP_LOGE(TAG, "persistence_task: deferred settings save failed: %s", esp_err_to_name(err));
+            }
         }
     }
 }
@@ -96,7 +94,6 @@ esp_err_t hot_tub_controller_persistence_mark_dirty(void)
         // A queued notification already represents pending state changes.
         return ESP_OK;
     }
-
     return ESP_OK;
 }
 

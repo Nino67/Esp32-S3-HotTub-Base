@@ -436,6 +436,7 @@ void hot_tub_controller_set_setpoint_temp(float temp)
     lock_state();
     hottub_ctl.setpointTemp = temp;
     unlock_state();
+    
     if (hot_tub_struct_io_save_settings_to_nvs() != ESP_OK) {
         ESP_LOGE(TAG, "Failed to save settings to NVS");
     }

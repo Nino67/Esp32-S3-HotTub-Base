@@ -255,7 +255,6 @@ static float hottub_controller_temperature_filter(float new_temp, float prev_tem
 
 
 
-
 void hot_tub_controller_main_task(void *arg)
 {
     HotTubController_t snapshot;
@@ -272,6 +271,7 @@ void hot_tub_controller_main_task(void *arg)
 
     bool auto_started_pump = false;
     bool was_heating = false;
+    bool heat_lockout = false; // Lockout flag for manual overrides
     int pre_pump_timer = 0;
     int post_pump_timer = 0;
 
@@ -306,12 +306,14 @@ void hot_tub_controller_main_task(void *arg)
         // =================================================================
         // 1. MANUAL OVERRIDE & HARDWARE SAFETY INTERLOCK
         // =================================================================
-        if (snapshot.pumpState == PUMP_OFF && snapshot.heaterOn) 
+        // If user manually turns pump OFF while heater was ON or during pre-purge:
+        if (snapshot.pumpState == PUMP_OFF && (snapshot.heaterOn || pre_pump_timer > 0)) 
         {
-            snapshot.heaterOn = false;   // Turn off heater immediately
-            auto_started_pump = false;  // Release auto ownership
-            pre_pump_timer = 0;         // Cancel pre-delay
-            ESP_LOGW(TAG, "Pump stopped during heating. Shutting down heater.");
+            snapshot.heaterOn = false;   // Kill heater immediately
+            auto_started_pump = false;  // Release auto control
+            pre_pump_timer = 0;         // Cancel pre-purge delay
+            heat_lockout = true;        // LOCKOUT auto-heating until reset or temp satisfied
+            ESP_LOGW(TAG, "Manual pump shutoff detected during heating! Locking out auto-heat.");
         }
 
         // =================================================================
@@ -325,8 +327,14 @@ void hot_tub_controller_main_task(void *arg)
             bool needs_heat = (snapshot.filteredWaterTemp < (snapshot.setpointTemp - snapshot.lowHysteresis));
             bool heat_satisfied = (snapshot.filteredWaterTemp > (snapshot.setpointTemp + snapshot.highHysteresis));
 
+            // Reset lockout if temperature target is satisfied
+            if (heat_satisfied) {
+                heat_lockout = false;
+            }
+
             // --- HEATING REQUEST ---
-            if (needs_heat && post_pump_timer == 0) 
+            // Only engage if post-purge is done AND manual lockout is NOT active
+            if (needs_heat && post_pump_timer == 0 && !heat_lockout) 
             {
                 if (!snapshot.heaterOn) 
                 {
@@ -353,18 +361,19 @@ void hot_tub_controller_main_task(void *arg)
                 pre_pump_timer = 0;
 
                 if (snapshot.heaterOn) {
-                    snapshot.heaterOn = false; // Falling-edge detector will trigger post_pump_timer below
+                    snapshot.heaterOn = false; // Falling-edge detector triggers post_pump_timer below
                     ESP_LOGI(TAG, "Setpoint reached. Turning heater OFF.");
                 }
             }
         } 
-        else // AutoMode Disabled
+        else // AutoMode Disabled -> Clear all state
         {
             if (snapshot.heaterOn) {
                 snapshot.heaterOn = false;
             }
 
             pre_pump_timer = 0;
+            heat_lockout = false; // Reset lockout when auto mode is toggled off
         }
 
         // =================================================================
@@ -379,12 +388,12 @@ void hot_tub_controller_main_task(void *arg)
         
         was_heating = snapshot.heaterOn;
 
-        // Keep pump running on LOW while post_pump_timer is active
+        // Keep pump running on LOW while post_pump_timer is active (even during manual heater shutoff)
         if (post_pump_timer > 0) 
         {
             snapshot.pumpState = PUMP_LOW;
         }
-        // ONLY shut down pump if post_purge is finished AND we aren't currently in pre-purge delay!
+        // Shut down pump when post_purge expires
         else if (post_pump_timer == 0 && pre_pump_timer == 0 && auto_started_pump && !snapshot.heaterOn) 
         {
             snapshot.pumpState = PUMP_OFF;
@@ -402,8 +411,6 @@ void hot_tub_controller_main_task(void *arg)
         app_watchdog_feed_current_task();
     }
 }
-
-
 
 
 

@@ -30,6 +30,7 @@ const stateView = document.getElementById('stateView');
 const statusView = document.getElementById('systemStatusView');
 const receiveView = document.getElementById('receiveView');
 const receivePayloadToggle = document.getElementById('receivePayloadToggle');
+const statusPayloadBlockToggle = document.getElementById('statusPayloadBlockToggle');
 const sendView = document.getElementById('sendView');
 const commandInput = document.getElementById('commandInput');
 const otaStatus = document.getElementById('otaStatus');
@@ -55,6 +56,7 @@ const pumpPostRunTimeInput = document.getElementById('pumpPostRunTimeInput');
 const pumpModeInputs = Array.from(document.querySelectorAll('input[name="pumpMode"]'));
 const pumpTrack = document.querySelector('.pump-track');
 const RECEIVE_PAYLOAD_TOGGLE_KEY = 'hottub.receivePayloadVisible';
+const STATUS_PAYLOAD_TOGGLE_KEY = 'hottub.statusPayloadVisible';
 
 
 
@@ -95,6 +97,30 @@ function saveReceivePayloadPreference(isVisible) {
     window.localStorage.setItem(RECEIVE_PAYLOAD_TOGGLE_KEY, isVisible ? '1' : '0');
   } catch (err) {
     console.warn('Failed to save receive payload preference:', err);
+  }
+}
+
+function loadStatusPayloadPreference() {
+  try {
+    const saved = window.localStorage.getItem(STATUS_PAYLOAD_TOGGLE_KEY);
+    if (saved === '0') {
+      return false;
+    }
+    if (saved === '1') {
+      return true;
+    }
+  } catch (err) {
+    console.warn('Failed to read status payload preference:', err);
+  }
+
+  return Boolean(statusPayloadBlockToggle ? statusPayloadBlockToggle.checked : true);
+}
+
+function saveStatusPayloadPreference(isVisible) {
+  try {
+    window.localStorage.setItem(STATUS_PAYLOAD_TOGGLE_KEY, isVisible ? '1' : '0');
+  } catch (err) {
+    console.warn('Failed to save status payload preference:', err);
   }
 }
 
@@ -466,8 +492,27 @@ window.addEventListener('hottub-ws-close', () => {
 });
 
 export function renderParsedMessage(parsed, raw) {
+  // Decide whether to show the raw payload in the receive view.
   if (showReceivedPayload) {
-    safeSetText(receiveView, raw);
+    let shouldShowRaw = true;
+    try {
+      const payload = parsed && parsed.payload ? parsed.payload : {};
+      const cmd = String(payload.cmd || payload.command || '');
+      // If the status payload toggle exists and is unchecked, block the
+      // frequent 'hottub.status.get' stream from populating the receive view.
+      if (cmd === 'hottub.status.get' && statusPayloadBlockToggle && !statusPayloadBlockToggle.checked) {
+        shouldShowRaw = false;
+      }
+    } catch (err) {
+      // on parse issues, fall back to showing raw
+      console.warn('Error while deciding receiveView visibility:', err);
+    }
+
+    if (shouldShowRaw) {
+      safeSetText(receiveView, raw);
+    } else {
+      safeSetText(receiveView, '');
+    }
   } else {
     safeSetText(receiveView, '');
   }
