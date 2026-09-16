@@ -32,12 +32,12 @@ const receiveView = document.getElementById('receiveView');
 const receivePayloadToggle = document.getElementById('receivePayloadToggle');
 const statusPayloadBlockToggle = document.getElementById('statusPayloadBlockToggle');
 const sendView = document.getElementById('sendView');
-const commandInput = document.getElementById('commandInput');
+// const commandInput = document.getElementById('commandInput');
 const otaStatus = document.getElementById('otaStatus');
 const otaProgressBar = document.getElementById('otaProgressBar');
 // const sendBtn = document.getElementById('sendBtn');
 const systemStatusBtn = document.getElementById('sendSystemStatusBtn');
-const clearSystemStatusBtn = document.getElementById('clearSystemStatusBtn');
+// const clearSystemStatusBtn = document.getElementById('clearSystemStatusBtn');
 const otaBtn = document.getElementById('otaBtn');
 const otaManifestBtn = document.getElementById('otaManifestBtn');
 const chartContainer = document.getElementById('chartContainer');
@@ -45,7 +45,7 @@ const filteredTemperatureDisplay = document.getElementById('filteredTemperature'
 const heatToggle = document.getElementById('heatToggle');
 const settingsToggle = document.getElementById('settingsToggle');
 const settingsPanel = document.getElementById('settingsPanel');
-const settingsFields = document.getElementById('settingsFields');
+// const settingsFields = document.getElementById('settingsFields');
 const tempUnitSelect = document.getElementById('tempUnitSelect');
 const setpointTempInput = document.getElementById('setpointTempInput');
 const lowPassFilterAlphaInput = document.getElementById('lowPassFilterAlphaInput');
@@ -57,6 +57,11 @@ const pumpModeInputs = Array.from(document.querySelectorAll('input[name="pumpMod
 const pumpTrack = document.querySelector('.pump-track');
 const RECEIVE_PAYLOAD_TOGGLE_KEY = 'hottub.receivePayloadVisible';
 const STATUS_PAYLOAD_TOGGLE_KEY = 'hottub.statusPayloadVisible';
+
+// Debug send UI
+const debugSendInput = document.getElementById('debugSendInput');
+const debugSendButton = document.getElementById('debugSendButton');
+const debugSendStatus = document.getElementById('debugSendStatus');
 
 
 
@@ -239,7 +244,8 @@ function verifySettingsAccess() {
 
 function setPumpControlState(level, pending = false) {
   const pumpLevel = Number(level) || 0;
-  const positionMap = { 0: 0, 1: 1, 3: 2 };
+  // Map pump state enum values (PUMP_OFF=0, PUMP_LOW=1, PUMP_HIGH=2)
+  const positionMap = { 0: 0, 1: 1, 2: 2 };
   const position = positionMap[pumpLevel] ?? 0;
 
   pumpModeInputs.forEach((input) => {
@@ -291,6 +297,45 @@ function sendHotTubCommand(command, params) {
   } catch (err) {
     safeSetText(sendView, `Invalid payload: ${err.message}`);
     console.error('Failed to send command:', err);
+  }
+}
+
+function handleDebugSend() {
+  if (!debugSendInput || !debugSendButton || !debugSendStatus) {
+    return;
+  }
+
+  const text = String(debugSendInput.value || '').trim();
+  if (text.length === 0) {
+    safeSetText(debugSendStatus, 'empty');
+    return;
+  }
+
+  let parsed = null;
+  try {
+    parsed = JSON.parse(text);
+  } catch (err) {
+    safeSetText(debugSendStatus, `JSON error: ${err.message}`);
+    return;
+  }
+
+  const socketClient = ws_manager && typeof ws_manager.send === 'function' ? ws_manager : null;
+  if (!socketClient || socketClient.readyState !== WebSocket.OPEN) {
+    safeSetText(debugSendStatus, 'Socket offline');
+    return;
+  }
+
+  try {
+    const wrapped = createCrc32JsonWrapper(parsed);
+    debugSendButton.disabled = true;
+    socketClient.send(wrapped);
+    safeSetText(sendView, JSON.stringify(parsed));
+    safeSetText(debugSendStatus, 'sent');
+    setTimeout(() => { debugSendButton.disabled = false; }, 250);
+  } catch (err) {
+    safeSetText(debugSendStatus, `Send error: ${err.message}`);
+    console.error('Failed to send debug payload:', err);
+    debugSendButton.disabled = false;
   }
 }
 
@@ -511,7 +556,8 @@ export function renderParsedMessage(parsed, raw) {
     if (shouldShowRaw) {
       safeSetText(receiveView, raw);
     } else {
-      safeSetText(receiveView, '');
+      // Intentionally do not modify receiveView when blocking a status message
+      // so existing content (other commands) remains visible.
     }
   } else {
     safeSetText(receiveView, '');
@@ -604,6 +650,15 @@ async function hardwareInit() {
       if (!showReceivedPayload) {
         safeSetText(receiveView, '');
       }
+    });
+  }
+
+  // Initialize and persist the status payload block toggle preference
+  const statusPref = loadStatusPayloadPreference();
+  if (statusPayloadBlockToggle) {
+    statusPayloadBlockToggle.checked = statusPref;
+    statusPayloadBlockToggle.addEventListener('change', () => {
+      saveStatusPayloadPreference(Boolean(statusPayloadBlockToggle.checked));
     });
   }
 
@@ -742,10 +797,10 @@ async function hardwareInit() {
   setSettingsControlState(false, false);
   setPumpControlState(0, false);
 
-  clearSystemStatusBtn.addEventListener('click', () => {
-    safeSetText(systemStatusView, '');
-    // console.log('Clearing system status...');
-  }); 
+  // clearSystemStatusBtn.addEventListener('click', () => {
+  //   safeSetText(systemStatusView, '');
+  //   // console.log('Clearing system status...');
+  // }); 
 
 
 
@@ -759,7 +814,6 @@ async function hardwareInit() {
       params: '',
     };
 
-    // console.log('Requesting system status:', payload);
 
     const socketClient = ws_manager && typeof ws_manager.send === 'function' ? ws_manager : null;
     if (!socketClient || socketClient.readyState !== WebSocket.OPEN) {
@@ -769,14 +823,34 @@ async function hardwareInit() {
 
     try {
       socketClient.send(createCrc32JsonWrapper(payload));
-      safeSetText(statusView, JSON.stringify(payload));
+      // safeSetText(statusView, JSON.stringify(payload));
       // console.log('Sending system status request:', payload);
     } catch (err) {
-      safeSetText(statusView, `Invalid payload: ${err.message}`);
+      // safeSetText(statusView, `Invalid payload: ${err.message}`);
       console.error('Failed to send system status request:', err);
     }
   }); 
   
+  // Debug send UI wiring
+  if (debugSendStatus) {
+    safeSetText(debugSendStatus, '');
+  }
+
+  if (debugSendButton) {
+    debugSendButton.addEventListener('click', () => {
+      handleDebugSend();
+    });
+  }
+
+  if (debugSendInput) {
+    debugSendInput.addEventListener('keydown', (evt) => {
+      const sendKey = (evt.ctrlKey || evt.metaKey) && evt.key === 'Enter';
+      if (sendKey) {
+        evt.preventDefault();
+        handleDebugSend();
+      }
+    });
+  }
   
   // sendBtn.addEventListener('click', () => {
   //   if (!ws_manager || ws_manager.readyState !== WebSocket.OPEN) {

@@ -254,7 +254,15 @@ static float hottub_controller_temperature_filter(float new_temp, float prev_tem
 
 
 
-
+/**
+ * @brief Main loop for the hot tub controller task.
+ *
+ * This function runs in a FreeRTOS task and continuously monitors the hot tub's state,
+ * controlling the heater and pump based on the current temperature, setpoint, and hysteresis values.
+ *
+ * @param arg Pointer to any arguments passed to the task (not used).
+ * @return ESP_OK on successful execution, or an error code on failure.
+ */
 void hot_tub_controller_main_task(void *arg)
 {
     HotTubController_t snapshot;

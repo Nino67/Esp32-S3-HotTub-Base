@@ -11,7 +11,7 @@ export const hottub = {
     pumpOnLight: false,
     heaterOnLight: false,
     waterTemp: 0.0,
-    filteredWaterTemp: 0.0,
+    filteredWaterTemp: 25.0,
     airTemp: 0.0,
     humidity: 0.0,
     setpointTemp: 0.0,

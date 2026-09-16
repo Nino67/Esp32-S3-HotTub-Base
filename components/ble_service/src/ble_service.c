@@ -57,6 +57,8 @@ static bool str_equals_ignore_case(const char *a, const char *b);
 static void ble_service_handle_rx_command(const char *payload);
 static bool ble_service_handle_rx_json_request(const char *payload);
 
+
+/**/
 static void nimble_host_task(void *param)
 {
     (void)param;
@@ -75,6 +77,15 @@ static void on_sync(void)
     start_advertising();
 }
 
+
+/**
+ * @brief Callback function for GATT registration events.
+ *
+ * This function is called whenever a GATT service, characteristic, or descriptor is registered.
+ *
+ * @param ctxt The GATT registration context.
+ * @param arg User-defined argument.
+ */
 static void gatt_register_cb(struct ble_gatt_register_ctxt *ctxt, void *arg)
 {
     char buf[BLE_UUID_STR_LEN];
@@ -100,8 +111,20 @@ static void gatt_register_cb(struct ble_gatt_register_ctxt *ctxt, void *arg)
     default:
         break;
     }
-}
+} // end of gatt_register_cb()
+/******************************************************************************/
 
+
+/**
+ * @brief Callback function for GAP events.
+ *
+ * This function is called whenever a GAP event occurs, such as connection, disconnection,
+ * subscription, advertising completion, or passkey actions.
+ *
+ * @param event The GAP event.
+ * @param arg User-defined argument.
+ * @return 0 on success, or an appropriate error code on failure.
+ */
 static int gap_event(struct ble_gap_event *event, void *arg)
 {
     (void)arg;
@@ -164,8 +187,15 @@ static int gap_event(struct ble_gap_event *event, void *arg)
     default:
         return 0;
     }
-}
+} // end of gap_event()
+/******************************************************************************/
 
+
+/**
+ * @brief Start BLE advertising with the specified parameters.
+ *
+ * This function sets up the advertising fields and starts BLE advertising.
+ */
 static void start_advertising(void)
 {
     struct ble_hs_adv_fields fields = {0};
@@ -205,8 +235,16 @@ static void start_advertising(void)
     {
         ESP_LOGE(TAG, "ble_gap_adv_start failed: %d", rc);
     }
-}
+} // end of start_advertising()
+/******************************************************************************/
 
+
+/**
+ * @brief Send a JSON payload over BLE, wrapped in a CRC envelope if necessary.
+ *
+ * @param json The cJSON object to send.
+ * @return ESP_OK on success, or an appropriate error code on failure.
+ */
 static esp_err_t ble_service_send_wrapped_cjson(cJSON *json)
 {
     if (json == NULL)
@@ -225,8 +263,16 @@ static esp_err_t ble_service_send_wrapped_cjson(cJSON *json)
     esp_err_t err = ble_service_send_json(plain_json);
     free(plain_json);
     return err;
-}
+} // end of ble_service_send_wrapped_cjson()
+/******************************************************************************/
 
+
+/**
+ * @brief Send the system status as a JSON payload over BLE.
+ *
+ * @param compact_mode If true, send a compact version of the system status.
+ * @return ESP_OK on success, or an appropriate error code on failure.
+ */
 static esp_err_t ble_service_send_system_status_json(bool compact_mode)
 {
     if (s_conn_handle == BLE_HS_CONN_HANDLE_NONE)
@@ -281,8 +327,15 @@ static esp_err_t ble_service_send_system_status_json(bool compact_mode)
     }
 
     return ble_service_send_wrapped_cjson(status_json);
-}
+} // end of ble_service_send_system_status_json()
+/******************************************************************************/
 
+
+/**
+ * @brief Send the network connection summary as a JSON payload over BLE.
+ *
+ * @return ESP_OK on success, or an appropriate error code on failure.
+ */
 static esp_err_t ble_service_send_connect_network_json(void)
 {
     if (s_conn_handle == BLE_HS_CONN_HANDLE_NONE)
@@ -323,13 +376,28 @@ static esp_err_t ble_service_send_connect_network_json(void)
     cJSON_AddStringToObject(summary, "ip", ip);
 
     return ble_service_send_wrapped_cjson(summary);
-}
+} // end of ble_service_send_connect_network_json()
+/******************************************************************************/
 
+
+/**
+ * @brief Send the system status for the current mode as a JSON payload over BLE.
+ *
+ * @return ESP_OK on success, or an appropriate error code on failure.
+ */
 static esp_err_t ble_service_send_status_for_current_mode(void)
 {
     return ble_service_send_system_status_json(s_status_compact_mode);
-}
+} // end of ble_service_send_status_for_current_mode()
+/******************************************************************************/
 
+
+/**
+ * @brief Convert a Wi-Fi mode state to a human-readable string.
+ *
+ * @param mode The Wi-Fi mode state.
+ * @return A string representation of the Wi-Fi mode.
+ */
 static const char *wifi_mode_to_string(wifi_mode_state_t mode)
 {
     switch (mode)
@@ -344,8 +412,15 @@ static const char *wifi_mode_to_string(wifi_mode_state_t mode)
     default:
         return "DISCONNECTED";
     }
-}
+} // end of wifi_mode_to_string()
+/******************************************************************************/
 
+
+/**
+ * @brief Trim leading and trailing whitespace characters from a string in place.
+ *
+ * @param s The string to trim.
+ */
 static void trim_in_place(char *s)
 {
     if (s == NULL)
@@ -371,8 +446,17 @@ static void trim_in_place(char *s)
         memmove(s, s + start, end - start);
     }
     s[end - start] = '\0';
-}
+} // end of trim_in_place()
+/******************************************************************************/
 
+
+/**
+ * @brief Compare two strings for equality, ignoring case.
+ *
+ * @param a The first string.
+ * @param b The second string.
+ * @return true if the strings are equal (ignoring case), false otherwise.
+ */
 static bool str_equals_ignore_case(const char *a, const char *b)
 {
     if (a == NULL || b == NULL)
@@ -401,8 +485,15 @@ static bool str_equals_ignore_case(const char *a, const char *b)
     }
 
     return *a == '\0' && *b == '\0';
-}
+} // end of str_equals_ignore_case()
+/******************************************************************************/
 
+
+/**
+ * @brief Handle a received BLE command.
+ *
+ * @param payload The received command payload.
+ */
 static void ble_service_handle_rx_command(const char *payload)
 {
     if (payload == NULL)
@@ -457,8 +548,16 @@ static void ble_service_handle_rx_command(const char *payload)
         (void)ble_service_send_status_for_current_mode();
         return;
     }
-}
+} // end of ble_service_handle_rx_command()
+/******************************************************************************/
 
+
+/**
+ * @brief Handle a received JSON request over BLE.
+ *
+ * @param payload The received JSON payload.
+ * @return true if the request was handled, false otherwise.
+ */
 static bool ble_service_handle_rx_json_request(const char *payload)
 {
     cJSON *root = cJSON_Parse(payload);
@@ -485,8 +584,19 @@ static bool ble_service_handle_rx_json_request(const char *payload)
 
     (void)ble_service_send_system_status_json(false);
     return true;
-}
+} // end of ble_service_handle_rx_json_request()
+/******************************************************************************/
 
+
+/**
+ * @brief Callback function for handling received BLE write and read requests.
+ *
+ * @param conn_handle The connection handle.
+ * @param attr_handle The attribute handle.
+ * @param ctxt The GATT access context.
+ * @param arg User-defined argument.
+ * @return 0 on success, or an appropriate BLE_ATT_ERR code on failure.
+ */
 static int rx_access_cb(uint16_t conn_handle, uint16_t attr_handle, struct ble_gatt_access_ctxt *ctxt, void *arg)
 {
     (void)conn_handle;
@@ -527,8 +637,19 @@ static int rx_access_cb(uint16_t conn_handle, uint16_t attr_handle, struct ble_g
     }
 
     return BLE_ATT_ERR_UNLIKELY;
-}
+} // end of rx_access_cb()
+/******************************************************************************/
 
+
+/**
+ * @brief Callback function for handling BLE TX access.
+ *
+ * @param conn_handle The connection handle.
+ * @param attr_handle The attribute handle.
+ * @param ctxt The GATT access context.
+ * @param arg User-defined argument.
+ * @return 0 on success, or an appropriate BLE_ATT_ERR code on failure.
+ */
 static int tx_access_cb(uint16_t conn_handle, uint16_t attr_handle, struct ble_gatt_access_ctxt *ctxt, void *arg)
 {
     (void)conn_handle;
@@ -536,8 +657,13 @@ static int tx_access_cb(uint16_t conn_handle, uint16_t attr_handle, struct ble_g
     (void)ctxt;
     (void)arg;
     return 0;
-}
+} // end of tx_access_cb()
+/******************************************************************************/
 
+
+/**
+ * @brief BLE GATT characteristic definitions.
+ */
 static const struct ble_gatt_chr_def s_chrs[] = {
     {
         .uuid = &s_rx_uuid.u,
@@ -561,8 +687,18 @@ static const struct ble_gatt_svc_def s_svcs[] = {
         .characteristics = s_chrs,
     },
     {0},
-};
+}; // end of s_svcs[]
+/******************************************************************************/
 
+
+/**
+ * @brief Initialize the BLE service.
+ *
+ * This function initializes the NimBLE stack, configures the BLE GAP and GATT services,
+ * and registers the custom BLE service and characteristics.
+ *
+ * @return ESP_OK on success, or an appropriate error code on failure.
+ */
 esp_err_t ble_service_init(void)
 {
     ESP_RETURN_ON_ERROR(nimble_port_init(), TAG, "nimble init failed");
@@ -603,8 +739,18 @@ esp_err_t ble_service_init(void)
     // ESP_LOGI(TAG, "s_tx_uuid: %s", s_tx_uuid.u);
 
     return ESP_OK;
-}
+} // end of ble_service_init(void)
+/******************************************************************************/
 
+
+/**
+ * @brief Send a JSON payload over the BLE service.
+ *
+ * This function sends the provided JSON string over the BLE service using chunked notifications.
+ *
+ * @param json The JSON string to send.
+ * @return ESP_OK on success, or an appropriate error code on failure.
+ */
 esp_err_t ble_service_send_json(const char *json)
 {
     if (!json || s_conn_handle == BLE_HS_CONN_HANDLE_NONE)
@@ -613,8 +759,19 @@ esp_err_t ble_service_send_json(const char *json)
     }
 
     return ble_service_send_chunked(json, strlen(json));
-}
+} // end of ble_service_send_json()
+/******************************************************************************/
 
+
+/**
+ * @brief Send raw bytes over the BLE service.
+ *
+ * This function sends the provided raw byte payload over the BLE service using notifications.
+ *
+ * @param payload The raw byte payload to send.
+ * @param payload_len The length of the payload in bytes.
+ * @return ESP_OK on success, or an appropriate error code on failure.
+ */
 static esp_err_t ble_service_notify_bytes(const char *payload, size_t payload_len)
 {
     if (!payload || payload_len == 0 || s_conn_handle == BLE_HS_CONN_HANDLE_NONE)
@@ -630,8 +787,20 @@ static esp_err_t ble_service_notify_bytes(const char *payload, size_t payload_le
 
     int rc = ble_gatts_notify_custom(s_conn_handle, s_tx_val_handle, om);
     return rc == 0 ? ESP_OK : ESP_FAIL;
-}
+} // end of ble_service_notify_bytes()
+/******************************************************************************/
 
+
+/**
+ * @brief Send a large payload over the BLE service using chunked notifications.
+ *
+ * This function splits the provided payload into smaller chunks and sends them sequentially
+ * over the BLE service. It handles the framing and chunking automatically.
+ *
+ * @param payload The payload to send.
+ * @param payload_len The length of the payload in bytes.
+ * @return ESP_OK on success, or an appropriate error code on failure.
+ */
 static esp_err_t ble_service_send_chunked(const char *payload, size_t payload_len)
 {
     uint16_t mtu = ble_att_mtu(s_conn_handle);
@@ -712,4 +881,5 @@ static esp_err_t ble_service_send_chunked(const char *payload, size_t payload_le
         return ESP_FAIL;
     }
     return ble_service_notify_bytes(end_frame, (size_t)end_len);
-}
+} // end of ble_service_send_large_payload()
+/******************************************************************************/

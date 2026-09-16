@@ -49,7 +49,7 @@
                 <input id="pumpLow" type="radio" name="pumpMode" value="1" />
                 <label for="pumpLow" class="pump-segment">Low</label>
 
-                <input id="pumpHigh" type="radio" name="pumpMode" value="3" />
+                <input id="pumpHigh" type="radio" name="pumpMode" value="2" />
                 <label for="pumpHigh" class="pump-segment">Hi</label>
 
                 <span class="pump-thumb"></span>
@@ -129,16 +129,17 @@
         </div>
         <br />
         <br />
-        <section class="panel">
+
+
+        <!-- <section class="panel">
           <header>
             <h2>System Status</h2>
           </header>
           <pre id="systemStatusView"></pre>
-          <button id="sendSystemStatusBtn">System Status</button>
           <button id="clearSystemStatusBtn">Clear</button>
-        </section>
+        </section> -->
 
-        <br />
+        <!-- <br />
         <section class="panel">
           <header>
             <h2>Command Dispatch</h2>
@@ -146,10 +147,10 @@
           <pre id="commandPanelView"></pre>
 
           <p>Type commands here to dispatch them to the system.</p>
-        </section>
+        </section> -->
 
         <br />
-        <section class="panel">
+        <section class="panel" id="debugPanel">
           <div class="debug-row">
             <label class="toggle-row" for="statusPayloadBlockToggle">
               <span class="switch-label">Status display</span>
@@ -172,6 +173,16 @@
             </label>
 
             <pre id="receiveView">waiting for response...</pre>
+            <div class="debug-send-row">
+              <label class="debug-send-label">Send JSON</label>
+              <textarea id="debugSendInput" spellcheck="false" placeholder='{"cmd":"my.command","params":{}}'></textarea>
+              <div class="debug-send-actions">
+                <button id="debugSendButton" class="secondary">Send</button>
+                <span id="debugSendStatus" class="muted">&nbsp;</span>
+                <button id="sendSystemStatusBtn">System Status</button>
+              </div>
+
+            </div>
           </div>
         </section>
 
