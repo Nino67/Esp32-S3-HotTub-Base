@@ -50,10 +50,23 @@ esp_err_t app_start(void)
     ESP_RETURN_ON_ERROR(app_watchdog_feed_current_task(), TAG, "watchdog feed failed after ota boot check");
 
     wifi_credentials_t credentials = {0};
-    if (strlen(WIFI_CREDENTIALS_SSID) > 0)
+    esp_err_t credentials_err = nvs_storage_get_wifi_credentials(
+        credentials.ssid,
+        sizeof(credentials.ssid),
+        credentials.password,
+        sizeof(credentials.password));
+    if (credentials_err == ESP_ERR_NOT_FOUND)
     {
-        strlcpy(credentials.ssid, WIFI_CREDENTIALS_SSID, sizeof(credentials.ssid));
-        strlcpy(credentials.password, WIFI_CREDENTIALS_PASSWORD, sizeof(credentials.password));
+        if (strlen(WIFI_CREDENTIALS_SSID) > 0)
+        {
+            strlcpy(credentials.ssid, WIFI_CREDENTIALS_SSID, sizeof(credentials.ssid));
+            strlcpy(credentials.password, WIFI_CREDENTIALS_PASSWORD, sizeof(credentials.password));
+        }
+    }
+    else if (credentials_err != ESP_OK)
+    {
+        ESP_LOGE(TAG, "Failed to load Wi-Fi credentials: %s", esp_err_to_name(credentials_err));
+        return credentials_err;
     }
 
     ESP_RETURN_ON_ERROR(wifi_manager_start(&credentials), TAG, "wifi start failed");
@@ -80,4 +93,3 @@ esp_err_t app_start(void)
 
     return ESP_OK;
 }
-

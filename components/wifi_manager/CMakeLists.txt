@@ -6,4 +6,5 @@ idf_component_register(SRCS "src/wifi_manager.c"
                                 lwip 
                                 device_state 
                                 esp_common 
-                                system_status)
+                                system_status
+                                nvs_storage)

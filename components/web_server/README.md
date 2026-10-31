@@ -26,7 +26,10 @@ The web page you open in a browser is hosted by this component. After page load,
 2. Open board IP in browser.
 3. Watch JSON status updates and send commands.
 
+When STA has failed and the recovery AP is active, connect to the `HotTub-Controller` Wi-Fi network and open `http://192.168.4.1/`. The web server is started independently of STA/AP mode, so it remains available through the recovery AP.
+
 ## Troubleshooting
 
 - If page loads but no live data, inspect WebSocket connection path.
 - If static files are stale, reflash LittleFS assets.
+- If STA credentials fail repeatedly, use the recovery AP at `192.168.4.1` and provision working credentials over BLE.

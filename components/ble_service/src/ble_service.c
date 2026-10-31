@@ -9,8 +9,12 @@
 #include "esp_log.h"
 #include "esp_random.h"
 
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+
 #include "cJSON.h"
 #include "json_service.h"
+#include "ota_manager.h"
 #include "system_status.h"
 #include "wifi_manager.h"
 
@@ -29,6 +33,8 @@
 
 static const char *TAG = "ble_service";
 
+#define BLE_DEBUG_OTA_URL "https://raw.githubusercontent.com/Nino67/Esp32-S3-HotTub-Base/main/firmware/hot_tub_controller.bin"
+
 static int BLE_PASSKEY = 123456;
 
 extern void ble_store_config_init(void);
@@ -38,6 +44,22 @@ static uint16_t s_rx_val_handle;
 static uint16_t s_tx_val_handle;
 static uint32_t s_tx_msg_id;
 static bool s_status_compact_mode;
+static portMUX_TYPE s_ble_ota_mux = portMUX_INITIALIZER_UNLOCKED;
+static bool s_ble_ota_request_pending;
+
+typedef enum
+{
+    BLE_OTA_UPDATE_GITHUB,
+    BLE_OTA_UPDATE_MANIFEST,
+} ble_ota_update_type_t;
+
+typedef struct
+{
+    uint32_t request_id;
+    ble_ota_update_type_t type;
+    char *url;
+    char *storage_url;
+} ble_ota_request_t;
 
 static const ble_uuid128_t s_service_uuid = BLE_UUID128_INIT(0xab, 0x90, 0x78, 0x56, 0x34, 0x12, 0x34, 0x12, 0x12, 0x34, 0x12, 0x34, 0x56, 0x78, 0x12, 0x34);
 static const ble_uuid128_t s_rx_uuid = BLE_UUID128_INIT(0xac, 0x90, 0x78, 0x56, 0x34, 0x12, 0x34, 0x12, 0x12, 0x34, 0x12, 0x34, 0x56, 0x78, 0x12, 0x34);
@@ -53,11 +75,18 @@ static esp_err_t ble_service_send_wrapped_cjson(cJSON *json);
 static esp_err_t ble_service_send_system_status_json(bool compact_mode);
 static esp_err_t ble_service_send_connect_network_json(void);
 static esp_err_t ble_service_send_status_for_current_mode(void);
+static esp_err_t ble_service_send_wifi_credentials_result(uint32_t request_id, const char *status, const char *reason);
+static esp_err_t ble_service_send_ota_result(uint32_t request_id, const char *status, const char *reason);
 static const char *wifi_mode_to_string(wifi_mode_state_t mode);
 static void trim_in_place(char *s);
 static bool str_equals_ignore_case(const char *a, const char *b);
-static void ble_service_handle_rx_command(const char *payload);
-static bool ble_service_handle_rx_json_request(const char *payload);
+static bool ble_service_connection_is_secure(uint16_t conn_handle);
+static int ble_service_handle_rx_command(const char *payload, uint16_t conn_handle);
+static int ble_service_handle_rx_json_request(const char *payload, uint16_t conn_handle, bool *handled);
+static int ble_service_queue_ota_request(cJSON *root, const char *command);
+static int ble_service_queue_debug_github_ota(void);
+static void ble_service_ota_update_task(void *arg);
+static void ble_service_on_wifi_provision_result(uint32_t request_id, esp_err_t result);
 
 
 /**/
@@ -381,6 +410,136 @@ static esp_err_t ble_service_send_connect_network_json(void)
 } // end of ble_service_send_connect_network_json()
 /******************************************************************************/
 
+static esp_err_t ble_service_send_wifi_credentials_result(uint32_t request_id, const char *status, const char *reason)
+{
+    cJSON *result = cJSON_CreateObject();
+    if (!result)
+    {
+        return ESP_ERR_NO_MEM;
+    }
+
+    if (!cJSON_AddNumberToObject(result, "id", request_id) ||
+        !cJSON_AddStringToObject(result, "type", "evt") ||
+        !cJSON_AddStringToObject(result, "cmd", "wifi.credentials.result") ||
+        !cJSON_AddStringToObject(result, "status", status) ||
+        (reason && !cJSON_AddStringToObject(result, "reason", reason)))
+    {
+        cJSON_Delete(result);
+        return ESP_ERR_NO_MEM;
+    }
+
+    return ble_service_send_wrapped_cjson(result);
+}
+
+static esp_err_t ble_service_send_ota_result(uint32_t request_id, const char *status, const char *reason)
+{
+    cJSON *result = cJSON_CreateObject();
+    if (!result)
+    {
+        return ESP_ERR_NO_MEM;
+    }
+
+    if (!cJSON_AddNumberToObject(result, "id", request_id) ||
+        !cJSON_AddStringToObject(result, "type", "evt") ||
+        !cJSON_AddStringToObject(result, "cmd", "ota.manager.update.result") ||
+        !cJSON_AddStringToObject(result, "status", status) ||
+        (reason && !cJSON_AddStringToObject(result, "reason", reason)))
+    {
+        cJSON_Delete(result);
+        return ESP_ERR_NO_MEM;
+    }
+
+    return ble_service_send_wrapped_cjson(result);
+}
+
+static bool ble_service_reserve_ota_request(void)
+{
+    bool reserved = false;
+    portENTER_CRITICAL(&s_ble_ota_mux);
+    if (!s_ble_ota_request_pending && !ota_manager_is_update_in_progress())
+    {
+        s_ble_ota_request_pending = true;
+        reserved = true;
+    }
+    portEXIT_CRITICAL(&s_ble_ota_mux);
+    return reserved;
+}
+
+static void ble_service_release_ota_request(void)
+{
+    portENTER_CRITICAL(&s_ble_ota_mux);
+    s_ble_ota_request_pending = false;
+    portEXIT_CRITICAL(&s_ble_ota_mux);
+}
+
+static void ble_service_ota_update_task(void *arg)
+{
+    ble_ota_request_t *request = arg;
+    if (request == NULL)
+    {
+        ESP_LOGE(TAG, "BLE OTA task received a null request");
+        ble_service_release_ota_request();
+        vTaskDelete(NULL);
+        return;
+    }
+
+    ESP_LOGI(TAG, "BLE OTA task created; waiting for request acknowledgement");
+    (void)ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+
+    esp_err_t err;
+    if (request->type == BLE_OTA_UPDATE_MANIFEST)
+    {
+        ESP_LOGI(TAG, "Starting manifest OTA requested over BLE (request id=%" PRIu32 ")", request->request_id);
+        err = ota_manager_trigger_manifest_ota(request->url);
+    }
+    else
+    {
+        ESP_LOGI(TAG, "Starting GitHub OTA requested over BLE (request id=%" PRIu32 ")", request->request_id);
+        err = ota_manager_trigger_github_ota(request->url, request->storage_url);
+    }
+
+    const char *status = err == ESP_OK ? "completed" : "failed";
+    const char *reason = err == ESP_OK ? NULL : esp_err_to_name(err);
+    if (err != ESP_OK)
+    {
+        ESP_LOGE(TAG, "BLE OTA request failed (request id=%" PRIu32 "): %s", request->request_id, reason);
+    }
+    else
+    {
+        ESP_LOGI(TAG, "BLE OTA routine returned successfully (request id=%" PRIu32 ")", request->request_id);
+    }
+
+    esp_err_t send_err = ble_service_send_ota_result(request->request_id, status, reason);
+    if (send_err != ESP_OK)
+    {
+        ESP_LOGW(TAG, "Failed to send BLE OTA result: %s", esp_err_to_name(send_err));
+    }
+    else
+    {
+        ESP_LOGI(TAG, "BLE OTA result event sent (request id=%" PRIu32 ", status=%s)", request->request_id, status);
+    }
+
+    free(request->url);
+    free(request->storage_url);
+    free(request);
+    ble_service_release_ota_request();
+    vTaskDelete(NULL);
+}
+
+static void ble_service_on_wifi_provision_result(uint32_t request_id, esp_err_t result)
+{
+    const char *status = result == ESP_OK ? "connected" : "failed";
+    const char *reason = result == ESP_OK
+        ? NULL
+        : (result == ESP_ERR_TIMEOUT ? "connection_failed" : "credentials_not_applied");
+
+    esp_err_t send_err = ble_service_send_wifi_credentials_result(request_id, status, reason);
+    if (send_err != ESP_OK)
+    {
+        ESP_LOGW(TAG, "Failed to send Wi-Fi provisioning result: %s", esp_err_to_name(send_err));
+    }
+}
+
 
 /**
  * @brief Send the system status for the current mode as a JSON payload over BLE.
@@ -496,16 +655,46 @@ static bool str_equals_ignore_case(const char *a, const char *b)
  *
  * @param payload The received command payload.
  */
-static void ble_service_handle_rx_command(const char *payload)
+static bool ble_service_connection_is_secure(uint16_t conn_handle)
 {
-    if (payload == NULL)
+    struct ble_gap_conn_desc conn_desc = {0};
+    if (ble_gap_conn_find(conn_handle, &conn_desc) != 0)
     {
-        return;
+        return false;
     }
 
-    if (ble_service_handle_rx_json_request(payload))
+    return conn_desc.sec_state.encrypted &&
+           conn_desc.sec_state.authenticated &&
+           conn_desc.sec_state.bonded;
+}
+
+static int ble_service_queue_debug_github_ota(void)
+{
+    ESP_LOGI(TAG, "Preparing BLE debug OTA request using the configured GitHub firmware URL");
+    cJSON *root = cJSON_Parse("{\"params\":{\"url\":\"" BLE_DEBUG_OTA_URL "\"}}");
+    if (root == NULL)
     {
-        return;
+        ESP_LOGE(TAG, "Failed to create BLE debug OTA request");
+        return BLE_ATT_ERR_UNLIKELY;
+    }
+
+    int att_err = ble_service_queue_ota_request(root, "ota.manager.update.github");
+    cJSON_Delete(root);
+    return att_err;
+}
+
+static int ble_service_handle_rx_command(const char *payload, uint16_t conn_handle)
+{
+    if (!payload)
+    {
+        return 0;
+    }
+
+    bool json_handled = false;
+    int att_err = ble_service_handle_rx_json_request(payload, conn_handle, &json_handled);
+    if (json_handled || att_err != 0)
+    {
+        return att_err;
     }
 
     char cmd[256];
@@ -514,44 +703,221 @@ static void ble_service_handle_rx_command(const char *payload)
 
     if (cmd[0] == '\0')
     {
-        return;
+        return 0;
+    }
+
+    if (str_equals_ignore_case(cmd, "ota-update"))
+    {
+        struct ble_gap_conn_desc conn_desc = {0};
+        int conn_err = ble_gap_conn_find(conn_handle, &conn_desc);
+        if (conn_err != 0)
+        {
+            ESP_LOGE(TAG, "Received ota-update but could not inspect BLE connection %u (rc=%d)",
+                     (unsigned)conn_handle, conn_err);
+            return BLE_ATT_ERR_UNLIKELY;
+        }
+
+        ESP_LOGI(TAG,
+                 "Received BLE ota-update (conn=%u, encrypted=%d, authenticated=%d, bonded=%d)",
+                 (unsigned)conn_handle,
+                 conn_desc.sec_state.encrypted ? 1 : 0,
+                 conn_desc.sec_state.authenticated ? 1 : 0,
+                 conn_desc.sec_state.bonded ? 1 : 0);
+
+        if (!conn_desc.sec_state.encrypted ||
+            !conn_desc.sec_state.authenticated ||
+            !conn_desc.sec_state.bonded)
+        {
+            ESP_LOGW(TAG, "Rejecting ota-update: pair and bond this BLE connection before requesting OTA");
+            return BLE_ATT_ERR_INSUFFICIENT_AUTHEN;
+        }
+
+        ESP_LOGI(TAG, "BLE ota-update connection passed security checks");
+        int att_err = ble_service_queue_debug_github_ota();
+        if (att_err != 0)
+        {
+            ESP_LOGE(TAG, "Failed to queue BLE ota-update (ATT error=0x%02x)", att_err);
+        }
+        return att_err;
     }
 
     if (str_equals_ignore_case(cmd, "STATUS") || str_equals_ignore_case(cmd, "STATUS GET") || str_equals_ignore_case(cmd, "GET STATUS"))
     {
         (void)ble_service_send_status_for_current_mode();
-        return;
+        return 0;
     }
 
     if (str_equals_ignore_case(cmd, "STATUS FULL"))
     {
         s_status_compact_mode = false;
         (void)ble_service_send_system_status_json(false);
-        return;
+        return 0;
     }
 
     if (str_equals_ignore_case(cmd, "STATUS COMPACT"))
     {
         s_status_compact_mode = true;
         (void)ble_service_send_system_status_json(true);
-        return;
+        return 0;
     }
 
     if (str_equals_ignore_case(cmd, "MODE FULL"))
     {
         s_status_compact_mode = false;
         (void)ble_service_send_status_for_current_mode();
-        return;
+        return 0;
     }
 
     if (str_equals_ignore_case(cmd, "MODE COMPACT"))
     {
         s_status_compact_mode = true;
         (void)ble_service_send_status_for_current_mode();
-        return;
+        return 0;
     }
+
+    return 0;
 } // end of ble_service_handle_rx_command()
 /******************************************************************************/
+
+static int ble_service_queue_ota_request(cJSON *root, const char *command)
+{
+    const bool is_manifest = strcmp(command, "ota.manager.update.manifest") == 0;
+    ESP_LOGI(TAG, "Queueing BLE OTA request: command=%s", command);
+    cJSON *id_item = cJSON_GetObjectItemCaseSensitive(root, "id");
+    uint32_t request_id = 0;
+    if (id_item)
+    {
+        if (!cJSON_IsNumber(id_item) ||
+            id_item->valuedouble < 0 ||
+            id_item->valuedouble > UINT32_MAX ||
+            id_item->valuedouble != (double)(uint32_t)id_item->valuedouble)
+        {
+            esp_err_t send_err = ble_service_send_ota_result(0, "rejected", "invalid_request");
+            if (send_err != ESP_OK)
+            {
+                ESP_LOGW(TAG, "Failed to send BLE OTA validation result: %s", esp_err_to_name(send_err));
+            }
+            return 0;
+        }
+        request_id = (uint32_t)id_item->valuedouble;
+    }
+
+    cJSON *params = cJSON_GetObjectItemCaseSensitive(root, "params");
+    cJSON *url_item = cJSON_IsObject(params)
+        ? cJSON_GetObjectItemCaseSensitive(params, is_manifest ? "manifest_url" : "url")
+        : NULL;
+    cJSON *storage_url_item = is_manifest || !cJSON_IsObject(params)
+        ? NULL
+        : cJSON_GetObjectItemCaseSensitive(params, "storage_url");
+    bool request_valid = cJSON_IsString(url_item) &&
+        url_item->valuestring != NULL &&
+        strncmp(url_item->valuestring, "https://", sizeof("https://") - 1) == 0 &&
+        url_item->valuestring[sizeof("https://") - 1] != '\0';
+
+    if (storage_url_item &&
+        (!cJSON_IsString(storage_url_item) ||
+         storage_url_item->valuestring == NULL ||
+         (storage_url_item->valuestring[0] != '\0' &&
+          (strncmp(storage_url_item->valuestring, "https://", sizeof("https://") - 1) != 0 ||
+           storage_url_item->valuestring[sizeof("https://") - 1] == '\0'))))
+    {
+        request_valid = false;
+    }
+
+    if (!request_valid)
+    {
+        esp_err_t send_err = ble_service_send_ota_result(request_id, "rejected", "invalid_request");
+        if (send_err != ESP_OK)
+        {
+            ESP_LOGW(TAG, "Failed to send BLE OTA validation result: %s", esp_err_to_name(send_err));
+        }
+        return 0;
+    }
+
+    ble_ota_request_t *request = calloc(1, sizeof(*request));
+    if (request == NULL)
+    {
+        esp_err_t send_err = ble_service_send_ota_result(request_id, "rejected", "internal_error");
+        if (send_err != ESP_OK)
+        {
+            ESP_LOGW(TAG, "Failed to send BLE OTA allocation result: %s", esp_err_to_name(send_err));
+        }
+        return 0;
+    }
+
+    request->request_id = request_id;
+    request->type = is_manifest ? BLE_OTA_UPDATE_MANIFEST : BLE_OTA_UPDATE_GITHUB;
+    request->url = strdup(url_item->valuestring);
+    if (storage_url_item && storage_url_item->valuestring[0] != '\0')
+    {
+        request->storage_url = strdup(storage_url_item->valuestring);
+    }
+
+    if (request->url == NULL || (storage_url_item &&
+        storage_url_item->valuestring[0] != '\0' && request->storage_url == NULL))
+    {
+        free(request->url);
+        free(request->storage_url);
+        free(request);
+        esp_err_t send_err = ble_service_send_ota_result(request_id, "rejected", "internal_error");
+        if (send_err != ESP_OK)
+        {
+            ESP_LOGW(TAG, "Failed to send BLE OTA allocation result: %s", esp_err_to_name(send_err));
+        }
+        return 0;
+    }
+
+    if (!ble_service_reserve_ota_request())
+    {
+        ESP_LOGW(TAG, "BLE OTA request rejected: another OTA update is active or queued");
+        free(request->url);
+        free(request->storage_url);
+        free(request);
+        esp_err_t send_err = ble_service_send_ota_result(request_id, "rejected", "busy");
+        if (send_err != ESP_OK)
+        {
+            ESP_LOGW(TAG, "Failed to send BLE OTA busy result: %s", esp_err_to_name(send_err));
+        }
+        return 0;
+    }
+
+    TaskHandle_t ota_task = NULL;
+    BaseType_t task_result = xTaskCreatePinnedToCore(
+        ble_service_ota_update_task,
+        "ble_ota_update",
+        8192,
+        request,
+        5,
+        &ota_task,
+        0);
+    if (task_result != pdPASS)
+    {
+        ESP_LOGE(TAG, "Could not create BLE OTA task");
+        ble_service_release_ota_request();
+        free(request->url);
+        free(request->storage_url);
+        free(request);
+        esp_err_t send_err = ble_service_send_ota_result(request_id, "rejected", "task_start_failed");
+        if (send_err != ESP_OK)
+        {
+            ESP_LOGW(TAG, "Failed to send BLE OTA task error: %s", esp_err_to_name(send_err));
+        }
+        return 0;
+    }
+
+    esp_err_t send_err = ble_service_send_ota_result(request_id, "accepted", NULL);
+    if (send_err != ESP_OK)
+    {
+        ESP_LOGW(TAG, "Failed to send BLE OTA acknowledgement: %s", esp_err_to_name(send_err));
+    }
+    else
+    {
+        ESP_LOGI(TAG, "BLE OTA request accepted (request id=%" PRIu32 ")", request_id);
+    }
+    xTaskNotifyGive(ota_task);
+    ESP_LOGI(TAG, "BLE OTA task notified to start");
+    return 0;
+}
 
 
 /**
@@ -560,32 +926,127 @@ static void ble_service_handle_rx_command(const char *payload)
  * @param payload The received JSON payload.
  * @return true if the request was handled, false otherwise.
  */
-static bool ble_service_handle_rx_json_request(const char *payload)
+static int ble_service_handle_rx_json_request(const char *payload, uint16_t conn_handle, bool *handled)
 {
+    *handled = false;
     cJSON *root = cJSON_Parse(payload);
     if (root == NULL)
     {
-        return false;
+        return 0;
     }
 
     cJSON *type_item = cJSON_GetObjectItemCaseSensitive(root, "type");
     cJSON *cmd_item = cJSON_GetObjectItemCaseSensitive(root, "cmd");
-    bool matched = cJSON_IsString(type_item)
+    bool is_request = cJSON_IsString(type_item)
         && type_item->valuestring != NULL
         && strcmp(type_item->valuestring, "req") == 0
         && cJSON_IsString(cmd_item)
-        && cmd_item->valuestring != NULL
-        && strcmp(cmd_item->valuestring, "system.status.get") == 0;
+        && cmd_item->valuestring != NULL;
+
+    if (!is_request)
+    {
+        cJSON_Delete(root);
+        return 0;
+    }
+
+    if (strcmp(cmd_item->valuestring, "system.status.get") == 0)
+    {
+        *handled = true;
+        cJSON_Delete(root);
+        (void)ble_service_send_system_status_json(false);
+        return 0;
+    }
+
+    if (strcmp(cmd_item->valuestring, "ota.manager.update.github") == 0 ||
+        strcmp(cmd_item->valuestring, "ota.manager.update.manifest") == 0)
+    {
+        *handled = true;
+        if (!ble_service_connection_is_secure(conn_handle))
+        {
+            cJSON_Delete(root);
+            return BLE_ATT_ERR_INSUFFICIENT_AUTHEN;
+        }
+
+        int ota_err = ble_service_queue_ota_request(root, cmd_item->valuestring);
+        cJSON_Delete(root);
+        return ota_err;
+    }
+
+    if (strcmp(cmd_item->valuestring, "wifi.credentials.set") != 0)
+    {
+        cJSON_Delete(root);
+        return 0;
+    }
+
+    *handled = true;
+    if (!ble_service_connection_is_secure(conn_handle))
+    {
+        cJSON_Delete(root);
+        return BLE_ATT_ERR_INSUFFICIENT_AUTHEN;
+    }
+
+    uint32_t request_id = 0;
+    cJSON *id_item = cJSON_GetObjectItemCaseSensitive(root, "id");
+    bool request_id_valid = true;
+    if (id_item)
+    {
+        if (!cJSON_IsNumber(id_item) ||
+            id_item->valuedouble < 0 ||
+            id_item->valuedouble > UINT32_MAX ||
+            id_item->valuedouble != (double)(uint32_t)id_item->valuedouble)
+        {
+            request_id_valid = false;
+        }
+        else
+        {
+            request_id = (uint32_t)id_item->valuedouble;
+        }
+    }
+
+    cJSON *params = cJSON_GetObjectItemCaseSensitive(root, "params");
+    cJSON *ssid_item = cJSON_IsObject(params) ? cJSON_GetObjectItemCaseSensitive(params, "ssid") : NULL;
+    cJSON *password_item = cJSON_IsObject(params) ? cJSON_GetObjectItemCaseSensitive(params, "password") : NULL;
+    bool credentials_valid = request_id_valid &&
+        cJSON_IsString(ssid_item) && ssid_item->valuestring &&
+        cJSON_IsString(password_item) && password_item->valuestring;
+
+    wifi_credentials_t credentials = {0};
+    if (credentials_valid)
+    {
+        size_t ssid_length = strnlen(ssid_item->valuestring, sizeof(credentials.ssid));
+        size_t password_length = strnlen(password_item->valuestring, sizeof(credentials.password));
+        credentials_valid = ssid_length > 0 &&
+            ssid_length < sizeof(credentials.ssid) &&
+            password_length < sizeof(credentials.password);
+        if (credentials_valid)
+        {
+            memcpy(credentials.ssid, ssid_item->valuestring, ssid_length + 1);
+            memcpy(credentials.password, password_item->valuestring, password_length + 1);
+        }
+    }
 
     cJSON_Delete(root);
 
-    if (!matched)
+    if (!credentials_valid)
     {
-        return false;
+        esp_err_t send_err = ble_service_send_wifi_credentials_result(0, "rejected", "invalid_request");
+        if (send_err != ESP_OK)
+        {
+            ESP_LOGW(TAG, "Failed to send Wi-Fi request validation result: %s", esp_err_to_name(send_err));
+        }
+        return 0;
     }
 
-    (void)ble_service_send_system_status_json(false);
-    return true;
+    esp_err_t provision_err = wifi_manager_provision(&credentials, request_id);
+    const char *status = provision_err == ESP_OK ? "accepted" : "rejected";
+    const char *reason = provision_err == ESP_ERR_INVALID_STATE ? "busy" :
+        (provision_err == ESP_OK ? NULL : "invalid_credentials");
+    esp_err_t send_err = ble_service_send_wifi_credentials_result(request_id, status, reason);
+    if (send_err != ESP_OK)
+    {
+        ESP_LOGW(TAG, "Failed to send Wi-Fi provisioning acknowledgement: %s", esp_err_to_name(send_err));
+    }
+    return 0;
 } // end of ble_service_handle_rx_json_request()
 /******************************************************************************/
 
@@ -601,29 +1062,33 @@ static bool ble_service_handle_rx_json_request(const char *payload)
  */
 static int rx_access_cb(uint16_t conn_handle, uint16_t attr_handle, struct ble_gatt_access_ctxt *ctxt, void *arg)
 {
-    (void)conn_handle;
     (void)attr_handle;
     (void)arg;
 
     if (ctxt->op == BLE_GATT_ACCESS_OP_WRITE_CHR)
     {
         char payload[256];
-        int len = OS_MBUF_PKTLEN(ctxt->om);
-        if (len >= (int)sizeof(payload))
+        uint16_t payload_len = OS_MBUF_PKTLEN(ctxt->om);
+        ESP_LOGI(TAG, "BLE RX write received (conn=%u, bytes=%u)",
+                 (unsigned)conn_handle, (unsigned)payload_len);
+        if (payload_len >= sizeof(payload))
         {
-            len = sizeof(payload) - 1;
+            ESP_LOGW(TAG, "BLE RX write rejected: payload exceeds %u-byte limit", (unsigned)(sizeof(payload) - 1));
+            return BLE_ATT_ERR_INVALID_ATTR_VALUE_LEN;
         }
-        os_mbuf_copydata(ctxt->om, 0, len, payload);
-        payload[len] = '\0';
-
-        // hot_tub_device_state_set_last_command(payload);
-        ESP_LOGI(TAG, "BLE RX: %s", payload);
-
-        if (s_conn_handle != BLE_HS_CONN_HANDLE_NONE)
+        if (os_mbuf_copydata(ctxt->om, 0, payload_len, payload) != 0)
         {
-            ble_service_handle_rx_command(payload);
+            ESP_LOGE(TAG, "BLE RX write rejected: failed to copy write data");
+            return BLE_ATT_ERR_UNLIKELY;
         }
-        return 0;
+        payload[payload_len] = '\0';
+
+        int att_err = ble_service_handle_rx_command(payload, conn_handle);
+        if (att_err != 0)
+        {
+            ESP_LOGW(TAG, "BLE RX write handler returned ATT error 0x%02x", att_err);
+        }
+        return att_err;
     }
 
     if (ctxt->op == BLE_GATT_ACCESS_OP_READ_CHR)
@@ -732,6 +1197,11 @@ esp_err_t ble_service_init(void)
         ESP_LOGE(TAG, "ble_gatts_add_svcs failed: %d", rc);
         return ESP_FAIL;
     }
+
+    ESP_RETURN_ON_ERROR(
+        wifi_manager_set_provision_result_callback(ble_service_on_wifi_provision_result),
+        TAG,
+        "wifi provisioning callback registration failed");
 
     nimble_port_freertos_init(nimble_host_task);
 

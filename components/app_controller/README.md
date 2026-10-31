@@ -17,18 +17,20 @@ flowchart TD
   A[Boot] --> B[Watchdog init]
   B --> C[NVS init]
   C --> D[OTA boot checks]
-  D --> E[Wi-Fi start]
-  E --> F[Web server start]
-  F --> G[BLE init]
-  G --> H[OTA mark app ready]
-  H --> I[RGB heartbeat]
-  I --> J[Hot tub controller init]
+  D --> E[Load NVS Wi-Fi credentials; fall back to build config]
+  E --> F[Wi-Fi start]
+  F --> G[Web server start]
+  G --> H[BLE init]
+  H --> I[OTA mark app ready]
+  I --> J[RGB heartbeat]
+  J --> K[Hot tub controller init]
 ```
 
 ## Beginner Notes
 
 - If boot fails early, inspect this component first.
 - If one module fails, later modules are not started.
+- Wi-Fi credentials saved through BLE take precedence over the local build-time fallback.
 
 ## Example
 

@@ -113,6 +113,7 @@ static esp_err_t ota_http_event_handler(esp_http_client_event_t *evt)
                 ctx->content_length = esp_http_client_get_content_length(evt->client);
                 ctx->last_progress = 0;
             }
+            ESP_LOGI(TAG, "OTA HTTP connection established");
             ota_publish_progress_status("downloading", 0, 0, ctx ? ctx->content_length : -1);
             break;
         case HTTP_EVENT_ON_HEADER:
@@ -141,7 +142,15 @@ static esp_err_t ota_http_event_handler(esp_http_client_event_t *evt)
                 }
                 if (progress != ctx->last_progress)
                 {
+                    int previous_progress = ctx->last_progress;
                     ctx->last_progress = progress;
+                    if (progress == 100 || progress / 10 != previous_progress / 10)
+                    {
+                        ESP_LOGI(TAG,
+                                 "OTA firmware download progress: %d%% (%" PRId64 " bytes)",
+                                 progress,
+                                 ctx->total_received);
+                    }
                     ota_publish_progress_status("downloading", progress, ctx->total_received, ctx->content_length);
                 }
             }
@@ -150,6 +159,7 @@ static esp_err_t ota_http_event_handler(esp_http_client_event_t *evt)
             ota_publish_progress_status("download_complete", 100, ctx ? ctx->total_received : -1, ctx ? ctx->content_length : -1);
             break;
         case HTTP_EVENT_ERROR:
+            ESP_LOGE(TAG, "OTA HTTP client reported a download error");
             ota_publish_progress_status("failed", ctx ? ctx->last_progress : 0, ctx ? ctx->total_received : -1, ctx ? ctx->content_length : -1);
             break;
         default:
@@ -289,7 +299,7 @@ static esp_err_t ota_manager_parse_manifest(const char *manifest, char **out_ver
     return ESP_OK;
 }
 
-static esp_err_t ota_manager_trigger_manifest_ota(const char *manifest_url)
+esp_err_t ota_manager_trigger_manifest_ota(const char *manifest_url)
 {
     char *manifest = NULL;
     size_t manifest_length = 0;
@@ -615,6 +625,7 @@ esp_err_t ota_manager_trigger_github_ota(const char *url, const char *storage_ur
         return ret;
     }
 
+    ESP_LOGI(TAG, "OTA firmware image downloaded and verified; updating storage partitions");
     ota_publish_progress_status("flashing", 100, progress_ctx->total_received, progress_ctx->content_length);
     free(progress_ctx);
 
@@ -879,4 +890,3 @@ static void ota_manager_update_git_callback(cJSON *root) {
 //     ESP_LOGW(TAG, "OTA update request processing completed");
 //     return ESP_OK;
 // }
-

@@ -6,4 +6,5 @@
 esp_err_t ota_manager_note_boot(void);
 esp_err_t ota_manager_mark_app_ready(void);
 esp_err_t ota_manager_trigger_github_ota(const char *url, const char *storage_url);
+esp_err_t ota_manager_trigger_manifest_ota(const char *manifest_url);
 bool ota_manager_is_update_in_progress(void);
