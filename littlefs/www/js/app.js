@@ -24,6 +24,8 @@ import { hottub } from '/js/globals.js';
 import { safeSetText, safeSetStyle } from '/js/globals.js';
 import { ws_manager } from '/js/communication/ws_manager.js';
 
+// 'roland' is the settings password for unlocking the settings panel.
+const SETTINGS_PASSWORD = 'roland';
 
 // UI Elements
 const stateView = document.getElementById('stateView');
@@ -32,20 +34,15 @@ const receiveView = document.getElementById('receiveView');
 const receivePayloadToggle = document.getElementById('receivePayloadToggle');
 const statusPayloadBlockToggle = document.getElementById('statusPayloadBlockToggle');
 const sendView = document.getElementById('sendView');
-// const commandInput = document.getElementById('commandInput');
 const otaStatus = document.getElementById('otaStatus');
 const otaProgressBar = document.getElementById('otaProgressBar');
-// const sendBtn = document.getElementById('sendBtn');
 const systemStatusBtn = document.getElementById('sendSystemStatusBtn');
-// const clearSystemStatusBtn = document.getElementById('clearSystemStatusBtn');
 const otaBtn = document.getElementById('otaBtn');
-const otaManifestBtn = document.getElementById('otaManifestBtn');
 const chartContainer = document.getElementById('chartContainer');
 const filteredTemperatureDisplay = document.getElementById('filteredTemperature');
 const heatToggle = document.getElementById('heatToggle');
 const settingsToggle = document.getElementById('settingsToggle');
 const settingsPanel = document.getElementById('settingsPanel');
-// const settingsFields = document.getElementById('settingsFields');
 const tempUnitSelect = document.getElementById('tempUnitSelect');
 const setpointTempInput = document.getElementById('setpointTempInput');
 const lowPassFilterAlphaInput = document.getElementById('lowPassFilterAlphaInput');
@@ -62,7 +59,13 @@ const STATUS_PAYLOAD_TOGGLE_KEY = 'hottub.statusPayloadVisible';
 const debugSendInput = document.getElementById('debugSendInput');
 const debugSendButton = document.getElementById('debugSendButton');
 const debugSendStatus = document.getElementById('debugSendStatus');
+const clearReceiveViewButton = document.getElementById('clearReceiveViewButton');
 
+// const commandInput = document.getElementById('commandInput');
+// const sendBtn = document.getElementById('sendBtn');
+// const clearSystemStatusBtn = document.getElementById('clearSystemStatusBtn');
+// const otaManifestBtn = document.getElementById('otaManifestBtn');
+// const settingsFields = document.getElementById('settingsFields');
 
 
 // Application State
@@ -238,7 +241,7 @@ function populateSettingsFields(state = {}) {
 
 function verifySettingsAccess() {
   const password = prompt('Enter settings password:');
-  return password === 'roland1969';
+  return password === SETTINGS_PASSWORD;
 }
 
 
@@ -797,15 +800,7 @@ async function hardwareInit() {
   setSettingsControlState(false, false);
   setPumpControlState(0, false);
 
-  // clearSystemStatusBtn.addEventListener('click', () => {
-  //   safeSetText(systemStatusView, '');
-  //   // console.log('Clearing system status...');
-  // }); 
-
-
-
   systemStatusBtn.addEventListener('click', () => {
-    // console.log('Requesting system status...');
 
     const payload = {
       id: requestId = 1,
@@ -823,10 +818,8 @@ async function hardwareInit() {
 
     try {
       socketClient.send(createCrc32JsonWrapper(payload));
-      // safeSetText(statusView, JSON.stringify(payload));
       // console.log('Sending system status request:', payload);
     } catch (err) {
-      // safeSetText(statusView, `Invalid payload: ${err.message}`);
       console.error('Failed to send system status request:', err);
     }
   }); 
@@ -852,23 +845,7 @@ async function hardwareInit() {
     });
   }
   
-  // sendBtn.addEventListener('click', () => {
-  //   if (!ws_manager || ws_manager.readyState !== WebSocket.OPEN) {
-  //     safeSetText(sendView, 'Socket is not open. Waiting for connection...');
-  //     return;
-  //   }
-
-  //   try {
-  //     const wrapped = createCrc32JsonWrapper(commandInput.value);
-  //     ws_manager.send(wrapped);
-  //     safeSetText(sendView, wrapped);
-  //     // console.log('Sending:', wrapped);
-  //   } catch (err) {
-  //     safeSetText(sendView, `Invalid JSON: ${err.message}`);
-  //     console.error('Failed to wrap JSON:', err);
-  //   }
-  // });
-
+  
   otaBtn.addEventListener('click', () => {
     if (!ws_manager || ws_manager.readyState !== WebSocket.OPEN) {
       safeSetText(sendView, 'Socket is not open. Waiting for connection...');
@@ -907,43 +884,52 @@ async function hardwareInit() {
     }
   });
 
-  if (otaManifestBtn) {
-    otaManifestBtn.addEventListener('click', () => {
-      if (!ws_manager || ws_manager.readyState !== WebSocket.OPEN) {
-        safeSetText(sendView, 'Socket is not open. Waiting for connection...');
-        return;
-      }
+  
+  clearReceiveViewButton.addEventListener('click', () => {
+    if (receiveView) {
+      safeSetText(receiveView, '');
+    }
+  }); 
 
-      const manifestUrl = prompt('Enter OTA manifest URL:',
-        'https://raw.githubusercontent.com/Nino67/Esp32-S3-HotTub-Base/main/firmware/ota_manifest.json');
-      if (!manifestUrl) {
-        return;
-      }
 
-      const payload = {
-        id: 1,
-        type: 'req',
-        cmd: 'ota.manager.update.manifest',
-        params: { manifest_url: manifestUrl },
-      };
 
-      safeSetText(otaStatus, 'requested');
-      startOtaProgressFallback();
+  // if (otaManifestBtn) {
+  //   otaManifestBtn.addEventListener('click', () => {
+  //     if (!ws_manager || ws_manager.readyState !== WebSocket.OPEN) {
+  //       safeSetText(sendView, 'Socket is not open. Waiting for connection...');
+  //       return;
+  //     }
 
-      try {
-        const wrapped = createCrc32JsonWrapper(payload);
-        ws_manager.send(wrapped);
-        safeSetText(sendView, wrapped);
-        console.log('Sending OTA manifest request:', wrapped);
-      } catch (err) {
-        safeSetText(sendView, `Invalid OTA payload: ${err.message}`);
-        safeSetText(otaStatus, 'failed');
-        stopOtaProgressFallback();
-        setOtaProgress(0);
-        console.error('Failed to wrap OTA payload:', err);
-      }
-    });
-  }
+  //     const manifestUrl = prompt('Enter OTA manifest URL:',
+  //       'https://raw.githubusercontent.com/Nino67/Esp32-S3-HotTub-Base/main/firmware/ota_manifest.json');
+  //     if (!manifestUrl) {
+  //       return;
+  //     }
+
+  //     const payload = {
+  //       id: 1,
+  //       type: 'req',
+  //       cmd: 'ota.manager.update.manifest',
+  //       params: { manifest_url: manifestUrl },
+  //     };
+
+  //     safeSetText(otaStatus, 'requested');
+  //     startOtaProgressFallback();
+
+  //     try {
+  //       const wrapped = createCrc32JsonWrapper(payload);
+  //       ws_manager.send(wrapped);
+  //       safeSetText(sendView, wrapped);
+  //       console.log('Sending OTA manifest request:', wrapped);
+  //     } catch (err) {
+  //       safeSetText(sendView, `Invalid OTA payload: ${err.message}`);
+  //       safeSetText(otaStatus, 'failed');
+  //       stopOtaProgressFallback();
+  //       setOtaProgress(0);
+  //       console.error('Failed to wrap OTA payload:', err);
+  //     }
+  //   });
+  // }
 
   ws_manager.connect();
   

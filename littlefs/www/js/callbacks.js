@@ -343,14 +343,14 @@ function hottub_error_set_callback(payload) {
 /*****************************************************************************/
 /*****************************************************************************/
 function system_status_get_callback(payload) {
-    const statusView = document.getElementById('systemStatusView');
+    // const statusView = document.getElementById('systemStatusView');
     // console.log("System Status Callback Invoked");
 
     if (payload && payload.response) {
         const response = payload.response;
         // console.log("System Status Response:", response);
     }
-    statusView.textContent = JSON.stringify(payload, null, 2);
+    // statusView.textContent = JSON.stringify(payload, null, 2);
 }
 
 function ota_manager_update_github_callback(payload) {

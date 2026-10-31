@@ -503,6 +503,13 @@ button {
   transition: width 0.2s ease;
 }
 
+.debug-actions {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-top: 12px;
+}
+
 @media (max-width: 768px) {
   .shell {
     width: min(100vw - 20px, 100%);

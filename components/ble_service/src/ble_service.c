@@ -29,6 +29,8 @@
 
 static const char *TAG = "ble_service";
 
+static int BLE_PASSKEY = 123456;
+
 extern void ble_store_config_init(void);
 
 static uint16_t s_conn_handle = BLE_HS_CONN_HANDLE_NONE;
@@ -178,7 +180,7 @@ static int gap_event(struct ble_gap_event *event, void *arg)
         {
             struct ble_sm_io pkey = {0};
             pkey.action = BLE_SM_IOACT_DISP;
-            pkey.passkey = esp_random() % 1000000;
+            pkey.passkey = BLE_PASSKEY; // esp_random() % 1000000;
             ESP_LOGI(TAG, "BLE passkey: %06" PRIu32, pkey.passkey);
             ble_sm_inject_io(event->passkey.conn_handle, &pkey);
         }

@@ -27,17 +27,17 @@ dependencies:
       type: service
     version: 0.4.0
   espressif/led_strip:
-    component_hash: 28621486f77229aaf81c71f5e15d6fbf36c2949cf11094e07090593e659e7639
+    component_hash: 027f68f2b57b0dca1d68dff6cc1139d9093825aa808c2bc3ca42bb2ce530fce9
     dependencies:
     - name: idf
       require: private
-      version: '>=5.0'
+      version: '>=5.2'
     source:
       registry_url: https://components.espressif.com/
       type: service
-    version: 3.0.3
+    version: 3.1.1
   espressif/onewire_bus:
-    component_hash: a85dc1ceb71fb87af77c57d5fd4e6f48a504de1fc2b83fc302ec0cea331d05ce
+    component_hash: dcce4fb1c2fc43c3d02de1cc9abdf062127468a785578723696de3817c526f99
     dependencies:
     - name: idf
       require: private
@@ -45,13 +45,13 @@ dependencies:
     source:
       registry_url: https://components.espressif.com
       type: service
-    version: 1.1.1
+    version: 1.1.2
   idf:
     source:
       type: idf
     version: 5.5.0
   joltwallet/littlefs:
-    component_hash: 3af20a3d75c49db9dc2286fd50862c34055c9f578419ad1f2bf7ed3ed01391fe
+    component_hash: e1a0f4a6adf821759cb34703a91107bbdce5d7ff6f4728f40ab012bb87842974
     dependencies:
     - name: idf
       require: private
@@ -59,7 +59,7 @@ dependencies:
     source:
       registry_url: https://components.espressif.com/
       type: service
-    version: 1.22.3
+    version: 1.23.1
 direct_dependencies:
 - espressif/cjson
 - espressif/ds18b20

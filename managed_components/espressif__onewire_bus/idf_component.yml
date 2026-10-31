@@ -5,7 +5,7 @@ documentation: https://espressif.github.io/idf-extra-components/latest/onewire_b
 issues: https://github.com/espressif/idf-extra-components/issues
 repository: git://github.com/espressif/idf-extra-components.git
 repository_info:
-  commit_sha: a269e1fe0dd1c4c63b600809e39fd1fe9906da52
+  commit_sha: 6b172553fdd4021ac79210fece111dc1b7e75b29
   path: onewire_bus
 url: https://github.com/espressif/idf-extra-components/tree/master/onewire_bus
-version: 1.1.1
+version: 1.1.2
