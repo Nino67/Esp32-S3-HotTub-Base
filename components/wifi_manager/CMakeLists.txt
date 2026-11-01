@@ -3,8 +3,8 @@ idf_component_register(SRCS "src/wifi_manager.c"
                        REQUIRES esp_wifi 
                                 esp_event 
                                 esp_netif 
+                                esp_timer
                                 lwip 
-                                device_state 
                                 esp_common 
                                 system_status
                                 nvs_storage)

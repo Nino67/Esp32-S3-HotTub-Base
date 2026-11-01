@@ -25,4 +25,3 @@ esp_err_t wifi_manager_start(const wifi_credentials_t *sta_credentials);
 esp_err_t wifi_manager_set_provision_result_callback(wifi_manager_provision_result_cb_t callback);
 esp_err_t wifi_manager_provision(const wifi_credentials_t *credentials, uint32_t request_id);
 esp_err_t wifi_manager_get_status(wifi_status_t *status);
-bool wifi_manager_is_connected(void);

@@ -28,11 +28,10 @@ typedef struct {
 
 typedef struct {
     wifi_mode_state_t current_mode;
-    char active_ssid[MAX_SSID_LEN];
+    char active_ssid[MAX_SSID_LEN + 1];
+    char ip_address[16];          // This device's own IP (STA IP, or AP IP in recovery mode)
     bool internet_connected;
-    uint32_t bytes_received;
-    uint32_t bytes_transmitted;
-    
+
     // AP Mode Stats
     uint8_t connected_client_count;
     wifi_client_info_t clients[MAX_CLIENTS_COUNT];
@@ -122,7 +121,8 @@ extern "C" {
 esp_err_t system_status_init(TaskHandle_t core0_task);
 esp_err_t system_status_snapshot(void);
 esp_err_t system_status_update(void);
-SystemStatus_t *system_status_get(void);
+// Copy the whole status under the status lock; use this instead of holding a pointer to the live data.
+esp_err_t system_status_get_copy(SystemStatus_t *out);
 
 cJSON *system_status_get_json(void);
 
@@ -131,6 +131,7 @@ esp_err_t system_status_set_network_status(const wireless_status_t *status);
 esp_err_t system_status_set_firmware_status(const firmware_status_t *status);
 esp_err_t system_status_set_filesystem_status(const filesystem_status_t *status);
 esp_err_t system_status_set_webserver_status(const webserver_status_t *status);
+esp_err_t system_status_set_ble_status(const ble_config_status_t *status);
 
 #ifdef __cplusplus
 }

@@ -86,6 +86,8 @@ Set the serial monitor log level to `INFO` or `DEBUG` and watch for the `ble_ser
 
 On BLE connect/subscribe, the component sends a short network summary with current mode, SSID, and IP.
 
+BLE advertises at 1 s intervals (Wi-Fi and BLE share one radio, so frequent adverts cost Wi-Fi airtime) and only the peripheral/broadcaster roles are built. `system.status.get` reports the `bluetooth` section: `is_advertising`, `is_paired` (encrypted and bonded connection), `mtu_size`, and `bonded_devices_count`.
+
 ## Troubleshooting
 
 - If output looks truncated, reassemble CHUNK frames.

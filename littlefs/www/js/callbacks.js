@@ -376,6 +376,7 @@ function ota_manager_update_manifest_callback(payload) {
  * @brief Object of callback functions for the hot tub controller commands.
  */
 export const callbacks = {
+    "ws.keepalive": () => {},
     "system.status.get": system_status_get_callback,
     "ota.manager.update.github": ota_manager_update_github_callback,
     "ota.manager.update.manifest": ota_manager_update_manifest_callback,

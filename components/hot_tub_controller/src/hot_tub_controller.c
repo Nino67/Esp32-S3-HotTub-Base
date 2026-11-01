@@ -771,7 +771,7 @@ esp_err_t hot_tub_controller_init(void)
                                      NULL,
                                      HOT_TUB_STATUS_TASK_PRIORITY,
                                      NULL,
-                                     CORE_0);
+                                     CORE_1); // Core 0 is busy with Wi-Fi, lwIP and BLE
     if (result != pdPASS)
     {
         ESP_LOGE(TAG, "Failed to create status publisher task");

@@ -10,6 +10,7 @@
 #include "json_service.h"
 #include "web_server.h"
 #include "ota_manager.h"
+#include <sys/time.h>
 
 
 #ifndef DEFAULT_BROADCAST_STATUS_COMMAND
@@ -82,14 +83,36 @@ void hottub_callback_response(cJSON *root, cJSON *response) {
  */
 void hottub_broadcast_status_callback(void) 
 {
+    static uint32_t sample_sequence;
     if (ota_manager_is_update_in_progress()) {
         return;
     }
 
     char * pub_json = DEFAULT_BROADCAST_STATUS_COMMAND;
     cJSON *pub_root = cJSON_Parse(pub_json);
+    if (!pub_root) {
+        ESP_LOGE(TAG, "Failed to allocate status publication");
+        return;
+    }
     hottub_status_get_callback(pub_root);
+    cJSON *response = cJSON_GetObjectItemCaseSensitive(pub_root, "response");
+    struct timeval now;
+    uint32_t sequence = ++sample_sequence;
+    if (!cJSON_IsObject(response) ||
+        !cJSON_AddNumberToObject(response, "sample_seq", sequence) ||
+        gettimeofday(&now, NULL) != 0 ||
+        !cJSON_AddNumberToObject(response, "sample_time_ms",
+                                 (double)now.tv_sec * 1000.0 + now.tv_usec / 1000.0)) {
+        ESP_LOGE(TAG, "Failed to prepare status sample metadata");
+        cJSON_Delete(pub_root);
+        return;
+    }
     char *encoded_msg = json_service_crc32_envelope_encode(pub_root);
+    if (!encoded_msg) {
+        ESP_LOGE(TAG, "Failed to encode status publication");
+        cJSON_Delete(pub_root);
+        return;
+    }
 
     // ESP_LOGI(TAG, "Broadcasting hot tub status: %s", encoded_msg);
     // Broadcast the JSON string to all connected WebSocket clients

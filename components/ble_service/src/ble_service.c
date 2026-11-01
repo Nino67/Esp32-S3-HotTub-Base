@@ -34,6 +34,7 @@
 static const char *TAG = "ble_service";
 
 #define BLE_DEBUG_OTA_URL "https://raw.githubusercontent.com/Nino67/Esp32-S3-HotTub-Base/main/firmware/hot_tub_controller.bin"
+#define BLE_ADV_INTERVAL_MS 1000
 
 static int BLE_PASSKEY = 123456;
 
@@ -108,6 +109,27 @@ static void on_sync(void)
     start_advertising();
 }
 
+static void ble_service_publish_status(bool advertising)
+{
+    ble_config_status_t status = {0};
+    status.is_advertising = advertising;
+
+    struct ble_gap_conn_desc conn_desc = {0};
+    if (s_conn_handle != BLE_HS_CONN_HANDLE_NONE && ble_gap_conn_find(s_conn_handle, &conn_desc) == 0)
+    {
+        status.is_paired = conn_desc.sec_state.encrypted && conn_desc.sec_state.bonded;
+        status.mtu_size = ble_att_mtu(s_conn_handle);
+    }
+
+    int bonded_count = 0;
+    if (ble_store_util_count(BLE_STORE_OBJ_TYPE_PEER_SEC, &bonded_count) == 0 && bonded_count > 0)
+    {
+        status.bonded_devices_count = bonded_count > UINT8_MAX ? UINT8_MAX : (uint8_t)bonded_count;
+    }
+
+    (void)system_status_set_ble_status(&status);
+} // end of ble_service_publish_status()
+
 
 /**
  * @brief Callback function for GATT registration events.
@@ -166,7 +188,7 @@ static int gap_event(struct ble_gap_event *event, void *arg)
         if (event->connect.status == 0)
         {
             s_conn_handle = event->connect.conn_handle;
-            // hot_tub_device_state_set_ble_connected(true);
+            ble_service_publish_status(false);
             ESP_LOGI(TAG, "BLE connected");
 
             esp_err_t send_err = ble_service_send_connect_network_json();
@@ -184,9 +206,13 @@ static int gap_event(struct ble_gap_event *event, void *arg)
 
     case BLE_GAP_EVENT_DISCONNECT:
         s_conn_handle = BLE_HS_CONN_HANDLE_NONE;
-        // hot_tub_device_state_set_ble_connected(false);
         ESP_LOGI(TAG, "BLE disconnected");
         start_advertising();
+        return 0;
+
+    case BLE_GAP_EVENT_ENC_CHANGE:
+    case BLE_GAP_EVENT_MTU:
+        ble_service_publish_status(false);
         return 0;
 
     case BLE_GAP_EVENT_SUBSCRIBE:
@@ -261,11 +287,17 @@ static void start_advertising(void)
     struct ble_gap_adv_params adv_params = {0};
     adv_params.conn_mode = BLE_GAP_CONN_MODE_UND;
     adv_params.disc_mode = BLE_GAP_DISC_MODE_GEN;
+    // Advertise at 1 s intervals: Wi-Fi and BLE share one radio, so frequent adverts cost Wi-Fi airtime.
+    adv_params.itvl_min = BLE_GAP_ADV_ITVL_MS(BLE_ADV_INTERVAL_MS);
+    adv_params.itvl_max = BLE_GAP_ADV_ITVL_MS(BLE_ADV_INTERVAL_MS);
     rc = ble_gap_adv_start(BLE_OWN_ADDR_PUBLIC, NULL, BLE_HS_FOREVER, &adv_params, gap_event, NULL);
     if (rc != 0)
     {
         ESP_LOGE(TAG, "ble_gap_adv_start failed: %d", rc);
+        ble_service_publish_status(false);
+        return;
     }
+    ble_service_publish_status(true);
 } // end of start_advertising()
 /******************************************************************************/
 
@@ -320,7 +352,9 @@ static esp_err_t ble_service_send_system_status_json(bool compact_mode)
     cJSON *status_json = NULL;
     if (compact_mode)
     {
-        SystemStatus_t *status = system_status_get();
+        SystemStatus_t status_copy;
+        (void)system_status_get_copy(&status_copy);
+        const SystemStatus_t *status = &status_copy;
         status_json = cJSON_CreateObject();
         if (status_json == NULL)
         {
@@ -380,7 +414,9 @@ static esp_err_t ble_service_send_connect_network_json(void)
         ESP_LOGW(TAG, "system_status_snapshot failed for connect summary: %s", esp_err_to_name(snapshot_err));
     }
 
-    SystemStatus_t *status = system_status_get();
+    SystemStatus_t status_copy;
+    (void)system_status_get_copy(&status_copy);
+    const SystemStatus_t *status = &status_copy;
     wifi_status_t wifi = {0};
     (void)wifi_manager_get_status(&wifi);
 

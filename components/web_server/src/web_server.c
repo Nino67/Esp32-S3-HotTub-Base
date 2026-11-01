@@ -27,9 +27,14 @@
 #include <string.h>
 #include <stdbool.h>
 #include <stdint.h>
-#include <errno.h>
+#include <inttypes.h>
+#include <sys/stat.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <netinet/tcp.h>
 
 #include "esp_check.h"
+#include "esp_crc.h"
 #include "esp_http_server.h"
 #include "esp_littlefs.h"
 #include "esp_log.h"
@@ -51,24 +56,44 @@
 // GLOBAL STATIC VARIABLES
 static const char *TAG = "web_server";
 
+#define WEB_SERVER_MAX_OPEN_SOCKETS 12
+#define WEB_SERVER_CORE 1
+#define WEB_SERVER_WHOLE_FILE_MAX 32768
+#define WEB_SERVER_CHUNK_SIZE 4096
+#define WEB_SERVER_ETAG_CACHE_SIZE 16
+
 static const char *LFS_BASE_PATH = "/littlefs";
 static const char *LFS_INDEX = "/littlefs/www/index.html";
+static const char *s_mounted_label;
 static httpd_handle_t s_server;
 static int s_ws_clients[4];
 static uint8_t s_ws_fail_count[4];
 static uint8_t s_ws_send_inflight[4];
 static int64_t s_ws_retry_after_us[4];
 static int64_t s_ws_last_ok_us[4];
+static uint32_t s_ws_generation[4];
+static uint32_t s_ws_next_generation;
 static SemaphoreHandle_t s_ws_mutex;
-// static TaskHandle_t s_state_broadcast_task;
+static portMUX_TYPE s_ws_stats_mux = portMUX_INITIALIZER_UNLOCKED;
+static uint32_t s_ws_dropped_count;
+static uint32_t s_ws_failed_count;
+static webserver_status_t s_web_stats;
+
+typedef struct {
+    char path[96];
+    uint32_t size;
+    uint32_t crc;
+} etag_entry_t;
+
+// Static assets are only served from the single httpd task, so no locking is needed.
+static etag_entry_t s_etag_cache[WEB_SERVER_ETAG_CACHE_SIZE];
+static size_t s_etag_next;
 //------------------------------------------------------------------------------
 
 typedef struct {
-    int fd;
+    uint32_t generation;
     char *payload;
 } ws_async_send_ctx_t;
-
-esp_err_t web_server_ota_update_requested(cJSON *);
 
 // esp_err_t json_service_validate_crc32(const char *, char *, size_t, uint32_t *, uint32_t *);    
 // 
@@ -123,9 +148,16 @@ static esp_err_t mount_littlefs(void)
         }
 
         FILE *index = fopen(LFS_INDEX, "r");
+        if (index == NULL)
+        {
+            char gz_index[sizeof("/littlefs/www/index.html.gz")];
+            snprintf(gz_index, sizeof(gz_index), "%s.gz", LFS_INDEX);
+            index = fopen(gz_index, "r");
+        }
         if (index != NULL)
         {
             fclose(index);
+            s_mounted_label = candidate;
             ESP_LOGI(TAG, "LittleFS mount validated using '%s'", candidate);
             return ESP_OK;
         }
@@ -139,62 +171,6 @@ static esp_err_t mount_littlefs(void)
 } // End of mount_littlefs
 //-----------------------------------------------------------------------------
 
-
-// /**
-//  * @brief Determine the content type based on the file extension.
-//  * 
-//  * @param path The file path to determine the content type for.
-//  * @return The content type string corresponding to the file extension.
-//  */
-// static esp_err_t broadcast_crc_wrapped_state(void)
-// {
-//     char response[256];
-//     char wrapped[384];
-//     size_t wrapped_len = 0;
-
-//     // if (hot_tub_device_state_format_json(response, sizeof(response)) != ESP_OK)
-//     // {
-//     //     return ESP_FAIL;
-//     // }
-
-//     cJSON *json = cJSON_Parse(response);
-//     if (json == NULL)
-//     {
-//         return ESP_FAIL;
-//     }
-
-//     bool ok = crc32_json_wrapper(json, wrapped, sizeof(wrapped), &wrapped_len);
-//     cJSON_Delete(json);
-//     if (!ok)
-//     {
-//         return ESP_FAIL;
-//     }
-
-//     return hot_tub_web_server_broadcast_json(wrapped);
-// }
-
-// static void state_broadcast_task(void *arg)
-// {
-//     (void)arg;
-//     hot_tub_device_state_t state;
-
-//     while (true)
-//     {
-//         vTaskDelay(pdMS_TO_TICKS(250));
-
-//         // if (hot_tub_device_state_get_snapshot(&state) != ESP_OK)
-//         // {
-//         //     continue;
-//         // }
-
-//         if (!state.ota_pending)
-//         {
-//             continue;
-//         }
-
-//         broadcast_crc_wrapped_state();
-//     }
-// }
 
 static const char *content_type_for_path(const char *path)
 {
@@ -221,8 +197,90 @@ static const char *content_type_for_path(const char *path)
 
 
 
+static void web_stats_publish(bool request_served, bool not_found)
+{
+    uint16_t ws_clients = 0;
+    for (size_t i = 0; i < sizeof(s_ws_clients) / sizeof(s_ws_clients[0]); ++i)
+    {
+        if (s_ws_clients[i] > 0)
+        {
+            ws_clients++;
+        }
+    }
+
+    webserver_status_t snapshot;
+    portENTER_CRITICAL(&s_ws_stats_mux);
+    s_web_stats.is_running = s_server != NULL;
+    s_web_stats.active_connections = ws_clients;
+    if (request_served)
+    {
+        s_web_stats.total_requests_served++;
+    }
+    if (not_found)
+    {
+        s_web_stats.file_not_found_404s++;
+    }
+    snapshot = s_web_stats;
+    portEXIT_CRITICAL(&s_ws_stats_mux);
+
+    (void)system_status_set_webserver_status(&snapshot);
+} // End of web_stats_publish
+//-----------------------------------------------------------------------------
+
+
+/**
+ * @brief Build a validator for a static file from a cached CRC of its stored bytes.
+ *
+ * The CRC is computed once per file per boot, so edits to the file always change the ETag.
+ */
+static bool file_etag(const char *path, size_t size, char *out, size_t out_len)
+{
+    uint32_t crc = 0;
+    bool found = false;
+    for (size_t i = 0; i < WEB_SERVER_ETAG_CACHE_SIZE; ++i)
+    {
+        if (s_etag_cache[i].size == size && strcmp(s_etag_cache[i].path, path) == 0)
+        {
+            crc = s_etag_cache[i].crc;
+            found = true;
+            break;
+        }
+    }
+
+    if (!found)
+    {
+        FILE *file = fopen(path, "rb");
+        if (!file)
+        {
+            return false;
+        }
+        uint8_t buffer[512];
+        size_t read_bytes;
+        while ((read_bytes = fread(buffer, 1, sizeof(buffer), file)) > 0)
+        {
+            crc = esp_crc32_le(crc, buffer, read_bytes);
+        }
+        fclose(file);
+
+        etag_entry_t *entry = &s_etag_cache[s_etag_next];
+        s_etag_next = (s_etag_next + 1) % WEB_SERVER_ETAG_CACHE_SIZE;
+        strlcpy(entry->path, path, sizeof(entry->path));
+        entry->size = (uint32_t)size;
+        entry->crc = crc;
+    }
+
+    snprintf(out, out_len, "\"%08" PRIx32 "-%zx\"", crc, size);
+    return true;
+} // End of file_etag
+//-----------------------------------------------------------------------------
+
+
 /**
  * @brief Send a file as the HTTP response.
+ *
+ * A pre-compressed "<path>.gz" is preferred when present. Small files are sent with one
+ * Content-Length response; larger files use large chunks to avoid per-chunk framing overhead.
+ * The ETag lets browsers revalidate cached assets with a 304 response.
  * 
  * @param req The HTTP request object.
  * @param path The file path to send.
@@ -230,29 +288,100 @@ static const char *content_type_for_path(const char *path)
  */
 static esp_err_t send_file(httpd_req_t *req, const char *path)
 {
-    FILE *file = fopen(path, "r");
-    if (!file)
+    char stored_path[512];
+    bool gzipped = false;
+    struct stat st;
+
+    int n = snprintf(stored_path, sizeof(stored_path), "%s.gz", path);
+    if (n > 0 && n < (int)sizeof(stored_path) && stat(stored_path, &st) == 0 && S_ISREG(st.st_mode))
     {
-        return httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, "File not found");
+        gzipped = true;
     }
-
-    httpd_resp_set_type(req, content_type_for_path(path));
-
-    char buffer[512];
-    size_t read_bytes;
-    while ((read_bytes = fread(buffer, 1, sizeof(buffer), file)) > 0)
+    else
     {
-        if (httpd_resp_send_chunk(req, buffer, read_bytes) != ESP_OK)
+        strlcpy(stored_path, path, sizeof(stored_path));
+        if (stat(stored_path, &st) != 0 || !S_ISREG(st.st_mode))
         {
-            fclose(file);
-            httpd_resp_sendstr_chunk(req, NULL);
-            return ESP_FAIL;
+            web_stats_publish(false, true);
+            return httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, "File not found");
         }
     }
 
+    const size_t size = (size_t)st.st_size;
+    httpd_resp_set_type(req, content_type_for_path(path));
+    httpd_resp_set_hdr(req, "Cache-Control", "no-cache");
+    if (gzipped)
+    {
+        httpd_resp_set_hdr(req, "Content-Encoding", "gzip");
+    }
+
+    char etag[40];
+    if (file_etag(stored_path, size, etag, sizeof(etag)))
+    {
+        httpd_resp_set_hdr(req, "ETag", etag);
+        char if_none_match[48];
+        if (httpd_req_get_hdr_value_str(req, "If-None-Match", if_none_match, sizeof(if_none_match)) == ESP_OK &&
+            strcmp(if_none_match, etag) == 0)
+        {
+            httpd_resp_set_status(req, "304 Not Modified");
+            web_stats_publish(true, false);
+            return httpd_resp_send(req, NULL, 0);
+        }
+    }
+
+    FILE *file = fopen(stored_path, "rb");
+    if (!file)
+    {
+        web_stats_publish(false, true);
+        return httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, "File not found");
+    }
+
+    esp_err_t result = ESP_OK;
+    char *whole = NULL;
+    if (size > 0 && size <= WEB_SERVER_WHOLE_FILE_MAX)
+    {
+        whole = malloc(size);
+    }
+
+    if (whole != NULL && fread(whole, 1, size, file) == size)
+    {
+        result = httpd_resp_send(req, whole, size);
+    }
+    else
+    {
+        size_t chunk_size = WEB_SERVER_CHUNK_SIZE;
+        char *buffer = malloc(chunk_size);
+        char small_buffer[512];
+        if (buffer == NULL)
+        {
+            buffer = small_buffer;
+            chunk_size = sizeof(small_buffer);
+        }
+        rewind(file);
+
+        size_t read_bytes;
+        while ((read_bytes = fread(buffer, 1, chunk_size, file)) > 0)
+        {
+            result = httpd_resp_send_chunk(req, buffer, read_bytes);
+            if (result != ESP_OK)
+            {
+                break;
+            }
+        }
+        if (result == ESP_OK)
+        {
+            result = httpd_resp_send_chunk(req, NULL, 0);
+        }
+        if (buffer != small_buffer)
+        {
+            free(buffer);
+        }
+    }
+
+    free(whole);
     fclose(file);
-    httpd_resp_sendstr_chunk(req, NULL);
-    return ESP_OK;
+    web_stats_publish(result == ESP_OK, false);
+    return result;
 } // End of send_file
 //-----------------------------------------------------------------------------
 
@@ -279,7 +408,7 @@ static esp_err_t index_handler(httpd_req_t *req)
  */
 static esp_err_t asset_handler(httpd_req_t *req)
 {
-    char path[640];
+    char path[400];
     int n = snprintf(path, sizeof(path), "%s/www%s", LFS_BASE_PATH, req->uri);
     if (n < 0 || n >= (int)sizeof(path))
     {
@@ -290,33 +419,29 @@ static esp_err_t asset_handler(httpd_req_t *req)
 
 
 /**
- * @brief Handle OTA update requests.
- * 
- * @param req The HTTP request object.
- * @return ESP_OK on success, or an error code on failure.
+ * @brief Disable Nagle on accepted sockets.
+ *
+ * The HTTP server sends WebSocket headers/payloads and chunked HTTP framing as separate small
+ * writes. With Nagle enabled each one can wait for a delayed ACK from the client.
  */
-static void ota_update_task(void *arg)
+static esp_err_t web_server_on_open(httpd_handle_t hd, int sockfd)
 {
-    ESP_LOGW(TAG, "Inside OTA update task function");
-    char *url = arg;
-    if (url == NULL)
+    (void)hd;
+    int enable = 1;
+    if (setsockopt(sockfd, IPPROTO_TCP, TCP_NODELAY, &enable, sizeof(enable)) != 0)
     {
-        vTaskDelete(NULL);
-        return;
+        ESP_LOGW(TAG, "Failed to disable Nagle on fd=%d", sockfd);
     }
+    return ESP_OK;
+} // End of web_server_on_open
+//-----------------------------------------------------------------------------
 
-    ESP_LOGI(TAG, "OTA task started: %s", url);
-    esp_err_t err = ota_manager_trigger_github_ota(url, NULL);
-    if (err != ESP_OK)
-    {
-        ESP_LOGE(TAG, "OTA task failed: %s", esp_err_to_name(err));
-        // hot_tub_device_state_set_ota_pending(false);
-    }
 
-    free(url);
-    vTaskDelete(NULL);
-}
-
+/**
+ * @brief Add a WebSocket client to the tracking table.
+ *
+ * @param fd The file descriptor of the WebSocket client to track.
+ */
 static void track_client(int fd)
 {
     if (fd <= 0 || s_ws_mutex == NULL)
@@ -330,27 +455,27 @@ static void track_client(int fd)
         return;
     }
 
-    const int64_t now_us = esp_timer_get_time();
-
     for (size_t i = 0; i < sizeof(s_ws_clients) / sizeof(s_ws_clients[0]); ++i)
     {
         if (s_ws_clients[i] == fd)
         {
-            s_ws_fail_count[i] = 0;
-            s_ws_send_inflight[i] = 0;
-            s_ws_retry_after_us[i] = 0;
-            s_ws_last_ok_us[i] = now_us;
             xSemaphoreGive(s_ws_mutex);
             return;
         }
+    }
+
+    for (size_t i = 0; i < sizeof(s_ws_clients) / sizeof(s_ws_clients[0]); ++i)
+    {
         if (s_ws_clients[i] == 0)
         {
             s_ws_clients[i] = fd;
             s_ws_fail_count[i] = 0;
             s_ws_send_inflight[i] = 0;
             s_ws_retry_after_us[i] = 0;
-            s_ws_last_ok_us[i] = now_us;
+            s_ws_last_ok_us[i] = esp_timer_get_time();
+            s_ws_generation[i] = ++s_ws_next_generation;
             xSemaphoreGive(s_ws_mutex);
+            web_stats_publish(false, false);
             return;
         }
     }
@@ -390,6 +515,7 @@ static void untrack_client(int fd)
             s_ws_retry_after_us[i] = 0;
             s_ws_last_ok_us[i] = 0;
             xSemaphoreGive(s_ws_mutex);
+            web_stats_publish(false, false);
             return;
         }
     }
@@ -398,7 +524,7 @@ static void untrack_client(int fd)
 } // End of untrack_client
 //-----------------------------------------------------------------------------
 
-static void clear_client_slot_by_fd(int fd, bool close_session)
+static void clear_client_slot(int fd, uint32_t generation)
 {
     if (fd <= 0 || s_ws_mutex == NULL)
     {
@@ -407,13 +533,13 @@ static void clear_client_slot_by_fd(int fd, bool close_session)
 
     if (xSemaphoreTake(s_ws_mutex, pdMS_TO_TICKS(100)) != pdTRUE)
     {
-        ESP_LOGW(TAG, "clear_client_slot_by_fd mutex timeout");
+        ESP_LOGW(TAG, "clear_client_slot mutex timeout");
         return;
     }
 
     for (size_t i = 0; i < sizeof(s_ws_clients) / sizeof(s_ws_clients[0]); ++i)
     {
-        if (s_ws_clients[i] == fd)
+        if (s_ws_clients[i] == fd && s_ws_generation[i] == generation)
         {
             s_ws_clients[i] = 0;
             s_ws_fail_count[i] = 0;
@@ -425,38 +551,77 @@ static void clear_client_slot_by_fd(int fd, bool close_session)
     }
 
     xSemaphoreGive(s_ws_mutex);
+    web_stats_publish(false, false);
+}
 
-    if (close_session && s_server != NULL)
+static void ws_record_issue(bool dropped, int fd, esp_err_t err)
+{
+    uint32_t count;
+    portENTER_CRITICAL(&s_ws_stats_mux);
+    count = dropped ? ++s_ws_dropped_count : ++s_ws_failed_count;
+    portEXIT_CRITICAL(&s_ws_stats_mux);
+    if (count == 1 || count % 10 == 0)
     {
-        httpd_sess_trigger_close(s_server, fd);
+        ESP_LOGW(TAG, "WS %s count=%" PRIu32 " fd=%d err=%s",
+                 dropped ? "dropped" : "send failure", count, fd, esp_err_to_name(err));
+    }
+}
+
+static void ws_finish_send(int socket, uint32_t generation, esp_err_t err)
+{
+    bool close_client = false;
+    bool matched = false;
+    xSemaphoreTake(s_ws_mutex, portMAX_DELAY);
+    for (size_t i = 0; i < sizeof(s_ws_clients) / sizeof(s_ws_clients[0]); ++i)
+    {
+        if (s_ws_clients[i] == socket && s_ws_generation[i] == generation)
+        {
+            matched = true;
+            s_ws_send_inflight[i] = 0;
+            if (err == ESP_OK)
+            {
+                s_ws_fail_count[i] = 0;
+                s_ws_retry_after_us[i] = 0;
+                s_ws_last_ok_us[i] = esp_timer_get_time();
+            }
+            else
+            {
+                int64_t now_us = esp_timer_get_time();
+                if (s_ws_fail_count[i] < UINT8_MAX)
+                {
+                    s_ws_fail_count[i]++;
+                }
+                s_ws_retry_after_us[i] = now_us + 1500000;
+                close_client = s_ws_fail_count[i] >= 30 ||
+                    (s_ws_last_ok_us[i] > 0 && now_us - s_ws_last_ok_us[i] > 30000000);
+                if (close_client)
+                {
+                    s_ws_clients[i] = 0;
+                }
+            }
+            break;
+        }
+    }
+    xSemaphoreGive(s_ws_mutex);
+
+    if (err != ESP_OK)
+    {
+        ws_record_issue(false, socket, err);
+    }
+    if (matched && close_client)
+    {
+        ESP_LOGW(TAG, "Closing stalled WS client fd=%d", socket);
+        httpd_sess_trigger_close(s_server, socket);
+        web_stats_publish(false, false);
     }
 }
 
 static void ws_async_send_complete(esp_err_t err, int socket, void *arg)
 {
     ws_async_send_ctx_t *ctx = (ws_async_send_ctx_t *)arg;
-
-    if (s_ws_mutex != NULL && xSemaphoreTake(s_ws_mutex, pdMS_TO_TICKS(100)) == pdTRUE)
-    {
-        for (size_t i = 0; i < sizeof(s_ws_clients) / sizeof(s_ws_clients[0]); ++i)
-        {
-            if (s_ws_clients[i] == socket)
-            {
-                s_ws_send_inflight[i] = 0;
-                if (err == ESP_OK)
-                {
-                    s_ws_fail_count[i] = 0;
-                    s_ws_retry_after_us[i] = 0;
-                    s_ws_last_ok_us[i] = esp_timer_get_time();
-                }
-                break;
-            }
-        }
-        xSemaphoreGive(s_ws_mutex);
-    }
-
     if (ctx != NULL)
     {
+        ws_finish_send(socket, ctx->generation, err);
         free(ctx->payload);
         free(ctx);
     }
@@ -515,16 +680,22 @@ static esp_err_t ws_handler(httpd_req_t *req)
         {
             json_service_dispatcher_core0(root);
             char *encoded_msg = json_service_crc32_envelope_encode(root);
-            int len = strlen(encoded_msg);
-            httpd_ws_frame_t out_frame = {
-                .type = HTTPD_WS_TYPE_TEXT,
-                .payload = (uint8_t *)encoded_msg,
-                .len = len,
-            };
-            err = httpd_ws_send_frame(req, &out_frame);
-            // ESP_LOGI(TAG, "Sent encoded JSON message: %s ", encoded_msg);
-            if (encoded_msg) { free(encoded_msg); }
-            if (root) { cJSON_Delete(root); }
+            if (encoded_msg == NULL)
+            {
+                ESP_LOGE(TAG, "Failed to encode WebSocket response");
+                err = ESP_ERR_NO_MEM;
+            }
+            else
+            {
+                httpd_ws_frame_t out_frame = {
+                    .type = HTTPD_WS_TYPE_TEXT,
+                    .payload = (uint8_t *)encoded_msg,
+                    .len = strlen(encoded_msg),
+                };
+                err = httpd_ws_send_frame(req, &out_frame);
+                free(encoded_msg);
+            }
+            cJSON_Delete(root);
         }
     }
     else
@@ -536,25 +707,6 @@ static esp_err_t ws_handler(httpd_req_t *req)
 } // End of ws_handler
 //-----------------------------------------------------------------------------
 
-
-/**
- * @brief Send a WebSocket frame with the given payload.
- * 
- * @param req The HTTP request object representing the WebSocket connection.
- * @param payload The payload to send in the WebSocket frame.
- * @param len The length of the payload.
- * @return ESP_OK on success, or an error code on failure.
- */
-esp_err_t websocket_send_frame(httpd_req_t *req, char *payload, size_t len)
-{
-    httpd_ws_frame_t frame = {
-        .type = HTTPD_WS_TYPE_TEXT,
-        .payload = (uint8_t *)payload,
-        .len = len,
-    };
-    return httpd_ws_send_frame(req, &frame);
-}
-//-----------------------------------------------------------------------------
 
 /**
  * @brief Start the HTTP server and register URI handlers.
@@ -570,6 +722,18 @@ esp_err_t web_server_start(void)
 
     ESP_RETURN_ON_ERROR(mount_littlefs(), TAG, "littlefs mount failed");
 
+    size_t fs_total = 0;
+    size_t fs_used = 0;
+    if (esp_littlefs_info(s_mounted_label, &fs_total, &fs_used) == ESP_OK)
+    {
+        filesystem_status_t fs_status = {
+            .is_mounted = true,
+            .total_space_bytes = (uint32_t)fs_total,
+            .used_space_bytes = (uint32_t)fs_used,
+        };
+        (void)system_status_set_filesystem_status(&fs_status);
+    }
+
     if (s_ws_mutex == NULL)
     {
         s_ws_mutex = xSemaphoreCreateMutex();
@@ -582,11 +746,15 @@ esp_err_t web_server_start(void)
 
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
     config.stack_size = 8192;
-    config.core_id = 0;
+    // Core 0 also runs Wi-Fi, lwIP and BLE; core 1 only hosts the controller tasks.
+    config.core_id = WEB_SERVER_CORE;
     config.lru_purge_enable = true;
+    config.max_open_sockets = WEB_SERVER_MAX_OPEN_SOCKETS;
     config.max_uri_handlers = 16;
+    config.open_fn = web_server_on_open;
 
     ESP_RETURN_ON_ERROR(httpd_start(&s_server, &config), TAG, "httpd start failed");
+    web_stats_publish(false, false);
 
     httpd_uri_t index_uri = {
         .uri = "/",
@@ -598,18 +766,8 @@ esp_err_t web_server_start(void)
         .method = HTTP_GET,
         .handler = asset_handler,
     };
-    // httpd_uri_t ws_client_uri = {
-    //     .uri = "/js/communication/ws_client.js",
-    //     .method = HTTP_GET,
-    //     .handler = asset_handler,
-    // };
     httpd_uri_t message_parser_uri = {
         .uri = "/js/communication/message_parser.js",
-        .method = HTTP_GET,
-        .handler = asset_handler,
-    };
-    httpd_uri_t app_state_uri = {
-        .uri = "/js/app_state.js",
         .method = HTTP_GET,
         .handler = asset_handler,
     };
@@ -623,11 +781,6 @@ esp_err_t web_server_start(void)
         .method = HTTP_GET,
         .handler = asset_handler,
     };
-    // httpd_uri_t ws_api_uri = {
-    //     .uri = "/js/communication/ws_api.js",
-    //     .method = HTTP_GET,
-    //     .handler = asset_handler,
-    // };
     httpd_uri_t ws_manager_uri = {
         .uri = "/js/communication/ws_manager.js",
         .method = HTTP_GET,
@@ -667,9 +820,7 @@ esp_err_t web_server_start(void)
     
     ESP_RETURN_ON_ERROR(httpd_register_uri_handler(s_server, &index_uri), TAG, "index handler failed");
     ESP_RETURN_ON_ERROR(httpd_register_uri_handler(s_server, &app_js_uri), TAG, "app_js handler failed");
-    // ESP_RETURN_ON_ERROR(httpd_register_uri_handler(s_server, &ws_client_uri), TAG, "ws_client handler failed");
     ESP_RETURN_ON_ERROR(httpd_register_uri_handler(s_server, &message_parser_uri), TAG, "message_parser handler failed");
-    ESP_RETURN_ON_ERROR(httpd_register_uri_handler(s_server, &app_state_uri), TAG, "app_state handler failed");
     ESP_RETURN_ON_ERROR(httpd_register_uri_handler(s_server, &chart_manager_uri), TAG, "chart_manager handler failed");
     ESP_RETURN_ON_ERROR(httpd_register_uri_handler(s_server, &ws_manager_uri), TAG, "ws_manager handler failed");
     ESP_RETURN_ON_ERROR(httpd_register_uri_handler(s_server, &crc_wrapper_uri), TAG, "crc wrapper handler failed");
@@ -705,247 +856,65 @@ esp_err_t web_server_broadcast_json(const char *json)
         .len = strlen(json),
     };
 
+    bool failed = false;
     const size_t ws_slots = sizeof(s_ws_clients) / sizeof(s_ws_clients[0]);
-    int client_fds[4] = {0};
-    int64_t retry_after_us[4] = {0};
-    int64_t last_ok_us[4] = {0};
-    uint8_t send_inflight[4] = {0};
-    const int64_t now_us = esp_timer_get_time();
-
-    if (xSemaphoreTake(s_ws_mutex, pdMS_TO_TICKS(100)) != pdTRUE)
-    {
-        ESP_LOGW(TAG, "broadcast mutex timeout");
-        return ESP_OK;
-    }
-
     for (size_t i = 0; i < ws_slots; ++i)
     {
-        client_fds[i] = s_ws_clients[i];
-        retry_after_us[i] = s_ws_retry_after_us[i];
-        last_ok_us[i] = s_ws_last_ok_us[i];
-        send_inflight[i] = s_ws_send_inflight[i];
-    }
-    xSemaphoreGive(s_ws_mutex);
-
-    size_t active_clients = 0;
-    size_t successful_sends = 0;
-    size_t hard_failures = 0;
-
-    for (size_t i = 0; i < ws_slots; ++i)
-    {
-        int client_fd = client_fds[i];
-        if (client_fd > 0)
+        xSemaphoreTake(s_ws_mutex, portMAX_DELAY);
+        int client_fd = s_ws_clients[i];
+        uint32_t generation = s_ws_generation[i];
+        bool busy = client_fd > 0 &&
+            (s_ws_send_inflight[i] != 0 || s_ws_retry_after_us[i] > esp_timer_get_time());
+        if (client_fd > 0 && !busy)
         {
-            active_clients++;
+            s_ws_send_inflight[i] = 1;
+        }
+        xSemaphoreGive(s_ws_mutex);
 
-            if (send_inflight[i] != 0)
-            {
-                continue;
-            }
+        if (client_fd <= 0)
+        {
+            continue;
+        }
+        if (busy)
+        {
+            ws_record_issue(true, client_fd, ESP_ERR_INVALID_STATE);
+            failed = true;
+            continue;
+        }
+        if (httpd_ws_get_fd_info(s_server, client_fd) != HTTPD_WS_CLIENT_WEBSOCKET)
+        {
+            ws_finish_send(client_fd, generation, ESP_ERR_INVALID_STATE);
+            clear_client_slot(client_fd, generation);
+            failed = true;
+            continue;
+        }
 
-            if (retry_after_us[i] > now_us)
-            {
-                continue;
-            }
-
-            if (httpd_ws_get_fd_info(s_server, client_fd) != HTTPD_WS_CLIENT_WEBSOCKET)
-            {
-                clear_client_slot_by_fd(client_fd, false);
-                continue;
-            }
-
-            ws_async_send_ctx_t *ctx = calloc(1, sizeof(ws_async_send_ctx_t));
-            if (ctx == NULL)
-            {
-                continue;
-            }
-
+        ws_async_send_ctx_t *ctx = calloc(1, sizeof(*ctx));
+        if (ctx != NULL)
+        {
+            ctx->generation = generation;
             ctx->payload = strdup(json);
-            if (ctx->payload == NULL)
-            {
-                free(ctx);
-                continue;
-            }
-            ctx->fd = client_fd;
+        }
+        if (ctx == NULL || ctx->payload == NULL)
+        {
+            free(ctx);
+            ws_finish_send(client_fd, generation, ESP_ERR_NO_MEM);
+            failed = true;
+            continue;
+        }
 
-            frame.payload = (uint8_t *)ctx->payload;
-            frame.len = strlen(ctx->payload);
-
-            if (xSemaphoreTake(s_ws_mutex, pdMS_TO_TICKS(100)) == pdTRUE)
-            {
-                if (s_ws_clients[i] == client_fd)
-                {
-                    s_ws_send_inflight[i] = 1;
-                }
-                xSemaphoreGive(s_ws_mutex);
-            }
-
-            esp_err_t err = httpd_ws_send_data_async(s_server, client_fd, &frame, ws_async_send_complete, ctx);
-            int sock_errno = errno;
-
-            if (err == ESP_OK)
-            {
-                successful_sends++;
-                continue;
-            }
-
-            if (xSemaphoreTake(s_ws_mutex, pdMS_TO_TICKS(100)) == pdTRUE)
-            {
-                if (s_ws_clients[i] == client_fd)
-                {
-                    s_ws_send_inflight[i] = 0;
-                }
-                xSemaphoreGive(s_ws_mutex);
-            }
-
+        frame.payload = (uint8_t *)ctx->payload;
+        frame.len = strlen(ctx->payload);
+        esp_err_t err = httpd_ws_send_data_async(s_server, client_fd, &frame, ws_async_send_complete, ctx);
+        if (err != ESP_OK)
+        {
+            ws_finish_send(client_fd, generation, err);
             free(ctx->payload);
             free(ctx);
-
-            if (err == ESP_ERR_INVALID_ARG)
-            {
-                ESP_LOGW(TAG, "WS async send invalid client fd=%d err=%s", client_fd, esp_err_to_name(err));
-                clear_client_slot_by_fd(client_fd, false);
-                continue;
-            }
-
-            if (sock_errno == EAGAIN || sock_errno == ENOBUFS)
-            {
-                if (xSemaphoreTake(s_ws_mutex, pdMS_TO_TICKS(100)) == pdTRUE)
-                {
-                    if (s_ws_clients[i] == client_fd)
-                    {
-                        uint8_t next_fail_count = (uint8_t)(s_ws_fail_count[i] + 1U);
-                        s_ws_fail_count[i] = next_fail_count;
-                        // Back off briefly on socket backpressure instead of disconnecting.
-                        s_ws_retry_after_us[i] = now_us + 1500000;
-
-                        // Recycle clients that remain send-blocked for too long.
-                        bool stale_client = (last_ok_us[i] > 0) && ((now_us - last_ok_us[i]) > 30000000);
-                        if (stale_client || next_fail_count >= 30U)
-                        {
-                            ESP_LOGW(TAG, "Closing stalled WS client fd=%d fail_count=%u stalled_ms=%lld", client_fd, (unsigned)next_fail_count, (long long)((now_us - last_ok_us[i]) / 1000));
-                            s_ws_clients[i] = 0;
-                            s_ws_fail_count[i] = 0;
-                            s_ws_send_inflight[i] = 0;
-                            s_ws_retry_after_us[i] = 0;
-                            s_ws_last_ok_us[i] = 0;
-                            xSemaphoreGive(s_ws_mutex);
-                            httpd_sess_trigger_close(s_server, client_fd);
-                            continue;
-                        }
-
-                        if ((next_fail_count % 10U) == 1U)
-                        {
-                            ESP_LOGW(TAG, "WS backpressure fd=%d consecutive=%u errno=%d", client_fd, (unsigned)next_fail_count, sock_errno);
-                        }
-                    }
-                    xSemaphoreGive(s_ws_mutex);
-                }
-                continue;
-            }
-
-            if (sock_errno == ECONNRESET || sock_errno == EBADF)
-            {
-                ESP_LOGW(TAG, "WS async send hard socket error fd=%d err=%s errno=%d", client_fd, esp_err_to_name(err), sock_errno);
-                hard_failures++;
-                clear_client_slot_by_fd(client_fd, true);
-                continue;
-            }
-
-            if (err != ESP_OK)
-            {
-                ESP_LOGW(TAG, "WS async send failed fd=%d err=%s errno=%d", client_fd, esp_err_to_name(err), sock_errno);
-                hard_failures++;
-                clear_client_slot_by_fd(client_fd, true);
-            }
+            failed = true;
         }
     }
 
-    if (active_clients == 0 || successful_sends > 0 || hard_failures == 0)
-    {
-        return ESP_OK;
-    }
-
-    return ESP_FAIL;
+    return failed ? ESP_FAIL : ESP_OK;
 } // End of web_server_broadcast_json
 //-----------------------------------------------------------------------------
-
-
-/**
- * @brief Handle an OTA update request.
- * 
- * @param root The JSON object containing the OTA update request.
- * @return ESP_OK on success, or an error code on failure.
- */
-esp_err_t web_server_ota_update_requested(cJSON *root)
-{   
-    ESP_LOGW(TAG, "Inside OTA update request handler");
-    if (!s_server)
-    {
-        return ESP_ERR_INVALID_STATE;
-    }
-    ESP_LOGI(TAG, "OTA update request received: %s", cJSON_Print(root));
-    // Implement OTA update request handling here
-    cJSON *url_item = cJSON_GetObjectItemCaseSensitive(root, "url");
-    
-    if (cJSON_IsString(url_item) && url_item->valuestring && url_item->valuestring[0] != '\0')
-    {
-        char *url_copy = strdup(url_item->valuestring);
-        if (url_copy != NULL)
-        {
-            // web_server_device_state_set_ota_pending(true);
-            // web_server_device_state_set_ota_status("requested");
-            // web_server_device_state_set_ota_progress(0);
-            if (xTaskCreatePinnedToCore(ota_update_task, "ota_update", 8192, url_copy, 5, NULL, 0) != pdPASS)
-            {
-                ESP_LOGE(TAG, "Failed to create OTA task");
-                free(url_copy);
-                // web_server_device_state_set_ota_pending(false);
-                // web_server_device_state_set_ota_status("failed");
-            }
-        }
-        else
-        {
-            ESP_LOGE(TAG, "Failed to allocate OTA URL copy");
-            // web_server_device_state_set_ota_status("failed");
-            // web_server_device_state_set_ota_pending(false);
-        }
-    }
-    else
-    {
-        ESP_LOGE(TAG, "OTA update command missing valid url");
-        // web_server_device_state_set_ota_status("failed");
-        // web_server_device_state_set_ota_pending(false);
-    }
-
-    ESP_LOGW(TAG, "OTA update request processing completed");
-    return ESP_OK;
-}
-
-
-
-
-
-
-
-
-
-// /**
-//  * @brief Disconnect all connected WebSocket clients.
-//  */
-// static void disconnect_all_clients(void)
-// {
-//     for (size_t i = 0; i < sizeof(s_ws_clients) / sizeof(s_ws_clients[0]); ++i)
-//     {
-//         if (s_ws_clients[i] != 0)
-//         {
-//             httpd_ws_frame_t close_frame = {
-//                 .type = HTTPD_WS_TYPE_CLOSE,
-//                 .payload = NULL,
-//                 .len = 0,
-//             };
-//             httpd_ws_send_frame_async(s_server, s_ws_clients[i], &close_frame);
-//             s_ws_clients[i] = 0;
-//         }
-//     }
-// } // End of disconnect_all_clients

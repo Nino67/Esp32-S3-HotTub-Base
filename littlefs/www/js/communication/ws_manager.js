@@ -18,13 +18,12 @@
 
 
 import {callback_manager} from '/js/communication/callback_manager.js';
+import { createCrc32JsonWrapper } from '/js/communication/crc32_wrapper.js';
 import { parseMessage } from '/js/communication/message_parser.js';
 import { callbacks } from '/js/callbacks.js';
-import { hottub } from '/js/globals.js';
 import { renderParsedMessage } from '/js/app.js';
 
 let client = null;
-let requestId = 1;
 
 
 function createWebSocketClient({
@@ -34,12 +33,14 @@ function createWebSocketClient({
   onError,
   onMessage,
   reconnectDelay = 1500,
-  messageTimeoutMs = 60000,
+  messageTimeoutMs = 15000,
+  keepaliveMs = 5000,
   routes = null,
 }) {
   let socket = null;
   let reconnectTimer = null;
   let staleTimer = null;
+  let keepaliveTimer = null;
   let lastMessageAt = 0;
   let closedManually = false;
 
@@ -50,6 +51,10 @@ function createWebSocketClient({
     if (staleTimer !== null) {
       clearInterval(staleTimer);
       staleTimer = null;
+    }
+    if (keepaliveTimer !== null) {
+      clearInterval(keepaliveTimer);
+      keepaliveTimer = null;
     }
   }
 
@@ -66,6 +71,14 @@ function createWebSocketClient({
         socket.close();
       }
     }, Math.max(1000, Math.floor(messageTimeoutMs / 3)));
+
+    // The device only pushes data to this socket; a periodic request keeps it from looking idle
+    // to the HTTP server's least-recently-used connection purge.
+    keepaliveTimer = window.setInterval(() => {
+      if (socket && socket.readyState === WebSocket.OPEN) {
+        socket.send(createCrc32JsonWrapper({ id: 0, type: 'evt', cmd: 'ws.keepalive' }));
+      }
+    }, keepaliveMs);
   }
 
   /**
@@ -102,7 +115,6 @@ function createWebSocketClient({
         // console.log('[ws_client] Parsed WebSocket payload received:', parsed.payload);
 
         if (parsed.valid && parsed.payload) {
-          const type = parsed.payload.type || parsed.payload.cmd_type;
           const command = parsed.payload.cmd || parsed.payload.command;
            
           // check if the message is a 'pub' type, which indicates a state update

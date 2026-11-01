@@ -33,7 +33,11 @@ flowchart TD
 
 If your home Wi-Fi credentials exist, the board joins your router. If not, it starts its own hotspot.
 
-NVS-provisioned credentials take precedence over build-time credentials. STA makes five total consecutive connection attempts; a successful IP acquisition resets the counter. After five failures, the manager switches to AP-only mode and stays there until reboot or a successful BLE credential update. It does not periodically retry STA while in fallback.
+NVS-provisioned credentials take precedence over build-time credentials. STA makes five total consecutive connection attempts; a successful IP acquisition resets the counter. After five failures, the manager switches to AP-only mode (the recovery AP).
+
+While the recovery AP is active and saved credentials exist, the manager retries the saved network every 60 s without a reboot, so a router that boots later than the controller (for example after a power cut) is picked up automatically. A retry briefly runs AP+STA and is skipped while any client is connected to the recovery AP, because joining the router moves the AP to the router's channel. If the retry fails the device simply stays in recovery AP mode; if it succeeds the recovery AP stops and STA mode resumes. A successful BLE credential update also returns the device to STA mode.
+
+Wi-Fi uses 20 MHz channels (more reliable than 40 MHz on a crowded 2.4 GHz band shared with BLE), and the STA hostname is `hottub`.
 
 The recovery AP uses the fixed `192.168.4.1/24` address, with gateway `192.168.4.1` and DHCP enabled. If the device entered AP fallback after STA failures, a failed BLE credential trial returns to AP mode and retains the prior saved credentials. A successful trial persists the new pair and returns to STA mode.
 
@@ -41,7 +45,8 @@ The recovery AP uses the fixed `192.168.4.1/24` address, with gateway `192.168.4
 
 - `current_mode`
 - `active_ssid`
-- `clients[0].ip_address` for quick IP reference
+- `ip_address` (the device's own STA or AP IP)
+- `connected_client_count` and `clients[]` (MAC and RSSI of recovery AP clients; IPs are not reported)
 
 ## Troubleshooting
 

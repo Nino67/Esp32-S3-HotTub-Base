@@ -7,6 +7,7 @@
  
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
+#include "freertos/task.h"
 #include "json_service.h"
 #include "cJSON.h"
 #include "esp_err.h"
@@ -17,6 +18,7 @@
 #include "esp_partition.h"
 #include "esp_http_client.h"
 #include "esp_https_ota.h"
+#include "esp_littlefs.h"
 #include "esp_crt_bundle.h"
 #include "esp_system.h"
 #include "version.h"
@@ -27,7 +29,8 @@
 
 static const char *TAG = "ota_manager";
 static const uint32_t BOOT_FAILURE_LIMIT = 3;
-static volatile bool s_ota_update_in_progress = false;
+static bool s_ota_update_in_progress;
+static portMUX_TYPE s_ota_mux = portMUX_INITIALIZER_UNLOCKED;
 
 typedef struct
 {
@@ -55,10 +58,34 @@ char *json_service_crc32_envelope_encode(const cJSON *json);
 
 static void ota_manager_update_git_callback(cJSON *root);
 static void ota_manager_update_manifest_callback(cJSON *root);
+static esp_err_t ota_manager_run_github_ota(const char *url, const char *storage_url);
+static esp_err_t ota_manager_run_manifest_ota(const char *manifest_url);
 
 bool ota_manager_is_update_in_progress(void)
 {
-    return s_ota_update_in_progress;
+    portENTER_CRITICAL(&s_ota_mux);
+    bool in_progress = s_ota_update_in_progress;
+    portEXIT_CRITICAL(&s_ota_mux);
+    return in_progress;
+}
+
+static bool ota_manager_reserve(void)
+{
+    portENTER_CRITICAL(&s_ota_mux);
+    bool available = !s_ota_update_in_progress;
+    if (available) {
+        s_ota_update_in_progress = true;
+    }
+    portEXIT_CRITICAL(&s_ota_mux);
+    return available;
+}
+
+static void ota_manager_release(void)
+{
+    set_heartbeat_interval(HEARTBEAT_INTERVAL_MS);
+    portENTER_CRITICAL(&s_ota_mux);
+    s_ota_update_in_progress = false;
+    portEXIT_CRITICAL(&s_ota_mux);
 }
 
 static void ota_publish_progress_status(const char *status, int progress, int64_t bytes_written, int64_t total_bytes)
@@ -299,7 +326,7 @@ static esp_err_t ota_manager_parse_manifest(const char *manifest, char **out_ver
     return ESP_OK;
 }
 
-esp_err_t ota_manager_trigger_manifest_ota(const char *manifest_url)
+static esp_err_t ota_manager_run_manifest_ota(const char *manifest_url)
 {
     char *manifest = NULL;
     size_t manifest_length = 0;
@@ -328,7 +355,7 @@ esp_err_t ota_manager_trigger_manifest_ota(const char *manifest_url)
     }
 
     ESP_LOGI(TAG, "Remote firmware version differs; performing OTA from %s", ota_url);
-    err = ota_manager_trigger_github_ota(ota_url, storage_url);
+    err = ota_manager_run_github_ota(ota_url, storage_url);
 
     free(remote_version);
     free(ota_url);
@@ -553,15 +580,13 @@ static esp_err_t download_partition_image(const char *url, const esp_partition_t
 
 
 
-esp_err_t ota_manager_trigger_github_ota(const char *url, const char *storage_url)
+static esp_err_t ota_manager_run_github_ota(const char *url, const char *storage_url)
 {
     ESP_LOGW(TAG, "Inside ota_manager_trigger_github_ota with URL: %s", url);
     if (url == NULL || url[0] == '\0') {
         ESP_LOGE(TAG, "OTA URL is empty");
         return ESP_ERR_INVALID_ARG;
     }
-
-    s_ota_update_in_progress = true;
 
     ESP_LOGI(TAG, "Starting manual OTA update from GitHub: %s", url);
     set_heartbeat_interval(OTA_HEARTBEAT_INTERVAL_MS);
@@ -572,7 +597,6 @@ esp_err_t ota_manager_trigger_github_ota(const char *url, const char *storage_ur
     if (progress_ctx == NULL) {
         ESP_LOGE(TAG, "Failed to allocate OTA progress context");
         ota_publish_progress_status("failed", 0, 0, -1);
-        s_ota_update_in_progress = false;
         return ESP_ERR_NO_MEM;
     }
 
@@ -595,7 +619,6 @@ esp_err_t ota_manager_trigger_github_ota(const char *url, const char *storage_ur
     if (!storage_label) {
         ota_publish_progress_status("failed", 0, 0, -1);
         free(progress_ctx);
-        s_ota_update_in_progress = false;
         return ESP_ERR_INVALID_STATE;
     }
 
@@ -607,70 +630,54 @@ esp_err_t ota_manager_trigger_github_ota(const char *url, const char *storage_ur
             ESP_LOGE(TAG, "Unable to derive storage image URL for partition '%s'", storage_label);
             ota_publish_progress_status("failed", 0, 0, -1);
             free(progress_ctx);
-            s_ota_update_in_progress = false;
             return ESP_ERR_INVALID_ARG;
         }
         storage_url_to_use = derived_storage_url;
     }
 
-    ESP_LOGI(TAG, "Using storage image URL: %s for partition %s", storage_url_to_use, storage_label);
+    char *partition_storage_url = strstr(storage_url_to_use, storage_label)
+        ? strdup(storage_url_to_use)
+        : derive_storage_image_url(url, storage_label);
+    free(derived_storage_url);
+    if (!partition_storage_url) {
+        ESP_LOGE(TAG, "Unable to determine URL for %s", storage_label);
+        ota_publish_progress_status("failed", 0, -1, -1);
+        free(progress_ctx);
+        return ESP_ERR_NO_MEM;
+    }
 
+    const esp_partition_t *storage_part = esp_partition_find_first(
+        ESP_PARTITION_TYPE_DATA, ESP_PARTITION_SUBTYPE_ANY, storage_label);
+    if (!storage_part || esp_littlefs_partition_mounted(storage_part)) {
+        ESP_LOGE(TAG, "OTA storage partition '%s' is missing or mounted", storage_label);
+        ota_publish_progress_status("failed", 0, -1, -1);
+        free(partition_storage_url);
+        free(progress_ctx);
+        return storage_part ? ESP_ERR_INVALID_STATE : ESP_ERR_NOT_FOUND;
+    }
+
+    ota_publish_progress_status("preparing_storage", 0, -1, -1);
+    esp_err_t storage_ret = download_partition_image(partition_storage_url, storage_part);
+    free(partition_storage_url);
+    if (storage_ret != ESP_OK) {
+        ESP_LOGE(TAG, "Storage image update for %s failed: %s", storage_label, esp_err_to_name(storage_ret));
+        ota_publish_progress_status("failed", 0, -1, -1);
+        free(progress_ctx);
+        return storage_ret;
+    }
+
+    ESP_LOGI(TAG, "Inactive storage image updated; downloading firmware");
     esp_err_t ret = esp_https_ota(&ota_config);
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "OTA upgrade failed: %s", esp_err_to_name(ret));
         ota_publish_progress_status("failed", progress_ctx->last_progress, progress_ctx->total_received, progress_ctx->content_length);
         free(progress_ctx);
-        free(derived_storage_url);
-        s_ota_update_in_progress = false;
         return ret;
     }
 
-    ESP_LOGI(TAG, "OTA firmware image downloaded and verified; updating storage partitions");
+    ESP_LOGI(TAG, "OTA firmware image downloaded and verified");
     ota_publish_progress_status("flashing", 100, progress_ctx->total_received, progress_ctx->content_length);
     free(progress_ctx);
-
-    // Update both storage partitions so the new OTA slot and its alternate slot both have valid web assets.
-    const char *storage_labels[2] = { "storage_0", "storage_1" };
-    for (size_t i = 0; i < 2; ++i) {
-        char *partition_storage_url = NULL;
-        if (storage_url_to_use && strstr(storage_url_to_use, storage_labels[i])) {
-            partition_storage_url = strdup(storage_url_to_use);
-        } else {
-            partition_storage_url = derive_storage_image_url(url, storage_labels[i]);
-        }
-        if (!partition_storage_url) {
-            ESP_LOGE(TAG, "Unable to derive URL for %s", storage_labels[i]);
-            ota_publish_progress_status("failed", 100, -1, -1);
-            free(derived_storage_url);
-            s_ota_update_in_progress = false;
-            return ESP_ERR_INVALID_ARG;
-        }
-
-        const esp_partition_t *storage_part = esp_partition_find_first(
-            ESP_PARTITION_TYPE_DATA,
-            ESP_PARTITION_SUBTYPE_ANY,
-            storage_labels[i]);
-        if (!storage_part) {
-            ESP_LOGE(TAG, "Storage partition '%s' not found", storage_labels[i]);
-            ota_publish_progress_status("failed", 100, -1, -1);
-            free(partition_storage_url);
-            free(derived_storage_url);
-            s_ota_update_in_progress = false;
-            return ESP_ERR_NOT_FOUND;
-        }
-
-        esp_err_t storage_ret = download_partition_image(partition_storage_url, storage_part);
-        free(partition_storage_url);
-        if (storage_ret != ESP_OK) {
-            ESP_LOGE(TAG, "Storage image update for %s failed: %s", storage_labels[i], esp_err_to_name(storage_ret));
-            ota_publish_progress_status("failed", 100, -1, -1);
-            free(derived_storage_url);
-            s_ota_update_in_progress = false;
-            return storage_ret;
-        }
-    }
-
-    free(derived_storage_url);
     ota_publish_progress_status("pending_reboot", 100, -1, -1);
     set_heartbeat_interval(HEARTBEAT_INTERVAL_MS);
 
@@ -680,7 +687,31 @@ esp_err_t ota_manager_trigger_github_ota(const char *url, const char *storage_ur
 } // End of ota_manager_trigger_github_ota
 //-----------------------------------------------------------------------------
 
+esp_err_t ota_manager_trigger_github_ota(const char *url, const char *storage_url)
+{
+    if (!url || !url[0]) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    if (!ota_manager_reserve()) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    esp_err_t err = ota_manager_run_github_ota(url, storage_url);
+    ota_manager_release();
+    return err;
+}
 
+esp_err_t ota_manager_trigger_manifest_ota(const char *manifest_url)
+{
+    if (!manifest_url || !manifest_url[0]) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    if (!ota_manager_reserve()) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    esp_err_t err = ota_manager_run_manifest_ota(manifest_url);
+    ota_manager_release();
+    return err;
+}
 
 /**
  * @brief Callback function to handle OTA update requests from the JSON service.
@@ -691,202 +722,97 @@ esp_err_t ota_manager_trigger_github_ota(const char *url, const char *storage_ur
  *       It extracts the OTA URL (GitHub)from the request and triggers the OTA update process.
  *       https://raw.githubusercontent.com/Nino67/Esp32-S3-HotTub-Base/main/firmware/hot_tub_controller.bin
  */
-static void ota_manager_update_manifest_callback(cJSON *root) {
-    cJSON *id_item = cJSON_GetObjectItemCaseSensitive(root, "id");
-    cJSON *type_item = cJSON_GetObjectItemCaseSensitive(root, "type");
-    cJSON *cmd = cJSON_GetObjectItemCaseSensitive(root, "cmd");
-    cJSON *params = cJSON_GetObjectItemCaseSensitive(root, "params");
+typedef struct {
+    bool manifest;
+    char *url;
+    char *storage_url;
+} ota_web_request_t;
 
-    const uint32_t id = cJSON_IsNumber(id_item) ? id_item->valueint : 0;
-    const char *type_str = cJSON_IsString(type_item) && type_item->valuestring != NULL ? type_item->valuestring : NULL;
-    const char *cmd_str = cJSON_IsString(cmd) && cmd->valuestring != NULL ? cmd->valuestring : NULL;
-    const char *params_str = cJSON_IsObject(params) ? cJSON_PrintUnformatted(params) : NULL;
-
-    ESP_LOGI(TAG, "OTA manifest envelope: id=%d, type=%s, cmd=%s, params=%s",
-             id,
-             type_str ? type_str : "null",
-             cmd_str ? cmd_str : "null",
-             params_str ? params_str : "null");
-
-    esp_err_t ota_result = ESP_FAIL;
-    if (params && cJSON_IsObject(params)) {
-        cJSON *manifest_url_item = cJSON_GetObjectItemCaseSensitive(params, "manifest_url");
-        if (cJSON_IsString(manifest_url_item) && manifest_url_item->valuestring && manifest_url_item->valuestring[0] != '\0') {
-            const char *manifest_url = manifest_url_item->valuestring;
-            ESP_LOGI(TAG, "Triggering OTA update from manifest URL: %s", manifest_url);
-            ota_result = ota_manager_trigger_manifest_ota(manifest_url);
-            if (ota_result != ESP_OK) {
-                ESP_LOGE(TAG, "Manifest OTA update failed with error: %s", esp_err_to_name(ota_result));
-            }
-        } else {
-            ESP_LOGE(TAG, "Invalid or missing 'manifest_url' parameter for OTA update.");
-            ota_result = ESP_ERR_INVALID_ARG;
-        }
+static void ota_manager_web_task(void *arg)
+{
+    ota_web_request_t *request = arg;
+    esp_err_t err = request->manifest
+        ? ota_manager_run_manifest_ota(request->url)
+        : ota_manager_run_github_ota(request->url, request->storage_url);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Web OTA request failed: %s", esp_err_to_name(err));
+        ota_publish_progress_status("failed", 0, -1, -1);
     } else {
-        ESP_LOGE(TAG, "Missing 'params' object for OTA update command.");
-        ota_result = ESP_ERR_INVALID_ARG;
+        ota_publish_progress_status("up_to_date", 100, -1, -1);
     }
-
-    if (ota_result == ESP_OK) {
-        cJSON_AddStringToObject(root, "status", "ok");
-        cJSON *response = cJSON_CreateObject();
-        if (response) {
-            cJSON_AddStringToObject(response, "message", "ota manifest update completed");
-            cJSON_AddStringToObject(response, "ota_status", "pending_reboot");
-            cJSON_AddItemToObject(root, "response", response);
-        }
-    } else {
-        cJSON_AddStringToObject(root, "status", "error");
-        cJSON *response = cJSON_CreateObject();
-        if (response) {
-            cJSON_AddStringToObject(response, "message", "ota manifest update failed");
-            cJSON_AddStringToObject(response, "error", esp_err_to_name(ota_result));
-            cJSON_AddNumberToObject(response, "error_code", ota_result);
-            cJSON_AddStringToObject(response, "ota_status", "failed");
-            cJSON_AddItemToObject(root, "response", response);
-        }
-    }
-    cJSON_SetValuestring(type_item, "res");
+    free(request->url);
+    free(request->storage_url);
+    free(request);
+    ota_manager_release();
+    vTaskDelete(NULL);
 }
 
-static void ota_manager_update_git_callback(cJSON *root) {
-    cJSON *id_item = cJSON_GetObjectItemCaseSensitive(root, "id");
-    cJSON *type_item = cJSON_GetObjectItemCaseSensitive(root, "type");
-    cJSON *cmd = cJSON_GetObjectItemCaseSensitive(root, "cmd");
+static void ota_manager_queue_web_request(cJSON *root, bool manifest)
+{
     cJSON *params = cJSON_GetObjectItemCaseSensitive(root, "params");
+    cJSON *url = cJSON_IsObject(params)
+        ? cJSON_GetObjectItemCaseSensitive(params, manifest ? "manifest_url" : "url") : NULL;
+    cJSON *storage = !manifest && cJSON_IsObject(params)
+        ? cJSON_GetObjectItemCaseSensitive(params, "storage_url") : NULL;
+    esp_err_t result = ESP_OK;
+    ota_web_request_t *request = NULL;
 
-    const uint32_t id = cJSON_IsNumber(id_item) ? id_item->valueint : 0;
-    const char *type_str = cJSON_IsString(type_item) && type_item->valuestring != NULL ? type_item->valuestring : NULL;
-    const char *cmd_str = cJSON_IsString(cmd) && cmd->valuestring != NULL ? cmd->valuestring : NULL;
-    const char *params_str = cJSON_IsObject(params) ? cJSON_PrintUnformatted(params) : NULL;
-
-    ESP_LOGI(TAG, "OTA update envelope: id=%d, type=%s, cmd=%s, params=%s",
-             id,
-             type_str ? type_str : "null",
-             cmd_str ? cmd_str : "null",
-             params_str ? params_str : "null");
-
-    esp_err_t ota_result = ESP_FAIL;
-    if (params && cJSON_IsObject(params)) {
-        cJSON *url_item = cJSON_GetObjectItemCaseSensitive(params, "url");
-        if (cJSON_IsString(url_item) && url_item->valuestring != NULL) {
-            const char *ota_url = url_item->valuestring;
-            const char *storage_url = NULL;
-            cJSON *storage_url_item = cJSON_GetObjectItemCaseSensitive(params, "storage_url");
-            if (cJSON_IsString(storage_url_item) && storage_url_item->valuestring != NULL) {
-                storage_url = storage_url_item->valuestring;
-            }
-
-            char *derived_storage_url = NULL;
-            const char *storage_url_to_report = storage_url;
-            if (!storage_url_to_report || storage_url_to_report[0] == '\0') {
-                const char *storage_label = storage_label_for_next_app();
-                if (storage_label) {
-                    derived_storage_url = derive_storage_image_url(ota_url, storage_label);
-                    storage_url_to_report = derived_storage_url;
-                }
-            }
-
-            ESP_LOGI(TAG, "Triggering OTA update from URL: %s storage_url: %s",
-                     ota_url,
-                     storage_url_to_report ? storage_url_to_report : "(none)");
-
-            ota_result = ota_manager_trigger_github_ota(ota_url, storage_url);
-            if (ota_result != ESP_OK) {
-                ESP_LOGE(TAG, "OTA update failed with error: %s", esp_err_to_name(ota_result));
-            }
-            if (storage_url_to_report) {
-                cJSON_AddStringToObject(root, "storage_url", storage_url_to_report);
-            }
-            free(derived_storage_url);
-        } else {
-            ESP_LOGE(TAG, "Invalid or missing 'url' parameter for OTA update.");
-            ota_result = ESP_ERR_INVALID_ARG;
-        }
+    if (!cJSON_IsString(url) || !url->valuestring || strncmp(url->valuestring, "https://", 8) != 0 ||
+        url->valuestring[8] == '\0' ||
+        (storage && (!cJSON_IsString(storage) || !storage->valuestring ||
+                     (storage->valuestring[0] &&
+                      (strncmp(storage->valuestring, "https://", 8) != 0 || storage->valuestring[8] == '\0'))))) {
+        result = ESP_ERR_INVALID_ARG;
+    } else if (!ota_manager_reserve()) {
+        result = ESP_ERR_INVALID_STATE;
     } else {
-        ESP_LOGE(TAG, "Missing 'params' object for OTA update command.");
-        ota_result = ESP_ERR_INVALID_ARG;
+        request = calloc(1, sizeof(*request));
+        if (request) {
+            request->manifest = manifest;
+            request->url = strdup(url->valuestring);
+            if (storage && storage->valuestring[0]) {
+                request->storage_url = strdup(storage->valuestring);
+            }
+        }
+        if (!request || !request->url ||
+            (storage && storage->valuestring[0] && !request->storage_url)) {
+            result = ESP_ERR_NO_MEM;
+        } else if (xTaskCreatePinnedToCore(ota_manager_web_task, "web_ota", 8192,
+                                           request, 5, NULL, 0) != pdPASS) {
+            result = ESP_ERR_NO_MEM;
+        }
+        if (result != ESP_OK) {
+            if (request) {
+                free(request->url);
+                free(request->storage_url);
+                free(request);
+            }
+            ota_manager_release();
+        }
     }
 
-    if (ota_result == ESP_OK) {
-        cJSON_AddStringToObject(root, "status", "ok");
-        cJSON *response = cJSON_CreateObject();
-        if (response) {
-            cJSON_AddStringToObject(response, "message", "ota update completed");
-            cJSON_AddStringToObject(response, "ota_status", "pending_reboot");
-            cJSON_AddItemToObject(root, "response", response);
+    cJSON *type = cJSON_GetObjectItemCaseSensitive(root, "type");
+    cJSON_SetValuestring(type, "res");
+    cJSON_AddStringToObject(root, "status", result == ESP_OK ? "ok" : "error");
+    cJSON *response = cJSON_AddObjectToObject(root, "response");
+    if (response) {
+        cJSON_AddStringToObject(response, "ota_status", result == ESP_OK ? "requested" : "failed");
+        if (result != ESP_OK) {
+            cJSON_AddStringToObject(response, "error", esp_err_to_name(result));
+            cJSON_AddNumberToObject(response, "error_code", result);
+            ESP_LOGE(TAG, "Web OTA request rejected: %s", esp_err_to_name(result));
         }
     } else {
-        cJSON_AddStringToObject(root, "status", "error");
-        cJSON *response = cJSON_CreateObject();
-        if (response) {
-            cJSON_AddStringToObject(response, "message", "ota update failed");
-            cJSON_AddStringToObject(response, "error", esp_err_to_name(ota_result));
-            cJSON_AddNumberToObject(response, "error_code", ota_result);
-            cJSON_AddStringToObject(response, "ota_status", "failed");
-            cJSON_AddItemToObject(root, "response", response);
-        }
+        ESP_LOGE(TAG, "Failed to create web OTA response");
     }
-    cJSON_SetValuestring(type_item, "res");
 }
 
+static void ota_manager_update_manifest_callback(cJSON *root)
+{
+    ota_manager_queue_web_request(root, true);
+}
 
-
-
-
-
-
-
-
-
-
-// /**
-//  * @brief Handle an OTA update request.
-//  * 
-//  * @param root The JSON object containing the OTA update request.
-//  * @return ESP_OK on success, or an error code on failure.
-//  */
-// esp_err_t web_server_ota_update_requested(cJSON *root)
-// {   
-//     ESP_LOGW(TAG, "Inside OTA update request handler");
-//     if (!s_server)
-//     {
-//         return ESP_ERR_INVALID_STATE;
-//     }
-//     ESP_LOGI(TAG, "OTA update request received: %s", cJSON_Print(root));
-//     // Implement OTA update request handling here
-//     cJSON *url_item = cJSON_GetObjectItemCaseSensitive(root, "url");
-    
-//     if (cJSON_IsString(url_item) && url_item->valuestring && url_item->valuestring[0] != '\0')
-//     {
-//         char *url_copy = strdup(url_item->valuestring);
-//         if (url_copy != NULL)
-//         {
-//             // web_server_device_state_set_ota_pending(true);
-//             // web_server_device_state_set_ota_status("requested");
-//             // web_server_device_state_set_ota_progress(0);
-//             if (xTaskCreatePinnedToCore(ota_update_task, "ota_update", 8192, url_copy, 5, NULL, 0) != pdPASS)
-//             {
-//                 ESP_LOGE(TAG, "Failed to create OTA task");
-//                 free(url_copy);
-//                 // web_server_device_state_set_ota_pending(false);
-//                 // web_server_device_state_set_ota_status("failed");
-//             }
-//         }
-//         else
-//         {
-//             ESP_LOGE(TAG, "Failed to allocate OTA URL copy");
-//             // web_server_device_state_set_ota_status("failed");
-//             // web_server_device_state_set_ota_pending(false);
-//         }
-//     }
-//     else
-//     {
-//         ESP_LOGE(TAG, "OTA update command missing valid url");
-//         // web_server_device_state_set_ota_status("failed");
-//         // web_server_device_state_set_ota_pending(false);
-//     }
-
-//     ESP_LOGW(TAG, "OTA update request processing completed");
-//     return ESP_OK;
-// }
+static void ota_manager_update_git_callback(cJSON *root)
+{
+    ota_manager_queue_web_request(root, false);
+}

@@ -19,7 +19,7 @@
 
 
 import { createCrc32JsonWrapper } from '/js/communication/crc32_wrapper.js';
-import { createChartManager } from '/js/chart_manager.js';
+import { createChartManager, createSampleTracker } from '/js/chart_manager.js';
 import { hottub } from '/js/globals.js';
 import { safeSetText, safeSetStyle } from '/js/globals.js';
 import { ws_manager } from '/js/communication/ws_manager.js';
@@ -39,6 +39,7 @@ const otaProgressBar = document.getElementById('otaProgressBar');
 const systemStatusBtn = document.getElementById('sendSystemStatusBtn');
 const otaBtn = document.getElementById('otaBtn');
 const chartContainer = document.getElementById('chartContainer');
+const chartStatus = document.getElementById('chartStatus');
 const filteredTemperatureDisplay = document.getElementById('filteredTemperature');
 const heatToggle = document.getElementById('heatToggle');
 const settingsToggle = document.getElementById('settingsToggle');
@@ -82,7 +83,10 @@ let otaSessionStartedAt = 0;
 let otaForcedReloadTimer = null;
 let showReceivedPayload = true;
 const chartManager = createChartManager();
+const sampleTracker = createSampleTracker();
 let temperatureChartId = null;
+let lastStatusReceivedAt = 0;
+let statusDisconnected = false;
 
 function loadReceivePayloadPreference() {
   try {
@@ -146,8 +150,9 @@ setInterval(() => {
       console.warn('[ws_client] filteredTemperature element not found');
   }
 
-  // Update the temperature chart with the latest hot tub state
-  updateTemperatureChart(hottub);
+  if (!statusDisconnected && lastStatusReceivedAt && Date.now() - lastStatusReceivedAt > 3500) {
+    safeSetText(chartStatus, 'Data stale - waiting for updates');
+  }
 
   // Update the UI controls based on the latest hot tub state
   syncControlStateFromPayload(hottub);
@@ -371,7 +376,7 @@ function scheduleForcedOtaReload(reasonText, delayMs = 3500) {
 
 function scheduleOtaReload(statusText, progressValue) {
   const normalizedStatus = String(statusText || '').toLowerCase();
-  const isCompleteStatus = /success|complete|completed|done|reboot|pending_reboot|download_complete|flashing|downloading/.test(normalizedStatus);
+  const isCompleteStatus = /pending_reboot|reboot/.test(normalizedStatus);
   const isCompleteProgress = Number(progressValue) >= 100;
   if (!isCompleteStatus || !isCompleteProgress || otaReloadScheduled) {
     return;
@@ -475,14 +480,17 @@ function updateOtaUiFromParsed(parsed) {
     otaLastStatus = statusText;
     safeSetText(otaStatus, statusText);
 
-    const terminalStatus = /failed|error|success|complete|completed|done|reboot|pending_reboot/i.test(statusText);
+    const terminalStatus = /failed|error|up_to_date|pending_reboot/i.test(statusText);
     if (terminalStatus) {
       stopOtaProgressFallback();
-      if (/success|complete|completed|done|reboot|pending_reboot/i.test(statusText)) {
+      if (/pending_reboot/i.test(statusText)) {
         setOtaProgress(100);
         otaLastProgress = 100;
         latestProgress = 100;
         scheduleOtaReload(statusText, 100);
+      } else if (/up_to_date/i.test(statusText)) {
+        otaInProgress = false;
+        setOtaProgress(100);
       } else if (/failed|error/i.test(statusText)) {
         otaInProgress = false;
         otaLastError = true;
@@ -504,9 +512,6 @@ function updateOtaUiFromParsed(parsed) {
       setOtaProgress(normalized);
       otaLastProgress = normalized;
       latestProgress = normalized;
-      if (otaInProgress && normalized >= 100) {
-        scheduleForcedOtaReload(otaLastStatus || 'ota complete', 2000);
-      }
     }
   }
 
@@ -521,6 +526,9 @@ function updateOtaUiFromParsed(parsed) {
 }
 
 window.addEventListener('hottub-ws-close', () => {
+  sampleTracker.disconnect();
+  statusDisconnected = true;
+  safeSetText(chartStatus, 'Disconnected - reconnecting');
   if (otaReloadScheduled || !otaInProgress) {
     return;
   }
@@ -540,6 +548,11 @@ window.addEventListener('hottub-ws-close', () => {
 });
 
 export function renderParsedMessage(parsed, raw) {
+  if (parsed && parsed.valid && parsed.payload &&
+      parsed.payload.type === 'pub' && parsed.payload.cmd === 'hottub.status.get' &&
+      parsed.payload.response && typeof parsed.payload.response === 'object') {
+    updateTemperatureChart(parsed.payload.response);
+  }
   // Decide whether to show the raw payload in the receive view.
   if (showReceivedPayload) {
     let shouldShowRaw = true;
@@ -893,44 +906,6 @@ async function hardwareInit() {
 
 
 
-  // if (otaManifestBtn) {
-  //   otaManifestBtn.addEventListener('click', () => {
-  //     if (!ws_manager || ws_manager.readyState !== WebSocket.OPEN) {
-  //       safeSetText(sendView, 'Socket is not open. Waiting for connection...');
-  //       return;
-  //     }
-
-  //     const manifestUrl = prompt('Enter OTA manifest URL:',
-  //       'https://raw.githubusercontent.com/Nino67/Esp32-S3-HotTub-Base/main/firmware/ota_manifest.json');
-  //     if (!manifestUrl) {
-  //       return;
-  //     }
-
-  //     const payload = {
-  //       id: 1,
-  //       type: 'req',
-  //       cmd: 'ota.manager.update.manifest',
-  //       params: { manifest_url: manifestUrl },
-  //     };
-
-  //     safeSetText(otaStatus, 'requested');
-  //     startOtaProgressFallback();
-
-  //     try {
-  //       const wrapped = createCrc32JsonWrapper(payload);
-  //       ws_manager.send(wrapped);
-  //       safeSetText(sendView, wrapped);
-  //       console.log('Sending OTA manifest request:', wrapped);
-  //     } catch (err) {
-  //       safeSetText(sendView, `Invalid OTA payload: ${err.message}`);
-  //       safeSetText(otaStatus, 'failed');
-  //       stopOtaProgressFallback();
-  //       setOtaProgress(0);
-  //       console.error('Failed to wrap OTA payload:', err);
-  //     }
-  //   });
-  // }
-
   ws_manager.connect();
   
 } // end of hardwareInit()
@@ -942,13 +917,20 @@ function updateTemperatureChart(state) {
     return;
   }
 
-  const src = state.response && typeof state.response === 'object' && Object.keys(state.response).length > 0
-    ? state.response
-    : state;
-  const parsedTimestampMs = src.lastUpdateTime ? Date.parse(src.lastUpdateTime) : NaN;
-  const timestamp = Number.isFinite(parsedTimestampMs)
-    ? parsedTimestampMs / 1000
-    : Math.floor(Date.now() / 1000);
+  const src = state;
+  const receivedAt = Date.now();
+  const sample = sampleTracker.accept(src, receivedAt);
+  if (!sample) {
+    return;
+  }
+  lastStatusReceivedAt = receivedAt;
+  statusDisconnected = false;
+  safeSetText(chartStatus, sample.gap ? 'Live - gap detected in received data' : 'Live');
+  if (sample.reset) {
+    chartManager.clear(temperatureChartId);
+  } else if (sample.gap && sample.previousTimestamp !== null) {
+    chartManager.addPoint(temperatureChartId, (sample.previousTimestamp + sample.timestamp) / 2, {});
+  }
 
   const STATUS_BASELINE_TEMP = 25;
 
@@ -964,7 +946,7 @@ function updateTemperatureChart(state) {
     }
   })();
 
-  chartManager.addPoint(temperatureChartId, timestamp, {
+  chartManager.addPoint(temperatureChartId, sample.timestamp, {
     waterTemp: src.waterTemp,
     filteredWaterTemp: src.filteredWaterTemp,
     heaterOn: heaterOnValue,
@@ -974,55 +956,3 @@ function updateTemperatureChart(state) {
 
 
 hardwareInit();
-
-
-
-
-
-
-
-// /**
-//  * @brief Array of callback functions for the hot tub controller commands.
-//  *
-//  * Each entry in the array consists of a command string and its corresponding callback function.
-//  * The array is terminated with a sentinel value (NULL, NULL).
-//  */
-// const hot_tub_callbacks = {
-//     {"hottub.status.get", hottub_status_get_callback},
-//     {"hottub.automode.get", hottub_auto_mode_get_callback},
-//     {"hottub.automode.set", hottub_auto_mode_set_callback},
-//     {"hottub.heater.status.get", hottub_heater_status_get_callback},
-//     {"hottub.heater.status.set", hottub_heater_status_set_callback},
-//     {"hottub.temperature.unit.get", hottub_temperature_unit_get_callback},
-//     {"hottub.temperature.unit.set", hottub_temperature_unit_set_callback},
-//     {"hottub.water.temperature.get", hottub_water_temperature_get_callback},
-//     {"hottub.water.temperature.set", hottub_water_temperature_set_callback},
-//     {"hottub.filtered.water.temp.get", hottub_filtered_water_temp_get_callback},
-//     {"hottub.filtered.water.temp.set", hottub_filtered_water_temp_set_callback},
-//     {"hottub.simulation.mode.get", hottub_simulation_mode_get_callback},
-//     {"hottub.simulation.mode.set", hottub_simulation_mode_set_callback},
-//     {"hottub.air.temperature.get", hottub_air_temperature_get_callback},
-//     {"hottub.air.temperature.set", hottub_air_temperature_set_callback},
-//     {"hottub.humidity.get", hottub_humidity_get_callback},
-//     {"hottub.humidity.set", hottub_humidity_set_callback},
-//     {"hottub.setpoint.temperature.get", hottub_setpoint_temperature_get_callback},
-//     {"hottub.setpoint.temperature.set", hottub_setpoint_temperature_set_callback},
-//     {"hottub.high.hysteresis.get", hottub_high_hysteresis_get_callback},
-//     {"hottub.high.hysteresis.set", hottub_high_hysteresis_set_callback},
-//     {"hottub.low.hysteresis.get", hottub_low_hysteresis_get_callback},
-//     {"hottub.low.hysteresis.set", hottub_low_hysteresis_set_callback},
-//     {"hottub.pump.state.get", hottub_pump_state_get_callback},
-//     {"hottub.pump.state.set", hottub_pump_state_set_callback},
-//     {"hottub.low.pass.filter.alpha.get", hottub_low_pass_filter_alpha_get_callback},
-//     {"hottub.low.pass.filter.alpha.set", hottub_low_pass_filter_alpha_set_callback},
-//     {"hottub.safety.switch.get", hottub_safety_switch_get_callback},
-//     {"hottub.safety.switch.set", hottub_safety_switch_set_callback},
-//     {"hottub.pump.pre.run.time.get", hottub_pump_pre_run_time_get_callback},
-//     {"hottub.pump.pre.run.time.set", hottub_pump_pre_run_time_set_callback},
-//     {"hottub.pump.post.run.time.get", hottub_pump_post_run_time_get_callback},
-//     {"hottub.pump.post.run.time.set", hottub_pump_post_run_time_set_callback},
-//     {"hottub.error.get", hottub_error_get_callback},
-//     {"hottub.error.set", hottub_error_set_callback},
-//     {NULL, NULL} // Sentinel value to mark the end of the array
-// };
-// //-----------------------------------------------------------------------------

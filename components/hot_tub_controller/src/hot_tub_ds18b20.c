@@ -1,4 +1,5 @@
 #include <math.h>
+#include <inttypes.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "esp_err.h"
@@ -121,6 +122,7 @@ void water_temperature_monitoring_task(void *arg)
     TickType_t xLastWakeTime = xTaskGetTickCount();
     const TickType_t xFrequency = pdMS_TO_TICKS(1000); // 1 second
     bool paused_for_ota = false;
+    uint32_t read_failures = 0;
 
     if (app_watchdog_register_current_task("water_temp") != ESP_OK)
     {
@@ -157,6 +159,7 @@ void water_temperature_monitoring_task(void *arg)
         
         if (err == ESP_OK) 
         {
+            read_failures = 0;
             water_temp = roundf(water_temp * 10.0f) / 10.0f; // Round to 1 decimal place
             lock_state();
             hottub_ctl.waterTemp = water_temp;
@@ -164,7 +167,15 @@ void water_temperature_monitoring_task(void *arg)
         } 
         else 
         {
-            ESP_LOGW(TAG, "DS18B20 read failed: %s", esp_err_to_name(err));
+            // A missing sensor fails every second; slow console output (115200 baud) stalls other tasks.
+            if (read_failures == 0 || (read_failures % 60) == 0)
+            {
+                ESP_LOGW(TAG, "DS18B20 read failed: %s (consecutive failures: %" PRIu32 ")", esp_err_to_name(err), read_failures + 1);
+            }
+            if (read_failures < UINT32_MAX)
+            {
+                read_failures++;
+            }
         }
 
         if (app_watchdog_feed_current_task() != ESP_OK)
@@ -213,7 +224,7 @@ esp_err_t hot_tub_ds18b20_read_temperature(float *temperature)
             return ESP_OK;
         }
 
-        ESP_LOGW(TAG, "DS18B20 read attempt %d failed (%s)", attempt + 1, esp_err_to_name(err));
+        ESP_LOGD(TAG, "DS18B20 read attempt %d failed (%s)", attempt + 1, esp_err_to_name(err));
         
         // Clean up bus handles so we get a fresh state on next loop
         hot_tub_ds18b20_cleanup();

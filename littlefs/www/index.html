@@ -5,6 +5,15 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Hot Tub Controller</title>
     <link rel="stylesheet" href="/css/styles.css" />
+    <!-- Fetch the module graph in parallel instead of discovering imports one level at a time. -->
+    <link rel="modulepreload" href="/js/app.js" />
+    <link rel="modulepreload" href="/js/chart_manager.js" />
+    <link rel="modulepreload" href="/js/globals.js" />
+    <link rel="modulepreload" href="/js/callbacks.js" />
+    <link rel="modulepreload" href="/js/communication/crc32_wrapper.js" />
+    <link rel="modulepreload" href="/js/communication/ws_manager.js" />
+    <link rel="modulepreload" href="/js/communication/callback_manager.js" />
+    <link rel="modulepreload" href="/js/communication/message_parser.js" />
   </head>
   <body>
     <main class="shell">
@@ -63,6 +72,7 @@
         <header>
           <h2>Temperature Plot</h2>
         </header>
+        <p id="chartStatus" role="status">Waiting for live data</p>
         <div id="chartContainer" class="chart-placeholder">
         </div>
       </section>

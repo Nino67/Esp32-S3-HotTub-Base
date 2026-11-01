@@ -20,8 +20,45 @@
 const COLOR_PALETTE = ['#4caf50', '#2196f3', '#ff9800', '#9c27b0', '#f44336'];
 
 function toFiniteNumber(value) {
+  if (value == null) {
+    return null;
+  }
   const num = typeof value === 'number' ? value : Number(value);
   return Number.isFinite(num) ? num : null;
+}
+
+export function createSampleTracker() {
+  let lastSequence = null;
+  let lastTimestamp = null;
+  let disconnected = false;
+
+  return {
+    disconnect() {
+      disconnected = true;
+    },
+    accept(sample, receivedAtMs) {
+      const seq = Number.isInteger(sample.sample_seq) && sample.sample_seq >= 0 &&
+        sample.sample_seq <= 0xffffffff ? sample.sample_seq : null;
+      const deviceTime = Number(sample.sample_time_ms);
+      const timestamp = (Number.isFinite(deviceTime) && deviceTime >= 1577836800000
+        ? deviceTime : receivedAtMs) / 1000;
+      const duplicate = seq !== null && seq === lastSequence && !disconnected;
+      if (duplicate) {
+        return null;
+      }
+
+      const backwards = lastTimestamp !== null && timestamp <= lastTimestamp;
+      const sequenceGap = seq !== null && lastSequence !== null &&
+        seq !== ((lastSequence + 1) >>> 0);
+      const timeGap = lastTimestamp !== null && timestamp - lastTimestamp > 3;
+      const previousTimestamp = lastTimestamp;
+      lastTimestamp = timestamp;
+      lastSequence = seq;
+      const gap = previousTimestamp !== null && (disconnected || sequenceGap || timeGap);
+      disconnected = false;
+      return { timestamp, previousTimestamp, gap, reset: backwards };
+    },
+  };
 }
 
 function getSeriesOptions(seriesLabels) {
@@ -29,7 +66,7 @@ function getSeriesOptions(seriesLabels) {
     label,
     stroke: COLOR_PALETTE[index % COLOR_PALETTE.length],
     width: 2,
-    spanGaps: true,
+    spanGaps: false,
   }));
 }
 
@@ -225,8 +262,18 @@ export function createChartManager() {
     chart.setData(data);
   }
 
+  function clear(id) {
+    const entry = charts.get(id);
+    if (!entry) {
+      throw new Error(`Chart with id '${id}' not found`);
+    }
+    entry.data.forEach((series) => { series.length = 0; });
+    entry.chart.setData(entry.data);
+  }
+
   return {
     createChart,
     addPoint,
+    clear,
   };
 }

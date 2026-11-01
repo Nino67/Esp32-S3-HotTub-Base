@@ -21,7 +21,6 @@ flowchart LR
 	IO --> RPC[json_service]
 	RPC --> CTRL[hot_tub_controller]
 	RPC --> SYS[system_status]
-	CTRL --> STATE[device_state]
 	CTRL --> NVS[nvs_storage]
 	WIFI[wifi_manager] --> SYS
 	OTA[ota_manager] --> SYS
@@ -69,6 +68,8 @@ idf.py build
 idf.py flash monitor
 ```
 
+Web assets in `littlefs/www` are gzip-compressed into `build/www_staging` by [tools/stage_www.py](tools/stage_www.py) before the two LittleFS images are built, so edit the files in `littlefs/www` (not the build output) and reflash the storage images with the firmware. The web server serves the `.gz` variants with `Content-Encoding: gzip`. Host-side tests: `node --experimental-default-type=module --test tests/chart_manager.test.js` and `python3 -m unittest discover -s tests -p "test_*.py"`.
+
 ## 4) Runtime Interfaces
 
 ### BLE
@@ -93,7 +94,6 @@ Each component now has its own beginner-friendly README:
 - [components/app_controller/README.md](components/app_controller/README.md)
 - [components/app_watchdog/README.md](components/app_watchdog/README.md)
 - [components/ble_service/README.md](components/ble_service/README.md)
-- [components/device_state/README.md](components/device_state/README.md)
 - [components/hot_tub_controller/README.md](components/hot_tub_controller/README.md)
 - [components/json_service/README.md](components/json_service/README.md)
 - [components/ntp_time_sync/README.md](components/ntp_time_sync/README.md)

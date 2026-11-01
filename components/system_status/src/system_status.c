@@ -18,6 +18,8 @@
 static const char *TAG = "system_status";
 static const char *DEFAULT_DEVICE_NAME = "HotTub";
 static SystemStatus_t s_system_status;
+// Guards s_system_status: writers run on several tasks and readers take consistent copies.
+static portMUX_TYPE s_status_mux = portMUX_INITIALIZER_UNLOCKED;
 static TaskHandle_t s_core0_task = NULL;
 static temperature_sensor_handle_t s_temp_sensor = NULL;
 
@@ -100,7 +102,9 @@ static esp_err_t system_status_read_temperature(float *out_temp)
 static void system_status_load_reset_reason(void)
 {
     esp_reset_reason_t reason = esp_reset_reason();
+    portENTER_CRITICAL(&s_status_mux);
     s_system_status.reset_reason = (uint32_t)reason;
+    portEXIT_CRITICAL(&s_status_mux);
 }
 //-----------------------------------------------------------------------------
 
@@ -110,16 +114,23 @@ static void system_status_load_reset_reason(void)
  */
 static void system_status_update_core_heap(void)
 {
-    s_system_status.core_0_free_heap_bytes = heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
-    s_system_status.core_1_free_heap_bytes = heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
-    s_system_status.psram_free_bytes = heap_caps_get_free_size(MALLOC_CAP_SPIRAM);
+    const size_t internal_free = heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    const size_t psram_free = heap_caps_get_free_size(MALLOC_CAP_SPIRAM);
+    portENTER_CRITICAL(&s_status_mux);
+    s_system_status.core_0_free_heap_bytes = internal_free;
+    s_system_status.core_1_free_heap_bytes = internal_free;
+    s_system_status.psram_free_bytes = psram_free;
+    portEXIT_CRITICAL(&s_status_mux);
 }
 //-----------------------------------------------------------------------------
 
 static void system_status_update_task_stack(void)
 {
     if (s_core0_task != NULL) {
-        s_system_status.core_0_task_stack_high_water_bytes = uxTaskGetStackHighWaterMark(s_core0_task);
+        const uint32_t high_water = uxTaskGetStackHighWaterMark(s_core0_task);
+        portENTER_CRITICAL(&s_status_mux);
+        s_system_status.core_0_task_stack_high_water_bytes = high_water;
+        portEXIT_CRITICAL(&s_status_mux);
     }
 }
 
@@ -127,11 +138,13 @@ static void system_status_update_ota_partitions(void)
 {
     const esp_partition_t *running = esp_ota_get_running_partition();
     if (running) {
+        portENTER_CRITICAL(&s_status_mux);
         if (running->subtype == ESP_PARTITION_SUBTYPE_APP_OTA_0) {
             s_system_status.firmware.running_partition_slot = 0;
         } else if (running->subtype == ESP_PARTITION_SUBTYPE_APP_OTA_1) {
             s_system_status.firmware.running_partition_slot = 1;
         }
+        portEXIT_CRITICAL(&s_status_mux);
     }
 }
 
@@ -141,21 +154,28 @@ static void system_status_update_timestamp(void)
     if (now_us < 0) {
         now_us = 0;
     }
-    s_system_status.last_update_us = (uint64_t)now_us;
-    s_system_status.uptime_us = (uint64_t)esp_timer_get_time();
 
+    char timestamp[sizeof(s_system_status.timestamp)] = "1970-01-01 00:00:00";
     time_t now = 0;
-    if (time(&now) != (time_t)-1) {
-        struct tm now_tm;
-        if (localtime_r(&now, &now_tm) != NULL) {
-            strftime(s_system_status.timestamp, sizeof(s_system_status.timestamp), "%Y-%m-%d %H:%M:%S", &now_tm);
-        } else {
-            strncpy(s_system_status.timestamp, "1970-01-01 00:00:00", sizeof(s_system_status.timestamp));
-            s_system_status.timestamp[sizeof(s_system_status.timestamp) - 1] = '\0';
-        }
-    } else {
-        strncpy(s_system_status.timestamp, "1970-01-01 00:00:00", sizeof(s_system_status.timestamp));
-        s_system_status.timestamp[sizeof(s_system_status.timestamp) - 1] = '\0';
+    struct tm now_tm;
+    if (time(&now) != (time_t)-1 && localtime_r(&now, &now_tm) != NULL) {
+        strftime(timestamp, sizeof(timestamp), "%Y-%m-%d %H:%M:%S", &now_tm);
+    }
+
+    portENTER_CRITICAL(&s_status_mux);
+    s_system_status.last_update_us = (uint64_t)now_us;
+    s_system_status.uptime_us = (uint64_t)now_us;
+    strlcpy(s_system_status.timestamp, timestamp, sizeof(s_system_status.timestamp));
+    portEXIT_CRITICAL(&s_status_mux);
+}
+
+static void system_status_update_temperature(void)
+{
+    float temp_c = 0.0f;
+    if (system_status_read_temperature(&temp_c) == ESP_OK) {
+        portENTER_CRITICAL(&s_status_mux);
+        s_system_status.internal_temperature = temp_c;
+        portEXIT_CRITICAL(&s_status_mux);
     }
 }
 
@@ -165,25 +185,31 @@ esp_err_t system_status_init(TaskHandle_t core0_task)
         return ESP_ERR_INVALID_ARG;
     }
 
+    // Wi-Fi, web server and OTA publish their status before this runs, so keep those sections.
+    portENTER_CRITICAL(&s_status_mux);
+    const wireless_status_t network = s_system_status.network;
+    const ble_config_status_t bluetooth = s_system_status.bluetooth;
+    const filesystem_status_t storage = s_system_status.storage;
+    const webserver_status_t web_server = s_system_status.web_server;
+    const firmware_status_t firmware = s_system_status.firmware;
     memset(&s_system_status, 0, sizeof(s_system_status));
+    s_system_status.network = network;
+    s_system_status.bluetooth = bluetooth;
+    s_system_status.storage = storage;
+    s_system_status.web_server = web_server;
+    s_system_status.firmware = firmware;
     s_core0_task = core0_task;
     s_system_status.initialized = true;
-    strncpy(s_system_status.device_name, DEFAULT_DEVICE_NAME, sizeof(s_system_status.device_name));
-    s_system_status.device_name[sizeof(s_system_status.device_name) - 1] = '\0';
+    strlcpy(s_system_status.device_name, DEFAULT_DEVICE_NAME, sizeof(s_system_status.device_name));
+    s_system_status.firmware.current_ota_state = OTA_READY;
+    portEXIT_CRITICAL(&s_status_mux);
+
     system_status_load_reset_reason();
     system_status_update_core_heap();
     system_status_update_task_stack();
     system_status_update_ota_partitions();
     system_status_update_timestamp();
-
-    float temp_c = 0.0f;
-    if (system_status_read_temperature(&temp_c) == ESP_OK) {
-        s_system_status.internal_temperature = temp_c;
-    } else {
-        s_system_status.internal_temperature = 0.0f;
-    }
-
-    s_system_status.firmware.current_ota_state = OTA_READY;
+    system_status_update_temperature();
 
     // Register the "system_status" command with the JSON service
     json_service_register_command("system.status.get", system_status_callback, 0);
@@ -201,11 +227,7 @@ esp_err_t system_status_snapshot(void)
     system_status_update_core_heap();
     system_status_update_task_stack();
     system_status_update_ota_partitions();
-
-    float temp_c = 0.0f;
-    if (system_status_read_temperature(&temp_c) == ESP_OK) {
-        s_system_status.internal_temperature = temp_c;
-    }
+    system_status_update_temperature();
 
     return ESP_OK;
 }
@@ -219,18 +241,21 @@ esp_err_t system_status_update(void)
     system_status_update_timestamp();
     system_status_update_core_heap();
     system_status_update_task_stack();
-
-    float temp_c = 0.0f;
-    if (system_status_read_temperature(&temp_c) == ESP_OK) {
-        s_system_status.internal_temperature = temp_c;
-    }
+    system_status_update_temperature();
 
     return ESP_OK;
 }
 
-SystemStatus_t *system_status_get(void)
+esp_err_t system_status_get_copy(SystemStatus_t *out)
 {
-    return &s_system_status;
+    if (out == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    portENTER_CRITICAL(&s_status_mux);
+    *out = s_system_status;
+    portEXIT_CRITICAL(&s_status_mux);
+    return ESP_OK;
 }
 
 esp_err_t system_status_set_wireless_status(const wireless_status_t *status)
@@ -238,7 +263,9 @@ esp_err_t system_status_set_wireless_status(const wireless_status_t *status)
     if (status == NULL) {
         return ESP_ERR_INVALID_ARG;
     }
+    portENTER_CRITICAL(&s_status_mux);
     s_system_status.network = *status;
+    portEXIT_CRITICAL(&s_status_mux);
     return ESP_OK;
 }
 
@@ -252,7 +279,9 @@ esp_err_t system_status_set_firmware_status(const firmware_status_t *status)
     if (status == NULL) {
         return ESP_ERR_INVALID_ARG;
     }
+    portENTER_CRITICAL(&s_status_mux);
     s_system_status.firmware = *status;
+    portEXIT_CRITICAL(&s_status_mux);
     return ESP_OK;
 }
 
@@ -261,7 +290,9 @@ esp_err_t system_status_set_filesystem_status(const filesystem_status_t *status)
     if (status == NULL) {
         return ESP_ERR_INVALID_ARG;
     }
+    portENTER_CRITICAL(&s_status_mux);
     s_system_status.storage = *status;
+    portEXIT_CRITICAL(&s_status_mux);
     return ESP_OK;
 }
 
@@ -270,7 +301,20 @@ esp_err_t system_status_set_webserver_status(const webserver_status_t *status)
     if (status == NULL) {
         return ESP_ERR_INVALID_ARG;
     }
+    portENTER_CRITICAL(&s_status_mux);
     s_system_status.web_server = *status;
+    portEXIT_CRITICAL(&s_status_mux);
+    return ESP_OK;
+}
+
+esp_err_t system_status_set_ble_status(const ble_config_status_t *status)
+{
+    if (status == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    portENTER_CRITICAL(&s_status_mux);
+    s_system_status.bluetooth = *status;
+    portEXIT_CRITICAL(&s_status_mux);
     return ESP_OK;
 }
 
@@ -298,52 +342,54 @@ static const char *ota_state_to_string(ota_state_t state)
 
 
 
-cJSON *system_status_get_json()
+static cJSON *system_status_snapshot_to_json(const SystemStatus_t *snap)
 {
     cJSON *root = cJSON_CreateObject();
     if (root == NULL) {
         return NULL;
     }
-    cJSON_AddNumberToObject(root, "id", s_system_status.id);
-    cJSON_AddStringToObject(root, "device_name", s_system_status.device_name);
-    cJSON_AddStringToObject(root, "timestamp", s_system_status.timestamp);
-    cJSON_AddBoolToObject(root, "initialized", s_system_status.initialized);
-    cJSON_AddNumberToObject(root, "uptime_us", (double)s_system_status.uptime_us);
-    cJSON_AddNumberToObject(root, "last_update_us", (double)s_system_status.last_update_us);
-    cJSON_AddNumberToObject(root, "core_0_free_heap_bytes", (double)s_system_status.core_0_free_heap_bytes);
-    cJSON_AddNumberToObject(root, "core_1_free_heap_bytes", (double)s_system_status.core_1_free_heap_bytes);
-    cJSON_AddNumberToObject(root, "psram_free_bytes", (double)s_system_status.psram_free_bytes);
-    cJSON_AddNumberToObject(root, "internal_temperature", s_system_status.internal_temperature);
-    cJSON_AddNumberToObject(root, "crash_counter", (double)s_system_status.crash_counter);
-    cJSON_AddNumberToObject(root, "reset_reason", (double)s_system_status.reset_reason);
-    cJSON_AddNumberToObject(root, "core_0_task_stack_high_water_bytes", (double)s_system_status.core_0_task_stack_high_water_bytes);
+    cJSON_AddNumberToObject(root, "id", snap->id);
+    cJSON_AddStringToObject(root, "device_name", snap->device_name);
+    cJSON_AddStringToObject(root, "timestamp", snap->timestamp);
+    cJSON_AddBoolToObject(root, "initialized", snap->initialized);
+    cJSON_AddNumberToObject(root, "uptime_us", (double)snap->uptime_us);
+    cJSON_AddNumberToObject(root, "last_update_us", (double)snap->last_update_us);
+    cJSON_AddNumberToObject(root, "core_0_free_heap_bytes", (double)snap->core_0_free_heap_bytes);
+    cJSON_AddNumberToObject(root, "core_1_free_heap_bytes", (double)snap->core_1_free_heap_bytes);
+    cJSON_AddNumberToObject(root, "psram_free_bytes", (double)snap->psram_free_bytes);
+    cJSON_AddNumberToObject(root, "internal_temperature", snap->internal_temperature);
+    cJSON_AddNumberToObject(root, "crash_counter", (double)snap->crash_counter);
+    cJSON_AddNumberToObject(root, "reset_reason", (double)snap->reset_reason);
+    cJSON_AddNumberToObject(root, "core_0_task_stack_high_water_bytes", (double)snap->core_0_task_stack_high_water_bytes);
 
     cJSON *network = cJSON_AddObjectToObject(root, "network");
     if (network) {
-        cJSON_AddStringToObject(network, "active_ssid", s_system_status.network.active_ssid);
-        cJSON_AddBoolToObject(network, "internet_connected", s_system_status.network.internet_connected);
-        cJSON_AddNumberToObject(network, "bytes_received", (double)s_system_status.network.bytes_received);
-        cJSON_AddNumberToObject(network, "bytes_transmitted", (double)s_system_status.network.bytes_transmitted);
-        cJSON_AddNumberToObject(network, "connected_client_count", (double)s_system_status.network.connected_client_count);
+        cJSON_AddStringToObject(network, "active_ssid", snap->network.active_ssid);
+        cJSON_AddStringToObject(network, "ip_address", snap->network.ip_address);
+        cJSON_AddBoolToObject(network, "internet_connected", snap->network.internet_connected);
+        cJSON_AddNumberToObject(network, "connected_client_count", (double)snap->network.connected_client_count);
 
         cJSON *clients = cJSON_AddArrayToObject(network, "clients");
         if (clients) {
-            for (size_t i = 0; i < MAX_CLIENTS_COUNT; ++i) {
+            const size_t client_count = snap->network.connected_client_count < MAX_CLIENTS_COUNT
+                ? snap->network.connected_client_count
+                : MAX_CLIENTS_COUNT;
+            for (size_t i = 0; i < client_count; ++i) {
                 cJSON *client = cJSON_CreateObject();
                 if (client == NULL) {
                     continue;
                 }
                 char mac[18];
                 snprintf(mac, sizeof(mac), "%02X:%02X:%02X:%02X:%02X:%02X",
-                         s_system_status.network.clients[i].mac_address[0],
-                         s_system_status.network.clients[i].mac_address[1],
-                         s_system_status.network.clients[i].mac_address[2],
-                         s_system_status.network.clients[i].mac_address[3],
-                         s_system_status.network.clients[i].mac_address[4],
-                         s_system_status.network.clients[i].mac_address[5]);
+                         snap->network.clients[i].mac_address[0],
+                         snap->network.clients[i].mac_address[1],
+                         snap->network.clients[i].mac_address[2],
+                         snap->network.clients[i].mac_address[3],
+                         snap->network.clients[i].mac_address[4],
+                         snap->network.clients[i].mac_address[5]);
                 cJSON_AddStringToObject(client, "mac_address", mac);
-                cJSON_AddStringToObject(client, "ip_address", s_system_status.network.clients[i].ip_address);
-                cJSON_AddNumberToObject(client, "rssi", (double)s_system_status.network.clients[i].rssi);
+                cJSON_AddStringToObject(client, "ip_address", snap->network.clients[i].ip_address);
+                cJSON_AddNumberToObject(client, "rssi", (double)snap->network.clients[i].rssi);
                 cJSON_AddItemToArray(clients, client);
             }
         }
@@ -351,52 +397,61 @@ cJSON *system_status_get_json()
 
     cJSON *bluetooth = cJSON_AddObjectToObject(root, "bluetooth");
     if (bluetooth) {
-        cJSON_AddBoolToObject(bluetooth, "is_advertising", s_system_status.bluetooth.is_advertising);
-        cJSON_AddBoolToObject(bluetooth, "is_paired", s_system_status.bluetooth.is_paired);
-        cJSON_AddNumberToObject(bluetooth, "mtu_size", (double)s_system_status.bluetooth.mtu_size);
-        cJSON_AddNumberToObject(bluetooth, "bonded_devices_count", (double)s_system_status.bluetooth.bonded_devices_count);
-        cJSON_AddNumberToObject(bluetooth, "last_credential_update_time", (double)s_system_status.bluetooth.last_credential_update_time);
+        cJSON_AddBoolToObject(bluetooth, "is_advertising", snap->bluetooth.is_advertising);
+        cJSON_AddBoolToObject(bluetooth, "is_paired", snap->bluetooth.is_paired);
+        cJSON_AddNumberToObject(bluetooth, "mtu_size", (double)snap->bluetooth.mtu_size);
+        cJSON_AddNumberToObject(bluetooth, "bonded_devices_count", (double)snap->bluetooth.bonded_devices_count);
+        cJSON_AddNumberToObject(bluetooth, "last_credential_update_time", (double)snap->bluetooth.last_credential_update_time);
     }
 
     cJSON *storage = cJSON_AddObjectToObject(root, "storage");
     if (storage) {
-        cJSON_AddBoolToObject(storage, "is_mounted", s_system_status.storage.is_mounted);
-        cJSON_AddNumberToObject(storage, "total_space_bytes", (double)s_system_status.storage.total_space_bytes);
-        cJSON_AddNumberToObject(storage, "used_space_bytes", (double)s_system_status.storage.used_space_bytes);
-        cJSON_AddNumberToObject(storage, "open_file_handles", (double)s_system_status.storage.open_file_handles);
-        cJSON_AddBoolToObject(storage, "write_error_flag", s_system_status.storage.write_error_flag);
+        cJSON_AddBoolToObject(storage, "is_mounted", snap->storage.is_mounted);
+        cJSON_AddNumberToObject(storage, "total_space_bytes", (double)snap->storage.total_space_bytes);
+        cJSON_AddNumberToObject(storage, "used_space_bytes", (double)snap->storage.used_space_bytes);
+        cJSON_AddNumberToObject(storage, "open_file_handles", (double)snap->storage.open_file_handles);
+        cJSON_AddBoolToObject(storage, "write_error_flag", snap->storage.write_error_flag);
     }
 
     cJSON *web_server = cJSON_AddObjectToObject(root, "web_server");
     if (web_server) {
-        cJSON_AddBoolToObject(web_server, "is_running", s_system_status.web_server.is_running);
-        cJSON_AddNumberToObject(web_server, "active_connections", (double)s_system_status.web_server.active_connections);
-        cJSON_AddNumberToObject(web_server, "total_requests_served", (double)s_system_status.web_server.total_requests_served);
-        cJSON_AddNumberToObject(web_server, "internal_500_errors", (double)s_system_status.web_server.internal_500_errors);
-        cJSON_AddNumberToObject(web_server, "file_not_found_404s", (double)s_system_status.web_server.file_not_found_404s);
+        cJSON_AddBoolToObject(web_server, "is_running", snap->web_server.is_running);
+        cJSON_AddNumberToObject(web_server, "active_connections", (double)snap->web_server.active_connections);
+        cJSON_AddNumberToObject(web_server, "total_requests_served", (double)snap->web_server.total_requests_served);
+        cJSON_AddNumberToObject(web_server, "internal_500_errors", (double)snap->web_server.internal_500_errors);
+        cJSON_AddNumberToObject(web_server, "file_not_found_404s", (double)snap->web_server.file_not_found_404s);
     }
 
     cJSON *firmware = cJSON_AddObjectToObject(root, "firmware");
     if (firmware) {
-        cJSON_AddStringToObject(firmware, "current_version", s_system_status.firmware.current_version);
-        cJSON_AddStringToObject(firmware, "compile_date", s_system_status.firmware.compile_date);
-        cJSON_AddStringToObject(firmware, "compile_time", s_system_status.firmware.compile_time);
-        cJSON_AddNumberToObject(firmware, "active_partition_slot", (double)s_system_status.firmware.active_partition_slot);
-        cJSON_AddNumberToObject(firmware, "running_partition_slot", (double)s_system_status.firmware.running_partition_slot);
-        cJSON_AddStringToObject(firmware, "current_ota_state", ota_state_to_string(s_system_status.firmware.current_ota_state));
-        cJSON_AddNumberToObject(firmware, "ota_bytes_written", (double)s_system_status.firmware.ota_bytes_written);
-        cJSON_AddNumberToObject(firmware, "ota_total_expected_bytes", (double)s_system_status.firmware.ota_total_expected_bytes);
+        cJSON_AddStringToObject(firmware, "current_version", snap->firmware.current_version);
+        cJSON_AddStringToObject(firmware, "compile_date", snap->firmware.compile_date);
+        cJSON_AddStringToObject(firmware, "compile_time", snap->firmware.compile_time);
+        cJSON_AddNumberToObject(firmware, "active_partition_slot", (double)snap->firmware.active_partition_slot);
+        cJSON_AddNumberToObject(firmware, "running_partition_slot", (double)snap->firmware.running_partition_slot);
+        cJSON_AddStringToObject(firmware, "current_ota_state", ota_state_to_string(snap->firmware.current_ota_state));
+        cJSON_AddNumberToObject(firmware, "ota_bytes_written", (double)snap->firmware.ota_bytes_written);
+        cJSON_AddNumberToObject(firmware, "ota_total_expected_bytes", (double)snap->firmware.ota_total_expected_bytes);
     }
 
     cJSON *parameters = cJSON_AddObjectToObject(root, "parameters");
     if (parameters) {
-        cJSON_AddNumberToObject(parameters, "loop_frequency_hz", s_system_status.parameters.loop_frequency_hz);
-        cJSON_AddBoolToObject(parameters, "telemetry_enabled", s_system_status.parameters.telemetry_enabled);
-        cJSON_AddNumberToObject(parameters, "debug_level", (double)s_system_status.parameters.debug_level);
+        cJSON_AddNumberToObject(parameters, "loop_frequency_hz", snap->parameters.loop_frequency_hz);
+        cJSON_AddBoolToObject(parameters, "telemetry_enabled", snap->parameters.telemetry_enabled);
+        cJSON_AddNumberToObject(parameters, "debug_level", (double)snap->parameters.debug_level);
     }
 
     return root; // Caller must free this cJSON object using cJSON_Delete
 
+} // End of system_status_snapshot_to_json
+
+cJSON *system_status_get_json(void)
+{
+    SystemStatus_t snapshot;
+    if (system_status_get_copy(&snapshot) != ESP_OK) {
+        return NULL;
+    }
+    return system_status_snapshot_to_json(&snapshot);
 } // End of system_status_get_json
 //-----------------------------------------------------------------------------
 

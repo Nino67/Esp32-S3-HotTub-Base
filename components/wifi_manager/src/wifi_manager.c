@@ -6,6 +6,7 @@
 #include "esp_event.h"
 #include "esp_log.h"
 #include "esp_netif.h"
+#include "esp_timer.h"
 #include "esp_wifi.h"
 
 #include "freertos/FreeRTOS.h"
@@ -21,11 +22,14 @@ static const char *TAG = "wifi_manager";
 
 #define WIFI_PROVISION_GOT_IP_BIT       BIT0
 #define WIFI_PROVISION_DISCONNECTED_BIT BIT1
-#define WIFI_MANAGER_QUEUE_LENGTH      4
+#define WIFI_MANAGER_QUEUE_LENGTH      6
 #define WIFI_PROVISION_ATTEMPTS         5
 #define WIFI_PROVISION_WAIT_MS          5000
 #define WIFI_STA_MAX_ATTEMPTS           5
 #define WIFI_STA_RETRY_DELAY_MS         1000
+#define WIFI_FALLBACK_RETRY_MS          60000
+#define WIFI_FALLBACK_RETRY_ATTEMPTS    2
+#define WIFI_HOSTNAME                   "hottub"
 
 typedef struct
 {
@@ -37,7 +41,9 @@ typedef enum
 {
     WIFI_MANAGER_WORK_CONNECT_STA,
     WIFI_MANAGER_WORK_ENTER_AP_FALLBACK,
-    WIFI_MANAGER_WORK_PROVISION
+    WIFI_MANAGER_WORK_PROVISION,
+    WIFI_MANAGER_WORK_RETRY_STA,
+    WIFI_MANAGER_WORK_REFRESH_AP_CLIENTS
 } wifi_manager_work_type_t;
 
 typedef struct
@@ -54,11 +60,14 @@ static bool s_active_credentials_valid;
 static bool s_ap_fallback_active;
 static bool s_ap_fallback_pending;
 static bool s_sta_attempt_pending;
+static bool s_fallback_retry_pending;
 static uint8_t s_sta_connect_attempts;
 static SemaphoreHandle_t s_mutex;
 static QueueHandle_t s_provision_queue;
 static EventGroupHandle_t s_wifi_events;
+static esp_timer_handle_t s_fallback_retry_timer;
 static wifi_status_t s_status;
+static wireless_status_t s_published_network;
 static wifi_credentials_t s_active_credentials;
 static wifi_manager_provision_result_cb_t s_provision_result_cb;
 static char s_sta_ssid[33];
@@ -140,17 +149,20 @@ static void update_sta_ip(const ip_event_got_ip_t *event)
 
 static void publish_network_status(wifi_mode_state_t mode, const char *ssid, const char *ip)
 {
-    wireless_status_t status = {0};
+    // Start from the last published copy so the AP client list survives mode/IP updates.
+    wireless_status_t status;
+    lock_state();
+    status = s_published_network;
+    unlock_state();
+
     status.current_mode = mode;
     status.internet_connected = mode == WIFI_STATE_STA_CONNECTED;
-    if (ssid)
-    {
-        strlcpy(status.active_ssid, ssid, sizeof(status.active_ssid));
-    }
-    if (ip)
-    {
-        strlcpy((char *)status.clients[0].ip_address, ip, sizeof(status.clients[0].ip_address));
-    }
+    strlcpy(status.active_ssid, ssid ? ssid : "", sizeof(status.active_ssid));
+    strlcpy(status.ip_address, ip ? ip : "", sizeof(status.ip_address));
+
+    lock_state();
+    s_published_network = status;
+    unlock_state();
 
     esp_err_t err = system_status_set_network_status(&status);
     if (err != ESP_OK)
@@ -168,6 +180,44 @@ static bool enqueue_wifi_manager_work(const wifi_manager_work_t *work)
     }
 
     return true;
+}
+
+static void request_ap_client_refresh(void)
+{
+    // Best effort: a dropped refresh is corrected by the next client event.
+    const wifi_manager_work_t work = { .type = WIFI_MANAGER_WORK_REFRESH_AP_CLIENTS };
+    if (s_provision_queue)
+    {
+        (void)xQueueSend(s_provision_queue, &work, 0);
+    }
+}
+
+static void refresh_ap_clients(void)
+{
+    wireless_status_t status;
+    lock_state();
+    status = s_published_network;
+    unlock_state();
+
+    status.connected_client_count = 0;
+    memset(status.clients, 0, sizeof(status.clients));
+
+    wifi_sta_list_t list = {0};
+    if (esp_wifi_ap_get_sta_list(&list) == ESP_OK)
+    {
+        const size_t stored = list.num < MAX_CLIENTS_COUNT ? (size_t)list.num : MAX_CLIENTS_COUNT;
+        status.connected_client_count = (uint8_t)list.num;
+        for (size_t i = 0; i < stored; i++)
+        {
+            memcpy(status.clients[i].mac_address, list.sta[i].mac, sizeof(status.clients[i].mac_address));
+            status.clients[i].rssi = list.sta[i].rssi;
+        }
+    }
+
+    lock_state();
+    s_published_network = status;
+    unlock_state();
+    (void)system_status_set_network_status(&status);
 }
 
 static void schedule_sta_attempt(void)
@@ -226,6 +276,14 @@ static void wifi_event_handler(void *arg, esp_event_base_t event_base, int32_t e
         {
             ESP_LOGI(TAG, "AP started at %s", ap_ip);
         }
+    }
+    else if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_AP_STACONNECTED)
+    {
+        request_ap_client_refresh();
+    }
+    else if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_AP_STADISCONNECTED)
+    {
+        request_ap_client_refresh();
     }
     else if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_AP_STOP)
     {
@@ -303,9 +361,9 @@ static void wifi_event_handler(void *arg, esp_event_base_t event_base, int32_t e
     }
 }
 
-static esp_err_t wait_for_candidate_connection(void)
+static esp_err_t wait_for_candidate_connection(unsigned attempts)
 {
-    for (unsigned attempt = 0; attempt < WIFI_PROVISION_ATTEMPTS; attempt++)
+    for (unsigned attempt = 0; attempt < attempts; attempt++)
     {
         esp_err_t connect_err = esp_wifi_connect();
         if (connect_err != ESP_OK)
@@ -602,7 +660,7 @@ static void process_provision_request(const wifi_provision_request_data_t *reque
     }
 
     publish_network_status(WIFI_STATE_STA_CONNECTING, request->credentials.ssid, "");
-    err = wait_for_candidate_connection();
+    err = wait_for_candidate_connection(WIFI_PROVISION_ATTEMPTS);
     if (err != ESP_OK)
     {
         ESP_LOGW(TAG, "Wi-Fi credential trial did not connect");
@@ -622,7 +680,7 @@ static void process_provision_request(const wifi_provision_request_data_t *reque
         if (esp_wifi_sta_get_ap_info(&connected_ap) != ESP_OK)
         {
             ESP_LOGW(TAG, "STA link dropped while finalizing credentials; retrying");
-            err = wait_for_candidate_connection();
+            err = wait_for_candidate_connection(WIFI_PROVISION_ATTEMPTS);
             if (err != ESP_OK)
             {
                 goto failed;
@@ -668,6 +726,114 @@ failed:
     finish_provisioning(request->request_id, err);
 }
 
+static void fallback_retry_timer_cb(void *arg)
+{
+    (void)arg;
+    bool should_retry;
+    lock_state();
+    should_retry = s_ap_fallback_active &&
+        s_active_credentials_valid &&
+        !s_provisioning_active &&
+        !s_fallback_retry_pending;
+    if (should_retry)
+    {
+        s_fallback_retry_pending = true;
+    }
+    unlock_state();
+
+    const wifi_manager_work_t work = { .type = WIFI_MANAGER_WORK_RETRY_STA };
+    if (should_retry && !enqueue_wifi_manager_work(&work))
+    {
+        lock_state();
+        s_fallback_retry_pending = false;
+        unlock_state();
+    }
+}
+
+/**
+ * Periodically retry the saved network while serving the recovery AP, so a router that boots
+ * later than the controller (for example after a power cut) is picked up without a reboot.
+ */
+static void process_fallback_retry(void)
+{
+    wifi_credentials_t credentials = {0};
+    bool proceed;
+    lock_state();
+    proceed = s_ap_fallback_active && s_active_credentials_valid && !s_provisioning_active;
+    if (proceed)
+    {
+        credentials = s_active_credentials;
+        s_provisioning_active = true;
+    }
+    else
+    {
+        s_fallback_retry_pending = false;
+    }
+    unlock_state();
+
+    if (!proceed)
+    {
+        return;
+    }
+
+    // Joining the router moves the AP to the router's channel, which would drop recovery clients.
+    wifi_sta_list_t clients = {0};
+    if (esp_wifi_ap_get_sta_list(&clients) == ESP_OK && clients.num > 0)
+    {
+        ESP_LOGI(TAG, "Skipping STA retry: %u client(s) are using the recovery AP", (unsigned)clients.num);
+        lock_state();
+        s_provisioning_active = false;
+        s_fallback_retry_pending = false;
+        unlock_state();
+        return;
+    }
+
+    ESP_LOGI(TAG, "Retrying saved Wi-Fi network from recovery AP mode");
+    wifi_config_t sta_config;
+    fill_sta_config(&credentials, &sta_config);
+    esp_err_t err = esp_wifi_set_mode(WIFI_MODE_APSTA);
+    if (err == ESP_OK)
+    {
+        err = esp_wifi_set_config(WIFI_IF_STA, &sta_config);
+    }
+    if (err == ESP_OK)
+    {
+        xEventGroupClearBits(s_wifi_events, WIFI_PROVISION_GOT_IP_BIT | WIFI_PROVISION_DISCONNECTED_BIT);
+        err = wait_for_candidate_connection(WIFI_FALLBACK_RETRY_ATTEMPTS);
+    }
+    if (err == ESP_OK)
+    {
+        err = esp_wifi_set_mode(WIFI_MODE_STA);
+    }
+
+    if (err == ESP_OK)
+    {
+        lock_state();
+        s_sta_enabled = true;
+        s_ap_enabled = false;
+        s_ap_fallback_active = false;
+        s_ap_fallback_pending = false;
+        s_sta_connect_attempts = 0;
+        s_sta_attempt_pending = false;
+        s_provisioning_active = false;
+        s_fallback_retry_pending = false;
+        unlock_state();
+        ESP_LOGI(TAG, "Recovered saved Wi-Fi connection; recovery AP stopped");
+        return;
+    }
+
+    ESP_LOGW(TAG, "Saved Wi-Fi network still unavailable (%s); staying in recovery AP mode", esp_err_to_name(err));
+    (void)esp_wifi_disconnect();
+    (void)esp_wifi_set_mode(WIFI_MODE_AP);
+    lock_state();
+    s_status.sta_connected = false;
+    s_status.sta_ip[0] = '\0';
+    s_provisioning_active = false;
+    s_fallback_retry_pending = false;
+    unlock_state();
+    publish_ap_fallback_status();
+}
+
 static void wifi_provisioning_task(void *arg)
 {
     (void)arg;
@@ -686,6 +852,12 @@ static void wifi_provisioning_task(void *arg)
                 break;
             case WIFI_MANAGER_WORK_PROVISION:
                 process_provision_request(&work.provision);
+                break;
+            case WIFI_MANAGER_WORK_RETRY_STA:
+                process_fallback_retry();
+                break;
+            case WIFI_MANAGER_WORK_REFRESH_AP_CLIENTS:
+                refresh_ap_clients();
                 break;
             default:
                 ESP_LOGE(TAG, "Unknown Wi-Fi manager work item");
@@ -731,9 +903,15 @@ esp_err_t wifi_manager_start(const wifi_credentials_t *sta_credentials)
     ESP_RETURN_ON_ERROR(esp_netif_init(), TAG, "netif init failed");
     ESP_RETURN_ON_ERROR(esp_event_loop_create_default(), TAG, "event loop init failed");
 
-    if (!esp_netif_create_default_wifi_sta() || !esp_netif_create_default_wifi_ap())
+    esp_netif_t *sta_netif = esp_netif_create_default_wifi_sta();
+    esp_netif_t *ap_netif = esp_netif_create_default_wifi_ap();
+    if (!sta_netif || !ap_netif)
     {
         return ESP_FAIL;
+    }
+    if (esp_netif_set_hostname(sta_netif, WIFI_HOSTNAME) != ESP_OK)
+    {
+        ESP_LOGW(TAG, "Failed to set STA hostname");
     }
 
     wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
@@ -746,6 +924,13 @@ esp_err_t wifi_manager_start(const wifi_credentials_t *sta_credentials)
     fill_ap_config(&ap_config);
     ESP_RETURN_ON_ERROR(esp_wifi_set_mode(WIFI_MODE_APSTA), TAG, "wifi mode initialization failed");
     ESP_RETURN_ON_ERROR(esp_wifi_set_config(WIFI_IF_AP, &ap_config), TAG, "ap config failed");
+
+    // 20 MHz channels are far more reliable than 40 MHz on a crowded 2.4 GHz band shared with BLE.
+    if (esp_wifi_set_bandwidth(WIFI_IF_STA, WIFI_BW_HT20) != ESP_OK ||
+        esp_wifi_set_bandwidth(WIFI_IF_AP, WIFI_BW_HT20) != ESP_OK)
+    {
+        ESP_LOGW(TAG, "Failed to restrict Wi-Fi to 20 MHz channels");
+    }
 
     lock_state();
     s_sta_enabled = has_sta_credentials;
@@ -783,6 +968,14 @@ esp_err_t wifi_manager_start(const wifi_credentials_t *sta_credentials)
     {
         return ESP_ERR_NO_MEM;
     }
+
+    const esp_timer_create_args_t retry_timer_args = {
+        .callback = fallback_retry_timer_cb,
+        .name = "wifi_fallback_retry",
+    };
+    ESP_RETURN_ON_ERROR(esp_timer_create(&retry_timer_args, &s_fallback_retry_timer), TAG, "retry timer create failed");
+    ESP_RETURN_ON_ERROR(esp_timer_start_periodic(s_fallback_retry_timer, (uint64_t)WIFI_FALLBACK_RETRY_MS * 1000ULL),
+                        TAG, "retry timer start failed");
 
     ESP_RETURN_ON_ERROR(esp_wifi_start(), TAG, "wifi start failed");
     s_started = true;
@@ -861,13 +1054,4 @@ esp_err_t wifi_manager_get_status(wifi_status_t *status)
     *status = s_status;
     unlock_state();
     return ESP_OK;
-}
-
-bool wifi_manager_is_connected(void)
-{
-    bool connected;
-    lock_state();
-    connected = s_status.sta_connected;
-    unlock_state();
-    return connected;
 }
