@@ -414,6 +414,7 @@ void hot_tub_controller_main_task(void *arg)
         // =================================================================
         hot_tub_controller_set_heater_on(snapshot.heaterOn);
         hot_tub_controller_set_pump_state(snapshot.pumpState);
+        // hot_tub_controller_set_hardware_state(snapshot.heaterOn, snapshot.pumpState);
         hot_tub_controller_snapshot_set(&snapshot);
 
         app_watchdog_feed_current_task();
