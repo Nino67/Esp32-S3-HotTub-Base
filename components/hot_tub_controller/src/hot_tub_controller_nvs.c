@@ -2,6 +2,7 @@
 #include "esp_err.h"
 #include "cJSON.h"
 #include "nvs.h"
+#include <stddef.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
 #include "freertos/task.h"
@@ -166,7 +167,11 @@ esp_err_t hot_tub_controller_settings_load_from_nvs(void)
     ESP_LOGI(TAG, "Loading hot tub settings from NVS...");
     const char *nvs_namespace = NVS_HOTTUB_SETTINGS_NAMESPACE;
     const char *nvs_key = "settings";
-    HotTubController_t nvs_data;
+    HotTubController_t nvs_data = {
+        .timeControlEnabled = DEFAULT_TIME_CONTROL_ENABLED,
+        .heatStartHour = DEFAULT_HEAT_START_HOUR,
+        .heatStopHour = DEFAULT_HEAT_STOP_HOUR,
+    };
 
     nvs_handle_t nvs_handle;
     esp_err_t err = nvs_open(nvs_namespace, NVS_READONLY, &nvs_handle);
@@ -174,14 +179,44 @@ esp_err_t hot_tub_controller_settings_load_from_nvs(void)
         ESP_LOGE(TAG, "Failed to open NVS handle!");
         return err;
     }
-    size_t required_size = sizeof(nvs_data);
-    err = nvs_get_blob(nvs_handle, nvs_key, &nvs_data, &required_size);
+    size_t stored_size = 0;
+    err = nvs_get_blob(nvs_handle, nvs_key, NULL, &stored_size);
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "Failed to read settings from NVS!");
         nvs_close(nvs_handle);
         return err;
     }
+
+    const size_t legacy_size = offsetof(HotTubController_t, timeControlEnabled);
+    if (stored_size != sizeof(nvs_data) && stored_size != legacy_size) {
+        ESP_LOGE(TAG, "Unsupported settings blob size: %u", (unsigned)stored_size);
+        nvs_close(nvs_handle);
+        return ESP_ERR_INVALID_SIZE;
+    }
+
+    size_t read_size = stored_size;
+    err = nvs_get_blob(nvs_handle, nvs_key, &nvs_data, &read_size);
+    if (err != ESP_OK || read_size != stored_size) {
+        ESP_LOGE(TAG, "Failed to read settings blob: %s", esp_err_to_name(err));
+        nvs_close(nvs_handle);
+        return err != ESP_OK ? err : ESP_ERR_INVALID_SIZE;
+    }
     nvs_close(nvs_handle);
+
+    const bool migrated_legacy_blob = stored_size == legacy_size;
+    if (migrated_legacy_blob) {
+        nvs_data.timeControlEnabled = DEFAULT_TIME_CONTROL_ENABLED;
+        nvs_data.heatStartHour = DEFAULT_HEAT_START_HOUR;
+        nvs_data.heatStopHour = DEFAULT_HEAT_STOP_HOUR;
+        ESP_LOGI(TAG, "Loaded legacy settings; initialized time control defaults");
+    } else if (nvs_data.heatStartHour > 23 ||
+               nvs_data.heatStopHour > 23 ||
+               nvs_data.heatStartHour == nvs_data.heatStopHour) {
+        ESP_LOGW(TAG, "Invalid saved time-control hours; using disabled defaults");
+        nvs_data.timeControlEnabled = DEFAULT_TIME_CONTROL_ENABLED;
+        nvs_data.heatStartHour = DEFAULT_HEAT_START_HOUR;
+        nvs_data.heatStopHour = DEFAULT_HEAT_STOP_HOUR;
+    }
 
     // Apply loaded settings to the controller
     err = hot_tub_controller_snapshot_set(&nvs_data);
@@ -190,9 +225,16 @@ esp_err_t hot_tub_controller_settings_load_from_nvs(void)
         return err;
     }
 
+    if (migrated_legacy_blob) {
+        err = hot_tub_controller_settings_save_to_nvs();
+        if (err != ESP_OK) {
+            ESP_LOGE(TAG, "Failed to save migrated settings: %s", esp_err_to_name(err));
+            return err;
+        }
+    }
+
     return ESP_OK;
 
 } // end of hot_tub_controller_settings_load_from_nvs()
 //-----------------------------------------------------------------------------
-
 

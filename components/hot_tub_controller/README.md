@@ -31,6 +31,9 @@ The control loop repeats forever:
 - `airTemp`
 - `setpointTemp`
 - pump/heater state
+- optional heat time-control enable flag and start/stop hours
+
+When time control is enabled, automatic heating is allowed only during the configured local-time window. Overnight windows are supported; start is inclusive and stop is exclusive. The feature is disabled by default (12:00 start, 06:00 stop). If local time is unavailable, heating remains allowed.
 
 ## Example Behavior Plot
 

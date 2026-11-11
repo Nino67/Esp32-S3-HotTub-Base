@@ -51,6 +51,10 @@ const highHysteresisInput = document.getElementById('highHysteresisInput');
 const lowHysteresisInput = document.getElementById('lowHysteresisInput');
 const pumpPreRunTimeInput = document.getElementById('pumpPreRunTimeInput');
 const pumpPostRunTimeInput = document.getElementById('pumpPostRunTimeInput');
+const timeControlEnabledInput = document.getElementById('timeControlEnabled');
+const heatStartHourSelect = document.getElementById('heatStartHourSelect');
+const heatStopHourSelect = document.getElementById('heatStopHourSelect');
+const timeControlStatus = document.getElementById('timeControlStatus');
 const pumpModeInputs = Array.from(document.querySelectorAll('input[name="pumpMode"]'));
 const pumpTrack = document.querySelector('.pump-track');
 const RECEIVE_PAYLOAD_TOGGLE_KEY = 'hottub.receivePayloadVisible';
@@ -241,6 +245,64 @@ function populateSettingsFields(state = {}) {
   if (pumpPostRunTimeInput) {
     pumpPostRunTimeInput.value = typeof src.pumpPostRunTime === 'number' ? String(src.pumpPostRunTime) : '';
   }
+
+  populateTimeControlFields(src);
+}
+
+function populateTimeControlFields(state = {}) {
+  if (timeControlEnabledInput) {
+    timeControlEnabledInput.checked = state.timeControlEnabled === true;
+  }
+
+  if (heatStartHourSelect) {
+    heatStartHourSelect.value = Number.isInteger(state.heatStartHour) && state.heatStartHour >= 0 && state.heatStartHour <= 23
+      ? String(state.heatStartHour)
+      : '12';
+  }
+
+  if (heatStopHourSelect) {
+    heatStopHourSelect.value = Number.isInteger(state.heatStopHour) && state.heatStopHour >= 0 && state.heatStopHour <= 23
+      ? String(state.heatStopHour)
+      : '6';
+  }
+
+}
+
+function sendTimeControlSettings() {
+  if (!timeControlEnabledInput || !heatStartHourSelect || !heatStopHourSelect) {
+    return;
+  }
+
+  const enabled = timeControlEnabledInput.checked;
+  const startHour = Number(heatStartHourSelect.value);
+  const stopHour = Number(heatStopHourSelect.value);
+  populateTimeControlFields({
+    timeControlEnabled: enabled,
+    heatStartHour: startHour,
+    heatStopHour: stopHour,
+  });
+
+  if (!Number.isInteger(startHour) || !Number.isInteger(stopHour) ||
+      startHour < 0 || startHour > 23 || stopHour < 0 || stopHour > 23) {
+    safeSetText(timeControlStatus, 'Choose valid whole-hour start and stop times.');
+    populateTimeControlFields(hottub);
+    return;
+  }
+  if (startHour === stopHour) {
+    safeSetText(timeControlStatus, 'Start and stop times must be different.');
+    return;
+  }
+  if (!ws_manager || ws_manager.readyState !== WebSocket.OPEN) {
+    safeSetText(timeControlStatus, 'Socket is not open. Time-control settings were not sent.');
+    return;
+  }
+
+  safeSetText(timeControlStatus, 'Saving time-control settings...');
+  sendHotTubCommand('hottub.time.control.set', {
+    timeControlEnabled: enabled,
+    heatStartHour: startHour,
+    heatStopHour: stopHour,
+  });
 }
 
 
@@ -559,9 +621,9 @@ export function renderParsedMessage(parsed, raw) {
     try {
       const payload = parsed && parsed.payload ? parsed.payload : {};
       const cmd = String(payload.cmd || payload.command || '');
-      // If the status payload toggle exists and is unchecked, block the
-      // frequent 'hottub.status.get' stream from populating the receive view.
-      if (cmd === 'hottub.status.get' && statusPayloadBlockToggle && !statusPayloadBlockToggle.checked) {
+      // Keep-alive events should not replace user-visible received messages.
+      if (cmd === 'ws.keepalive' ||
+          (cmd === 'hottub.status.get' && statusPayloadBlockToggle && !statusPayloadBlockToggle.checked)) {
         shouldShowRaw = false;
       }
     } catch (err) {
@@ -791,6 +853,18 @@ async function hardwareInit() {
         sendHotTubCommand('hottub.pump.post.run.time.set', {
           'pump.post.run.time.set': value,
         });
+      }
+
+      if (timeControlEnabledInput) {
+        timeControlEnabledInput.addEventListener('change', sendTimeControlSettings);
+      }
+
+      if (heatStartHourSelect) {
+        heatStartHourSelect.addEventListener('change', sendTimeControlSettings);
+      }
+
+      if (heatStopHourSelect) {
+        heatStopHourSelect.addEventListener('change', sendTimeControlSettings);
       }
     });
   }

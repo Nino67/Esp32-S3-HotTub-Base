@@ -4,6 +4,7 @@
 #define HOT_TUB_GLOBALS_H
 
 #include <stdbool.h>
+#include <stdint.h>
 #include <time.h>
 #include "cJSON.h"
 #include "freertos/FreeRTOS.h"
@@ -51,6 +52,9 @@
 #define DEFAULT_MAX_WATER_TEMP 40.0
 #define DEFAULT_MIN_WATER_TEMP 10.0
 #define DEFAULT_TEMP_UNIT_CELSIUS true
+#define DEFAULT_TIME_CONTROL_ENABLED false
+#define DEFAULT_HEAT_START_HOUR 12
+#define DEFAULT_HEAT_STOP_HOUR 6
 
 
 #define HOT_TUB_CONTROLLER_TASK_STACK_SIZE 4096
@@ -136,6 +140,9 @@ typedef struct {
     char lastUpdateTime[TIME_BUFFER_SIZE];
     sim_mode_t simulationMode;
     int errorCode; // To hold error codes for various operations
+    bool timeControlEnabled;
+    uint8_t heatStartHour;
+    uint8_t heatStopHour;
 } HotTubController_t;
 
 

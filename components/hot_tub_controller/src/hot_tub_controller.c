@@ -122,7 +122,13 @@ esp_err_t hot_tub_controller_load_saved_settings(void)
 
     // err = ESP_ERR_NVS_NOT_FOUND; // Force default settings for testing
 
-    if (err != ESP_OK) 
+    if (err != ESP_OK && err != ESP_ERR_NVS_NOT_FOUND)
+    {
+        ESP_LOGE(TAG, "Failed to load saved settings: %s", esp_err_to_name(err));
+        return err;
+    }
+
+    if (err == ESP_ERR_NVS_NOT_FOUND)
     {
         ESP_LOGW(TAG, "No settings found in NVS, saving defaults...");
         // // Set default values
@@ -141,6 +147,12 @@ esp_err_t hot_tub_controller_load_saved_settings(void)
         hot_tub_controller_set_heater_on(false);
         hot_tub_controller_set_pump_on_light(false);
         hot_tub_controller_set_heater_on_light(false);
+        if (hot_tub_controller_set_time_control(DEFAULT_TIME_CONTROL_ENABLED,
+                                                DEFAULT_HEAT_START_HOUR,
+                                                DEFAULT_HEAT_STOP_HOUR) != ESP_OK) {
+            ESP_LOGE(TAG, "Failed to initialize time-control defaults");
+            return ESP_FAIL;
+        }
         
         
         if (hot_tub_controller_settings_save_to_nvs() != ESP_OK) 
@@ -254,6 +266,44 @@ static float hottub_controller_temperature_filter(float new_temp, float prev_tem
 
 
 
+bool hot_tub_controller_is_heat_time_allowed(const HotTubController_t *state)
+{
+    static bool time_unavailable_warning_logged;
+
+    if (!state) {
+        return false;
+    }
+    if (!state->timeControlEnabled) {
+        return true;
+    }
+    if (state->heatStartHour > 23 ||
+        state->heatStopHour > 23 ||
+        state->heatStartHour == state->heatStopHour) {
+        return false;
+    }
+
+    struct tm local_time;
+    esp_err_t err = ntp_utils_time_get_local(&local_time);
+    if (err != ESP_OK) {
+        if (!time_unavailable_warning_logged) {
+            ESP_LOGW(TAG, "Local time unavailable (%s); allowing heat while time control is enabled",
+                     esp_err_to_name(err));
+            time_unavailable_warning_logged = true;
+        }
+        return true;
+    }
+    time_unavailable_warning_logged = false;
+
+    if (state->heatStartHour < state->heatStopHour) {
+        return local_time.tm_hour >= state->heatStartHour &&
+               local_time.tm_hour < state->heatStopHour;
+    }
+
+    return local_time.tm_hour >= state->heatStartHour ||
+           local_time.tm_hour < state->heatStopHour;
+}
+
+
 /**
  * @brief Main loop for the hot tub controller task.
  *
@@ -324,6 +374,15 @@ void hot_tub_controller_main_task(void *arg)
             ESP_LOGW(TAG, "Manual pump shutoff detected during heating! Locking out auto-heat.");
         }
 
+        const bool heat_time_allowed = hot_tub_controller_is_heat_time_allowed(&snapshot);
+        if (!heat_time_allowed) {
+            pre_pump_timer = 0;
+            if (snapshot.heaterOn) {
+                snapshot.heaterOn = false;
+                ESP_LOGI(TAG, "Time-control window closed. Turning heater OFF.");
+            }
+        }
+
         // =================================================================
         // 2. AUTO TEMPERATURE CONTROL LOGIC
         // =================================================================
@@ -342,7 +401,7 @@ void hot_tub_controller_main_task(void *arg)
 
             // --- HEATING REQUEST ---
             // Only engage if post-purge is done AND manual lockout is NOT active
-            if (needs_heat && post_pump_timer == 0 && !heat_lockout) 
+            if (heat_time_allowed && needs_heat && post_pump_timer == 0 && !heat_lockout)
             {
                 if (!snapshot.heaterOn) 
                 {
@@ -895,6 +954,9 @@ esp_err_t hot_tub_controller_to_json(cJSON *json, const HotTubController_t *stat
     cJSON_AddNumberToObject(json, "pumpPostRunTime", state->pumpPostRunTime);
     cJSON_AddNumberToObject(json, "simulationMode", state->simulationMode);
     cJSON_AddNumberToObject(json, "errorCode", state->errorCode);
+    cJSON_AddBoolToObject(json, "timeControlEnabled", state->timeControlEnabled);
+    cJSON_AddNumberToObject(json, "heatStartHour", state->heatStartHour);
+    cJSON_AddNumberToObject(json, "heatStopHour", state->heatStopHour);
     cJSON_AddStringToObject(json, "initialStartTime", state->initialStartTime);
     cJSON_AddStringToObject(json, "lastUpdateTime", state->lastUpdateTime);
 
@@ -1015,9 +1077,6 @@ esp_err_t hot_tub_publisher_to_json(cJSON *json, const HotTubPublisher_t *state)
 
 // } // end of hot_tub_controller_set_pump()
 // //-----------------------------------------------------------------------------
-
-
-
 
 
 

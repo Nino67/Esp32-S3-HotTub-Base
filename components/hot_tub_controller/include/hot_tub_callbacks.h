@@ -33,6 +33,7 @@ void hottub_auto_mode_get_callback(cJSON *root);
 void hottub_auto_mode_set_callback(cJSON *root);
 void hottub_heater_status_get_callback(cJSON *root);
 void hottub_heater_status_set_callback(cJSON *root);
+void hottub_time_control_set_callback(cJSON *root);
 void hottub_temperature_unit_get_callback(cJSON *root);
 void hottub_temperature_unit_set_callback(cJSON *root);
 void hottub_water_temperature_get_callback(cJSON *root);

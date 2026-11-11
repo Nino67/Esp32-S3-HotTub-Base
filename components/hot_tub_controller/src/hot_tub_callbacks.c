@@ -73,6 +73,16 @@ void hottub_callback_response(cJSON *root, cJSON *response) {
 } // End of hottub_callback_response
 //----------------------------------------------------------------------------- 
 
+static void hottub_callback_error(cJSON *root, const char *message)
+{
+    if (!root) {
+        return;
+    }
+
+    cJSON_AddStringToObject(root, "status", "error");
+    cJSON_AddStringToObject(root, "error", message);
+}
+
 
 
 /**
@@ -204,14 +214,87 @@ void hottub_heater_status_set_callback(cJSON *root) {
         return;
     }
     cJSON *heater_on_item = param.key_value;
+    if (!cJSON_IsBool(heater_on_item)) {
+        hottub_callback_error(root, "heater.on must be a boolean");
+        return;
+    }
     bool heater_on = cJSON_IsTrue(heater_on_item);
-    hot_tub_controller_set_heater_on(heater_on);
+    if (heater_on) {
+        HotTubController_t snapshot;
+        if (hot_tub_controller_snapshot_get(&snapshot) != ESP_OK) {
+            hottub_callback_error(root, "Failed to read controller state");
+            return;
+        }
+        if (!hot_tub_controller_is_heat_time_allowed(&snapshot)) {
+            hottub_callback_error(root, "The configured time-control window does not allow heating");
+            return;
+        }
+    }
+    if (hot_tub_controller_set_heater_on(heater_on) != ESP_OK) {
+        hottub_callback_error(root, "Failed to set heater state");
+        return;
+    }
 
     // Create a response JSON object
     cJSON *response = cJSON_CreateObject();
+    if (!response) {
+        ESP_LOGE(TAG, "Failed to allocate heater status response");
+        return;
+    }
     cJSON_AddBoolToObject(response, "heater.on", heater_on);
     hottub_callback_response(root, response);
 } // End of hottub_heater_status_set_callback
+//-----------------------------------------------------------------------------
+
+void hottub_time_control_set_callback(cJSON *root)
+{
+    cJSON *params = cJSON_GetObjectItemCaseSensitive(root, "params");
+    cJSON *enabled_item = cJSON_GetObjectItemCaseSensitive(params, "timeControlEnabled");
+    cJSON *start_item = cJSON_GetObjectItemCaseSensitive(params, "heatStartHour");
+    cJSON *stop_item = cJSON_GetObjectItemCaseSensitive(params, "heatStopHour");
+    if (!cJSON_IsObject(params) ||
+        !cJSON_IsBool(enabled_item) ||
+        !cJSON_IsNumber(start_item) ||
+        !cJSON_IsNumber(stop_item)) {
+        hottub_callback_error(root, "Time control requires a boolean enabled value and numeric start/stop hours");
+        return;
+    }
+
+    const double start_value = start_item->valuedouble;
+    const double stop_value = stop_item->valuedouble;
+    if (start_value < 0 || start_value > 23 ||
+        stop_value < 0 || stop_value > 23 ||
+        start_value != (int)start_value ||
+        stop_value != (int)stop_value) {
+        hottub_callback_error(root, "Start and stop hours must be whole hours from 00:00 through 23:00");
+        return;
+    }
+
+    const uint8_t start_hour = (uint8_t)start_value;
+    const uint8_t stop_hour = (uint8_t)stop_value;
+    if (start_hour == stop_hour) {
+        hottub_callback_error(root, "Start and stop hours must be different");
+        return;
+    }
+
+    const bool enabled = cJSON_IsTrue(enabled_item);
+    esp_err_t err = hot_tub_controller_set_time_control(enabled, start_hour, stop_hour);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to update time-control settings: %s", esp_err_to_name(err));
+        hottub_callback_error(root, "Failed to save time-control settings");
+        return;
+    }
+
+    cJSON *response = cJSON_CreateObject();
+    if (!response) {
+        ESP_LOGE(TAG, "Failed to allocate time-control response");
+        return;
+    }
+    cJSON_AddBoolToObject(response, "timeControlEnabled", enabled);
+    cJSON_AddNumberToObject(response, "heatStartHour", start_hour);
+    cJSON_AddNumberToObject(response, "heatStopHour", stop_hour);
+    hottub_callback_response(root, response);
+}
 //-----------------------------------------------------------------------------
 
 
@@ -895,6 +978,7 @@ callbacks_t hot_tub_callbacks[] = {
     {"hottub.automode.set", hottub_auto_mode_set_callback},
     {"hottub.heater.status.get", hottub_heater_status_get_callback},
     {"hottub.heater.status.set", hottub_heater_status_set_callback},
+    {"hottub.time.control.set", hottub_time_control_set_callback},
     {"hottub.temperature.unit.get", hottub_temperature_unit_get_callback},
     {"hottub.temperature.unit.set", hottub_temperature_unit_set_callback},
     {"hottub.water.temperature.get", hottub_water_temperature_get_callback},

@@ -82,6 +82,9 @@ function hottub_status_get_callback(payload) {
         hottub.lowHysteresis = response.lowHysteresis;
         hottub.pumpPreRunTime = response.pumpPreRunTime;
         hottub.pumpPostRunTime = response.pumpPostRunTime;
+        hottub.timeControlEnabled = response.timeControlEnabled;
+        hottub.heatStartHour = response.heatStartHour;
+        hottub.heatStopHour = response.heatStopHour;
         hottub.pumpState = response.pumpState;
         hottub.initialStartTime = response.initialStartTime;
         hottub.lastUpdateTime = response.lastUpdateTime;
@@ -124,6 +127,25 @@ function hottub_heater_status_get_callback(payload) {
 function hottub_heater_status_set_callback(payload) {
     if (payload && payload.response) {
         hottub.heaterOn = payload.response.heaterOn;
+    }
+}
+//---------------------------------------------------------------------------
+
+function hottub_time_control_set_callback(payload) {
+    const status = document.getElementById('timeControlStatus');
+    if (!payload || payload.status !== 'ok' || !payload.response) {
+        if (status) {
+            status.textContent = payload?.error || 'Failed to save time-control settings.';
+        }
+        return;
+    }
+
+    const response = payload.response;
+    hottub.timeControlEnabled = response.timeControlEnabled;
+    hottub.heatStartHour = response.heatStartHour;
+    hottub.heatStopHour = response.heatStopHour;
+    if (status) {
+        status.textContent = 'Time-control settings saved.';
     }
 }
 //---------------------------------------------------------------------------
@@ -385,6 +407,7 @@ export const callbacks = {
     "hottub.automode.set": hottub_auto_mode_set_callback,
     "hottub.heater.status.get": hottub_heater_status_get_callback,
     "hottub.heater.status.set": hottub_heater_status_set_callback,
+    "hottub.time.control.set": hottub_time_control_set_callback,
     "hottub.temperature.unit.get": hottub_temperature_unit_get_callback,
     "hottub.temperature.unit.set": hottub_temperature_unit_set_callback,
     "hottub.water.temperature.get": hottub_water_temperature_get_callback,

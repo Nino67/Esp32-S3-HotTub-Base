@@ -129,6 +129,27 @@ esp_err_t hot_tub_controller_set_heater_on(bool on)
 }
 //------------------------------------------------------------------------------
 
+esp_err_t hot_tub_controller_set_time_control(bool enabled, uint8_t start_hour, uint8_t stop_hour)
+{
+    if (start_hour > 23 || stop_hour > 23 || start_hour == stop_hour) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    lock_state();
+    hottub_ctl.timeControlEnabled = enabled;
+    hottub_ctl.heatStartHour = start_hour;
+    hottub_ctl.heatStopHour = stop_hour;
+    unlock_state();
+
+    if (hot_tub_struct_io_save_settings_to_nvs() != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to queue time-control settings for NVS");
+        return ESP_FAIL;
+    }
+
+    return ESP_OK;
+}
+//------------------------------------------------------------------------------
+
 
 
 /**
@@ -823,4 +844,3 @@ void unlock_state(void)
     }
 } // End of unlock_state
 //-----------------------------------------------------------------------------
-

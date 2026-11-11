@@ -13,6 +13,7 @@ esp_err_t hot_tub_controller_snapshot_get(HotTubController_t *);
 esp_err_t hot_tub_controller_snapshot_set(const HotTubController_t *state);
 bool hot_tub_controller_is_heater_on(void);
 esp_err_t hot_tub_controller_set_heater_on(bool on);
+esp_err_t hot_tub_controller_set_time_control(bool enabled, uint8_t start_hour, uint8_t stop_hour);
 bool hot_tub_controller_is_auto_mode(void);
 esp_err_t hot_tub_controller_set_auto_mode(bool on);
 bool hot_tub_controller_is_temp_unit_celsius(void);
