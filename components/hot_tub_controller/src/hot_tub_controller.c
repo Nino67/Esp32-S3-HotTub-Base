@@ -28,6 +28,7 @@
 #include "hot_tub_struct_io.h"
 #include "hot_tub_ds18b20.h"
 #include "hot_tub_sim.h"
+#include "hot_tub_hal.h"
 
 static const char *TAG = "hot_tub_controller";
 
@@ -84,6 +85,8 @@ void hot_tub_controller_set_safety_switch(safety_switch_t state);
 void hot_tub_controller_set_error_code(int error_code);
 void hottub_error_get_callback(cJSON *root);
 void hottub_error_set_callback(cJSON *root);
+esp_err_t hot_tub_hal_update(bool heaterOn, pump_state_t pumpState);    
+
 
 static void hot_tub_status_publisher_task(void *arg)
 {
@@ -473,9 +476,14 @@ void hot_tub_controller_main_task(void *arg)
         // =================================================================
         hot_tub_controller_set_heater_on(snapshot.heaterOn);
         hot_tub_controller_set_pump_state(snapshot.pumpState);
-        // hot_tub_controller_set_hardware_state(snapshot.heaterOn, snapshot.pumpState);
+
+        // Update the hardware abstraction layer with the current heater and pump states
+        hot_tub_hal_update(snapshot.heaterOn, snapshot.pumpState);
+        
+        // Persist the updated snapshot to the system
         hot_tub_controller_snapshot_set(&snapshot);
 
+        // feed the dog to prevent watchdog timeout
         app_watchdog_feed_current_task();
     }
 }

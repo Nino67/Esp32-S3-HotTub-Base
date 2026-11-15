@@ -4,6 +4,7 @@ idf_component_register(SRCS "src/hot_tub_controller.c"
                             "src/hot_tub_controller_nvs.c"
                             "src/hot_tub_ds18b20.c"
                             "src/hot_tub_sim.c"
+                            "src/hot_tub_hal.c"
                        INCLUDE_DIRS "include"
                        REQUIRES freertos 
                                 esp_common
@@ -18,5 +19,6 @@ idf_component_register(SRCS "src/hot_tub_controller.c"
                                 json_service
                                 espressif__onewire_bus
                                 espressif__ds18b20)
+
 
 
