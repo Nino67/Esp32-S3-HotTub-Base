@@ -4,13 +4,6 @@
 #include <math.h>
 #include "esp_err.h"
 #include "esp_log.h"
-// #include "esp_ota_ops.h"
-// #include "esp_heap_caps.h"
-// #include "esp_psram.h"
-// #include "esp_partition.h"
-// #include "esp_system.h"
-// #include "esp_timer.h"
-// #include "driver/temperature_sensor.h"
 #include "hot_tub_globals.h"
 #include "cJSON.h"
 

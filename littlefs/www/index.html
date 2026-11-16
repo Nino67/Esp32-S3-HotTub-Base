@@ -22,7 +22,7 @@
           <p class="eyebrow">Hot Tub Controller</p>
           <div class="temperature-display" id="filteredTemperature" aria-live="polite" aria-atomic="true">--°C</div>
           <div class="temperature-label">Water Temperature</div>
-          <div class="time-label">12:00pm</div>
+          <div class="time-label" id="currentTime" aria-live="polite" aria-atomic="true">--:--</div>
         </div>
       </section>
 
@@ -123,7 +123,23 @@
               <span class="switch-label">Pump Post-Run</span>
               <input id="pumpPostRunTimeInput" type="number" step="1" min="0" placeholder="sec" />
             </label>
-            
+
+            <br />
+            <br />
+
+            <h2 >Plot Control</h2>
+
+            <label class="toggle-row" for="plotControlEnabled">
+              <span class="switch-label">Plot Window Display</span>
+              <span class="switch-control">
+                <input id="plotControlEnabled" type="checkbox" class="switch-input" />
+                <span class="switch-track">
+                  <span class="switch-thumb"></span>
+                </span>
+              </span>
+            </label>
+
+
             <br />
             <br />
 

@@ -41,6 +41,7 @@ const otaBtn = document.getElementById('otaBtn');
 const chartContainer = document.getElementById('chartContainer');
 const chartStatus = document.getElementById('chartStatus');
 const filteredTemperatureDisplay = document.getElementById('filteredTemperature');
+const timeDisplay = document.getElementById('currentTime');
 const heatToggle = document.getElementById('heatToggle');
 const settingsToggle = document.getElementById('settingsToggle');
 const settingsPanel = document.getElementById('settingsPanel');
@@ -91,6 +92,18 @@ const sampleTracker = createSampleTracker();
 let temperatureChartId = null;
 let lastStatusReceivedAt = 0;
 let statusDisconnected = false;
+
+function formatTimeLabel(timestamp) {
+  const match = typeof timestamp === 'string'
+    ? /^\d{4}-\d{2}-\d{2} ([01]\d|2[0-3]):([0-5]\d):[0-5]\d$/.exec(timestamp)
+    : null;
+  if (!match) {
+    return '--:--';
+  }
+
+  const hours = Number(match[1]);
+  return `${hours % 12 || 12}:${match[2]} ${hours < 12 ? 'am' : 'pm'}`;
+}
 
 function loadReceivePayloadPreference() {
   try {
@@ -158,6 +171,10 @@ setInterval(() => {
       filteredTemperatureDisplay.classList.toggle('sensor-error', sensorError);
   } else {
       console.warn('[ws_client] filteredTemperature element not found');
+  }
+
+  if (timeDisplay) {
+    safeSetText(timeDisplay, formatTimeLabel(hottub.lastUpdateTime));
   }
 
   if (!statusDisconnected && lastStatusReceivedAt && Date.now() - lastStatusReceivedAt > 3500) {
