@@ -160,6 +160,8 @@ esp_err_t hot_tub_controller_to_json(cJSON *json, const HotTubController_t *stat
 esp_err_t hot_tub_controller_publish_status(void);
 esp_err_t hot_tub_controller_settings_save_to_nvs(void);
 bool hot_tub_controller_is_heat_time_allowed(const HotTubController_t *state);
+esp_err_t hot_tub_controller_set_ds18b20_error(bool has_error);
+bool hot_tub_controller_has_ds18b20_error(void);
 
 
     

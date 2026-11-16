@@ -166,6 +166,7 @@ typedef struct {
 
 extern SemaphoreHandle_t s_mutex;
 extern HotTubController_t hottub_ctl;
+extern bool g_ds18b20_error;
 void lock_state(void);
 void unlock_state(void);
 

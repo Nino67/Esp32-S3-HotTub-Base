@@ -225,6 +225,10 @@ void hottub_heater_status_set_callback(cJSON *root) {
             hottub_callback_error(root, "Failed to read controller state");
             return;
         }
+        if (hot_tub_controller_has_ds18b20_error()) {
+            hottub_callback_error(root, "Cannot turn on heater while the DS18B20 sensor has an error");
+            return;
+        }
         if (!hot_tub_controller_is_heat_time_allowed(&snapshot)) {
             hottub_callback_error(root, "The configured time-control window does not allow heating");
             return;

@@ -7,6 +7,7 @@
 export const hottub = {
     safetySwitch: false,
     heaterOn: false,
+    ds18b20Error: true,
     autoMode: false,
     tempUnitCelsius: true,
     pumpOnLight: false,

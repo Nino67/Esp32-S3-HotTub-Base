@@ -23,10 +23,8 @@
  */
 esp_err_t hot_tub_hal_init(void);   
 
-
-
-
 esp_err_t hot_tub_hal_update(bool heaterOn, pump_state_t pumpState);
+esp_err_t hot_tub_hal_force_heater_off(void);
 
 
 #endif // HOT_TUB_HAL_H

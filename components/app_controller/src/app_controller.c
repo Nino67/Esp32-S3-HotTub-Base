@@ -84,9 +84,13 @@ esp_err_t app_start(void)
     ESP_RETURN_ON_ERROR(rgb_led_heartbeat(), TAG, "rgb led heartbeat start failed");
     ESP_RETURN_ON_ERROR(app_watchdog_feed_current_task(), TAG, "watchdog feed failed after rgb heartbeat start");
 
-    ESP_RETURN_ON_ERROR(hot_tub_ds18b20_init(), TAG, "hot tub DS18B20 init failed");
-    
     ESP_RETURN_ON_ERROR(hot_tub_controller_init(), TAG, "hot tub controller init failed");
+
+    esp_err_t sensor_err = hot_tub_ds18b20_init();
+    if (sensor_err != ESP_OK) {
+        ESP_LOGW(TAG, "DS18B20 unavailable (%s); continuing with heat locked out while sensor retries",
+                 esp_err_to_name(sensor_err));
+    }
 
     ESP_LOGI(TAG, "Hot Tub Controller started successfully");
     

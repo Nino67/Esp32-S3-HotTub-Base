@@ -8,7 +8,7 @@
 
 
 
-
+// Pin Defines
 
 #ifndef heaterPowerPin
 #define heaterPowerPin 5
@@ -34,10 +34,22 @@ esp_err_t hot_tub_hal_init(void)
         .pull_up_en = GPIO_PULLUP_DISABLE,
         .intr_type = GPIO_INTR_DISABLE
     };
-    gpio_config(&io_conf);
-    gpio_set_level(heaterPowerPin, 0);
-    gpio_set_level(pumpLowPowerPin, 0);
-    gpio_set_level(pumpHighPowerPin, 0);
+    esp_err_t err = gpio_config(&io_conf);
+    if (err != ESP_OK) {
+        return err;
+    }
+    err = gpio_set_level(heaterPowerPin, 0);
+    if (err != ESP_OK) {
+        return err;
+    }
+    err = gpio_set_level(pumpLowPowerPin, 0);
+    if (err != ESP_OK) {
+        return err;
+    }
+    err = gpio_set_level(pumpHighPowerPin, 0);
+    if (err != ESP_OK) {
+        return err;
+    }
 
     return ESP_OK;
 } // end of hot_tub_hal_init(void)
@@ -55,10 +67,18 @@ esp_err_t hot_tub_hal_init(void)
  */
 static esp_err_t hot_tub_hal_set_heater(bool on)
 {
-    gpio_set_level(heaterPowerPin, on ? 1 : 0);
-    return ESP_OK;
+    lock_state();
+    bool heater_enabled = on && !g_ds18b20_error;
+    esp_err_t err = gpio_set_level(heaterPowerPin, heater_enabled ? 1 : 0);
+    unlock_state();
+    return err;
 } // end of hot_tub_hal_set_heater(bool on)
 /*****************************************************************************/
+
+esp_err_t hot_tub_hal_force_heater_off(void)
+{
+    return gpio_set_level(heaterPowerPin, 0);
+}
 
 
 /**
@@ -93,12 +113,21 @@ static esp_err_t hot_tub_hal_set_pump_high(bool on)
 /*****************************************************************************/     
 
 
+
+/**
+ * @brief Turn off both pumps
+ *
+ * This function sets both the low and high power pump GPIO pins to low, effectively turning them off.
+ *
+ * @return ESP_OK on success, or an appropriate error code on failure.
+ */
 static esp_err_t hot_tub_hal_set_pump_off(void)  
 {
     gpio_set_level(pumpLowPowerPin, 0);
     gpio_set_level(pumpHighPowerPin, 0);
     return ESP_OK;
-}
+} // end of hot_tub_hal_set_pump_off(void)
+/*****************************************************************************/
 
 
 // Update the heater and pump states based on the desired inputs

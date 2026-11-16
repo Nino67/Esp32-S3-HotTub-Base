@@ -68,6 +68,7 @@ function hottub_status_get_callback(payload) {
         const response = payload.response;
         hottub.safetySwitch = response.safetySwitch;
         hottub.heaterOn = response.heaterOn;
+        hottub.ds18b20Error = response.ds18b20Error === true;
         hottub.autoMode = response.autoMode;
         hottub.tempUnitCelsius = response.tempUnitCelsius;
         hottub.pumpOnLight = response.pumpOnLight;

@@ -306,6 +306,28 @@ bool hot_tub_controller_is_heat_time_allowed(const HotTubController_t *state)
            local_time.tm_hour < state->heatStopHour;
 }
 
+esp_err_t hot_tub_controller_set_ds18b20_error(bool has_error)
+{
+    lock_state();
+    g_ds18b20_error = has_error;
+    if (has_error) {
+        hottub_ctl.heaterOn = false;
+        esp_err_t err = hot_tub_hal_force_heater_off();
+        unlock_state();
+        return err;
+    }
+    unlock_state();
+    return ESP_OK;
+}
+
+bool hot_tub_controller_has_ds18b20_error(void)
+{
+    lock_state();
+    bool has_error = g_ds18b20_error;
+    unlock_state();
+    return has_error;
+}
+
 
 /**
  * @brief Main loop for the hot tub controller task.
@@ -354,6 +376,12 @@ void hot_tub_controller_main_task(void *arg)
         if (hot_tub_controller_snapshot_get(&snapshot) != ESP_OK) {
             continue;
         }   
+
+        const bool ds18b20_error = hot_tub_controller_has_ds18b20_error();
+        if (ds18b20_error && snapshot.heaterOn) {
+            snapshot.heaterOn = false;
+            ESP_LOGW(TAG, "DS18B20 fault active. Turning heater OFF.");
+        }
 
         // Temperature filtering
         if (snapshot.simulationMode == SIM_NONE) {
@@ -404,7 +432,8 @@ void hot_tub_controller_main_task(void *arg)
 
             // --- HEATING REQUEST ---
             // Only engage if post-purge is done AND manual lockout is NOT active
-            if (heat_time_allowed && needs_heat && post_pump_timer == 0 && !heat_lockout)
+            if (!ds18b20_error && heat_time_allowed && needs_heat &&
+                post_pump_timer == 0 && !heat_lockout)
             {
                 if (!snapshot.heaterOn) 
                 {
@@ -478,7 +507,10 @@ void hot_tub_controller_main_task(void *arg)
         hot_tub_controller_set_pump_state(snapshot.pumpState);
 
         // Update the hardware abstraction layer with the current heater and pump states
-        hot_tub_hal_update(snapshot.heaterOn, snapshot.pumpState);
+        esp_err_t hal_err = hot_tub_hal_update(snapshot.heaterOn, snapshot.pumpState);
+        if (hal_err != ESP_OK) {
+            ESP_LOGE(TAG, "Failed to update hot tub hardware: %s", esp_err_to_name(hal_err));
+        }
         
         // Persist the updated snapshot to the system
         hot_tub_controller_snapshot_set(&snapshot);
@@ -800,7 +832,14 @@ esp_err_t hot_tub_controller_init(void)
     // Initialize the hottub_ctl structure to zero values
     lock_state();
     memset(&hottub_ctl, 0, sizeof(hottub_ctl));
+    g_ds18b20_error = true;
     unlock_state();
+
+    err = hot_tub_hal_init();
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to initialize hot tub hardware: %s", esp_err_to_name(err));
+        return err;
+    }
    
     err = hot_tub_controller_load_saved_settings();
     if (err != ESP_OK) 
@@ -944,6 +983,7 @@ esp_err_t hot_tub_controller_to_json(cJSON *json, const HotTubController_t *stat
 
     cJSON_AddBoolToObject(json, "safetySwitch", state->safetySwitch);
     cJSON_AddBoolToObject(json, "heaterOn", state->heaterOn);
+    cJSON_AddBoolToObject(json, "ds18b20Error", hot_tub_controller_has_ds18b20_error());
     cJSON_AddBoolToObject(json, "autoMode", state->autoMode);
     cJSON_AddBoolToObject(json, "tempUnitCelsius", state->tempUnitCelsius);
     cJSON_AddBoolToObject(json, "pumpOnLight", state->pumpOnLight);
@@ -1085,8 +1125,6 @@ esp_err_t hot_tub_publisher_to_json(cJSON *json, const HotTubPublisher_t *state)
 
 // } // end of hot_tub_controller_set_pump()
 // //-----------------------------------------------------------------------------
-
-
 
 
 

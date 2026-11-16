@@ -148,8 +148,14 @@ function saveStatusPayloadPreference(isVisible) {
 setInterval(() => {
   // Update the UI elements based on the current hot tub state
   if (filteredTemperatureDisplay) {
-      const tempUnit = hottub.tempUnitCelsius ? '°C' : '°F';
-      safeSetText(filteredTemperatureDisplay, `${hottub.filteredWaterTemp.toFixed(1)} ${tempUnit}`);
+      const sensorError = hottub.ds18b20Error === true;
+      if (sensorError) {
+        safeSetText(filteredTemperatureDisplay, 'Sensor Error');
+      } else {
+        const tempUnit = hottub.tempUnitCelsius ? '°C' : '°F';
+        safeSetText(filteredTemperatureDisplay, `${hottub.filteredWaterTemp.toFixed(1)} ${tempUnit}`);
+      }
+      filteredTemperatureDisplay.classList.toggle('sensor-error', sensorError);
   } else {
       console.warn('[ws_client] filteredTemperature element not found');
   }

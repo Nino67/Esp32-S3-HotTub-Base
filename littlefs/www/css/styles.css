@@ -93,6 +93,11 @@ h1 {
   line-height: 1;
 }
 
+.temperature-display.sensor-error {
+  color: #ff6b6b;
+  font-size: clamp(2.4rem, 7vw, 5rem);
+}
+
 .temperature-label {
   display: block;
   width: 100%;
@@ -555,5 +560,4 @@ button {
     min-height: 250px;
   }
 }
-
 

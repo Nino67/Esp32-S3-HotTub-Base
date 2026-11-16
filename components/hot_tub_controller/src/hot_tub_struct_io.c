@@ -33,6 +33,7 @@ static const char *TAG = "hot_tub_struct_io";
 
 SemaphoreHandle_t s_mutex = NULL;
 HotTubController_t hottub_ctl = {0};
+bool g_ds18b20_error = true;
 
 #define HOT_TUB_STATE_LOCK_TIMEOUT_MS 100
 
@@ -82,7 +83,11 @@ esp_err_t hot_tub_controller_snapshot_set(const HotTubController_t *state)
         return err;
     }
 
+    bool ds18b20_error = g_ds18b20_error;
     hottub_ctl = *state;
+    if (ds18b20_error) {
+        hottub_ctl.heaterOn = false;
+    }
     unlock_state();
 
     return ESP_OK;
@@ -117,6 +122,10 @@ bool hot_tub_controller_is_heater_on(void)
 esp_err_t hot_tub_controller_set_heater_on(bool on)
 {
     lock_state();
+    if (on && g_ds18b20_error) {
+        unlock_state();
+        return ESP_ERR_INVALID_STATE;
+    }
     hottub_ctl.heaterOn = on;
     unlock_state();
 
