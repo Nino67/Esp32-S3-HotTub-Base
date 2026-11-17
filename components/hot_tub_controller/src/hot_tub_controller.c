@@ -301,16 +301,33 @@ bool hot_tub_controller_is_heat_time_allowed(const HotTubController_t *state)
 
 esp_err_t hot_tub_controller_set_ds18b20_error(bool has_error)
 {
+    bool auto_mode_changed = false;
+    esp_err_t heater_err = ESP_OK;
     lock_state();
     g_ds18b20_error = has_error;
     if (has_error) {
+        g_ds18b20_auto_mode_lockout = true;
+        if (hottub_ctl.autoMode) {
+            hottub_ctl.autoMode = false;
+            auto_mode_changed = true;
+        }
         hottub_ctl.heaterOn = false;
-        esp_err_t err = hot_tub_hal_force_heater_off();
-        unlock_state();
-        return err;
+        heater_err = hot_tub_hal_force_heater_off();
     }
     unlock_state();
-    return ESP_OK;
+
+    if (auto_mode_changed) {
+        esp_err_t save_err = hot_tub_struct_io_save_settings_to_nvs();
+        if (save_err != ESP_OK) {
+            ESP_LOGE(TAG, "Failed to persist auto mode shutdown after DS18B20 fault: %s",
+                     esp_err_to_name(save_err));
+            if (heater_err == ESP_OK) {
+                return save_err;
+            }
+        }
+    }
+
+    return heater_err;
 }
 
 bool hot_tub_controller_has_ds18b20_error(void)
@@ -410,7 +427,7 @@ void hot_tub_controller_main_task(void *arg)
         // =================================================================
         // 2. AUTO TEMPERATURE CONTROL LOGIC
         // =================================================================
-        if (snapshot.autoMode) 
+        if (hot_tub_controller_is_auto_mode())
         {
             hot_tub_controller_verify_hysteresis(&snapshot);
             hot_tub_controller_verify_pump_delay_times(&snapshot);
@@ -826,6 +843,7 @@ esp_err_t hot_tub_controller_init(void)
     lock_state();
     memset(&hottub_ctl, 0, sizeof(hottub_ctl));
     g_ds18b20_error = true;
+    g_ds18b20_auto_mode_lockout = false;
     unlock_state();
 
     err = hot_tub_hal_init();
@@ -977,7 +995,7 @@ esp_err_t hot_tub_controller_to_json(cJSON *json, const HotTubController_t *stat
     cJSON_AddBoolToObject(json, "safetySwitch", state->safetySwitch);
     cJSON_AddBoolToObject(json, "heaterOn", state->heaterOn);
     cJSON_AddBoolToObject(json, "ds18b20Error", hot_tub_controller_has_ds18b20_error());
-    cJSON_AddBoolToObject(json, "autoMode", state->autoMode);
+    cJSON_AddBoolToObject(json, "autoMode", hot_tub_controller_is_auto_mode());
     cJSON_AddBoolToObject(json, "tempUnitCelsius", state->tempUnitCelsius);
     cJSON_AddBoolToObject(json, "pumpOnLight", state->pumpOnLight);
     cJSON_AddBoolToObject(json, "heaterOnLight", state->heaterOnLight);
@@ -1021,7 +1039,7 @@ esp_err_t hot_tub_publisher_to_json(cJSON *json, const HotTubPublisher_t *state)
 {
     if (!json || !state) return ESP_ERR_INVALID_ARG;
 
-    cJSON_AddBoolToObject(json, "autoMode", state->autoMode);
+    cJSON_AddBoolToObject(json, "autoMode", hot_tub_controller_is_auto_mode());
     cJSON_AddNumberToObject(json, "pumpState", state->pumpState);
     cJSON_AddBoolToObject(json, "heaterOn", state->heaterOn);
     cJSON_AddBoolToObject(json, "celsius", state->celsius);
@@ -1118,7 +1136,6 @@ esp_err_t hot_tub_publisher_to_json(cJSON *json, const HotTubPublisher_t *state)
 
 // } // end of hot_tub_controller_set_pump()
 // //-----------------------------------------------------------------------------
-
 
 
 

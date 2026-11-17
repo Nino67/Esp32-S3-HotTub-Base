@@ -52,6 +52,7 @@ const highHysteresisInput = document.getElementById('highHysteresisInput');
 const lowHysteresisInput = document.getElementById('lowHysteresisInput');
 const pumpPreRunTimeInput = document.getElementById('pumpPreRunTimeInput');
 const pumpPostRunTimeInput = document.getElementById('pumpPostRunTimeInput');
+const plotControlEnabledInput = document.getElementById('plotControlEnabled');
 const timeControlEnabledInput = document.getElementById('timeControlEnabled');
 const heatStartHourSelect = document.getElementById('heatStartHourSelect');
 const heatStopHourSelect = document.getElementById('heatStopHourSelect');
@@ -60,6 +61,7 @@ const pumpModeInputs = Array.from(document.querySelectorAll('input[name="pumpMod
 const pumpTrack = document.querySelector('.pump-track');
 const RECEIVE_PAYLOAD_TOGGLE_KEY = 'hottub.receivePayloadVisible';
 const STATUS_PAYLOAD_TOGGLE_KEY = 'hottub.statusPayloadVisible';
+const PLOT_WINDOW_VISIBLE_KEY = 'hottub.plotWindowVisible';
 
 // Debug send UI
 const debugSendInput = document.getElementById('debugSendInput');
@@ -93,16 +95,44 @@ let temperatureChartId = null;
 let lastStatusReceivedAt = 0;
 let statusDisconnected = false;
 
-function formatTimeLabel(timestamp) {
+function parseDeviceTime(timestamp) {
   const match = typeof timestamp === 'string'
     ? /^\d{4}-\d{2}-\d{2} ([01]\d|2[0-3]):([0-5]\d):[0-5]\d$/.exec(timestamp)
     : null;
-  if (!match) {
+  return match ? { hour: Number(match[1]), minute: match[2] } : null;
+}
+
+function formatTimeLabel(timestamp) {
+  const deviceTime = parseDeviceTime(timestamp);
+  if (!deviceTime) {
     return '--:--';
   }
 
-  const hours = Number(match[1]);
-  return `${hours % 12 || 12}:${match[2]} ${hours < 12 ? 'am' : 'pm'}`;
+  const { hour, minute } = deviceTime;
+  return `${hour % 12 || 12}:${minute} ${hour < 12 ? 'am' : 'pm'}`;
+}
+
+function updateTimeControlIndicator(state) {
+  if (!timeDisplay) {
+    return;
+  }
+
+  const deviceTime = parseDeviceTime(state.lastUpdateTime);
+  if (state.timeControlEnabled !== true || !deviceTime) {
+    timeDisplay.removeAttribute('data-time-control');
+    return;
+  }
+
+  const startHour = state.heatStartHour;
+  const stopHour = state.heatStopHour;
+  const validWindow = Number.isInteger(startHour) && startHour >= 0 && startHour <= 23 &&
+    Number.isInteger(stopHour) && stopHour >= 0 && stopHour <= 23 &&
+    startHour !== stopHour;
+  const isAllowed = validWindow && (startHour < stopHour
+    ? deviceTime.hour >= startHour && deviceTime.hour < stopHour
+    : deviceTime.hour >= startHour || deviceTime.hour < stopHour);
+
+  timeDisplay.dataset.timeControl = isAllowed ? 'allowed' : 'blocked';
 }
 
 function loadReceivePayloadPreference() {
@@ -153,6 +183,30 @@ function saveStatusPayloadPreference(isVisible) {
   }
 }
 
+function loadPlotWindowVisibilityPreference() {
+  try {
+    const saved = window.localStorage.getItem(PLOT_WINDOW_VISIBLE_KEY);
+    if (saved === '0') {
+      return false;
+    }
+    if (saved === '1') {
+      return true;
+    }
+  } catch (err) {
+    console.warn('Failed to read plot window visibility preference:', err);
+  }
+
+  return Boolean(plotControlEnabledInput ? plotControlEnabledInput.checked : true);
+}
+
+function savePlotWindowVisibilityPreference(isVisible) {
+  try {
+    window.localStorage.setItem(PLOT_WINDOW_VISIBLE_KEY, isVisible ? '1' : '0');
+  } catch (err) {
+    console.warn('Failed to save plot window visibility preference:', err);
+  }
+}
+
 
 
 /**
@@ -176,6 +230,7 @@ setInterval(() => {
   if (timeDisplay) {
     safeSetText(timeDisplay, formatTimeLabel(hottub.lastUpdateTime));
   }
+  updateTimeControlIndicator(hottub);
 
   if (!statusDisconnected && lastStatusReceivedAt && Date.now() - lastStatusReceivedAt > 3500) {
     safeSetText(chartStatus, 'Data stale - waiting for updates');
@@ -737,6 +792,23 @@ async function hardwareInit() {
   safeSetText(otaStatus, 'idle');
   setOtaProgress(0);
 
+  if (plotControlEnabledInput) {
+    const plotWindowVisible = loadPlotWindowVisibilityPreference();
+    plotControlEnabledInput.checked = plotWindowVisible;
+
+    const plotPanel = chartContainer ? chartContainer.closest('.panel') : null;
+    if (!plotPanel) {
+      console.error('Temperature plot panel not found');
+    } else {
+      plotPanel.hidden = !plotWindowVisible;
+      plotControlEnabledInput.addEventListener('change', () => {
+        const isVisible = Boolean(plotControlEnabledInput.checked);
+        plotPanel.hidden = !isVisible;
+        savePlotWindowVisibilityPreference(isVisible);
+      });
+    }
+  }
+
   showReceivedPayload = loadReceivePayloadPreference();
 
   if (receivePayloadToggle) {
@@ -877,19 +949,19 @@ async function hardwareInit() {
           'pump.post.run.time.set': value,
         });
       }
-
-      if (timeControlEnabledInput) {
-        timeControlEnabledInput.addEventListener('change', sendTimeControlSettings);
-      }
-
-      if (heatStartHourSelect) {
-        heatStartHourSelect.addEventListener('change', sendTimeControlSettings);
-      }
-
-      if (heatStopHourSelect) {
-        heatStopHourSelect.addEventListener('change', sendTimeControlSettings);
-      }
     });
+  }
+
+  if (timeControlEnabledInput) {
+    timeControlEnabledInput.addEventListener('change', sendTimeControlSettings);
+  }
+
+  if (heatStartHourSelect) {
+    heatStartHourSelect.addEventListener('change', sendTimeControlSettings);
+  }
+
+  if (heatStopHourSelect) {
+    heatStopHourSelect.addEventListener('change', sendTimeControlSettings);
   }
 
   pumpModeInputs.forEach((input) => {

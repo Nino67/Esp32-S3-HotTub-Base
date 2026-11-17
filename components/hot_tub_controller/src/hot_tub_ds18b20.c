@@ -168,7 +168,7 @@ void water_temperature_monitoring_task(void *arg)
         {
             esp_err_t interlock_err = hot_tub_controller_set_ds18b20_error(true);
             if (interlock_err != ESP_OK) {
-                ESP_LOGE(TAG, "Failed to force heater off after DS18B20 read failure: %s",
+                ESP_LOGE(TAG, "Failed to apply DS18B20 fault interlock: %s",
                          esp_err_to_name(interlock_err));
             }
             // A missing sensor fails every second; slow console output (115200 baud) stalls other tasks.

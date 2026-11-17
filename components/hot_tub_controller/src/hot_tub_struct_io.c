@@ -34,6 +34,7 @@ static const char *TAG = "hot_tub_struct_io";
 SemaphoreHandle_t s_mutex = NULL;
 HotTubController_t hottub_ctl = {0};
 bool g_ds18b20_error = true;
+bool g_ds18b20_auto_mode_lockout = false;
 
 #define HOT_TUB_STATE_LOCK_TIMEOUT_MS 100
 
@@ -84,8 +85,13 @@ esp_err_t hot_tub_controller_snapshot_set(const HotTubController_t *state)
     }
 
     bool ds18b20_error = g_ds18b20_error;
+    bool auto_mode_lockout = g_ds18b20_auto_mode_lockout;
     hottub_ctl = *state;
     if (ds18b20_error) {
+        hottub_ctl.heaterOn = false;
+    }
+    if (auto_mode_lockout) {
+        hottub_ctl.autoMode = false;
         hottub_ctl.heaterOn = false;
     }
     unlock_state();
@@ -169,7 +175,9 @@ esp_err_t hot_tub_controller_set_time_control(bool enabled, uint8_t start_hour, 
 bool hot_tub_controller_is_auto_mode(void)
 {
     lock_state();
-    bool auto_mode = hottub_ctl.autoMode;
+    bool auto_mode = hottub_ctl.autoMode &&
+                     !g_ds18b20_error &&
+                     !g_ds18b20_auto_mode_lockout;
     unlock_state();
     return auto_mode;
 }
@@ -186,7 +194,14 @@ bool hot_tub_controller_is_auto_mode(void)
 esp_err_t hot_tub_controller_set_auto_mode(bool on)
 {
     lock_state();
+    if (on && g_ds18b20_error) {
+        unlock_state();
+        return ESP_ERR_INVALID_STATE;
+    }
     hottub_ctl.autoMode = on;
+    if (on) {
+        g_ds18b20_auto_mode_lockout = false;
+    }
     unlock_state();
 
     if (hot_tub_struct_io_save_settings_to_nvs() != ESP_OK) {

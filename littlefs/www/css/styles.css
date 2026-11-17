@@ -115,7 +115,15 @@ h1 {
   margin: 10px auto 0;
   text-align: center;
   font-size: clamp(0.75rem, 2vw, 2.2rem);
+  color: var(--muted);
+}
+
+.time-label[data-time-control="allowed"] {
   color: var(--accent-2);
+}
+
+.time-label[data-time-control="blocked"] {
+  color: var(--bad);
 }
 
 .panel {
@@ -570,4 +578,3 @@ button {
     min-height: 250px;
   }
 }
-

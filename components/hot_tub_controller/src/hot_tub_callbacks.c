@@ -334,7 +334,15 @@ void hottub_auto_mode_set_callback(cJSON *root) {
     }
     cJSON *auto_mode_item = param.key_value;
     bool auto_mode = cJSON_IsTrue(auto_mode_item);
-    hot_tub_controller_set_auto_mode(auto_mode);
+    esp_err_t err = hot_tub_controller_set_auto_mode(auto_mode);
+    if (err == ESP_ERR_INVALID_STATE && auto_mode) {
+        hottub_callback_error(root, "Cannot enable auto mode while the DS18B20 sensor has an error");
+        return;
+    }
+    if (err != ESP_OK) {
+        hottub_callback_error(root, "Failed to update auto mode");
+        return;
+    }
 
     // Create a response JSON object
     cJSON *response = cJSON_CreateObject();
