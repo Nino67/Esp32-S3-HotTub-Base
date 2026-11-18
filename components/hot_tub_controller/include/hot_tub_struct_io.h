@@ -38,6 +38,8 @@ float hot_tub_controller_get_low_hysteresis(void);
 void hot_tub_controller_set_low_hysteresis(float temp);
 pump_state_t hot_tub_controller_get_pump_state(void);
 void hot_tub_controller_set_pump_state(pump_state_t targetSpeed);
+esp_err_t hot_tub_controller_request_pump_state(pump_state_t target_state);
+esp_err_t hot_tub_controller_take_pump_state_request(pump_state_t *target_state, bool *has_request);
 float hot_tub_controller_get_pump_pre_run_time(void);
 void hot_tub_controller_set_pump_pre_run_time(float time);
 float hot_tub_controller_get_pump_post_run_time(void);

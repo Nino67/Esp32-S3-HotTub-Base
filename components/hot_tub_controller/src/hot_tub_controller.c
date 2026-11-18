@@ -29,6 +29,7 @@ static const char *TAG = "hot_tub_controller";
 #define DEFAULT_HOTTUB_TIMING_LOOP_DELAY_MS 1000
 #endif
 
+#define PUMP_MODE_DEADTIME_MS 1000
 #define HOT_TUB_STATUS_TASK_STACK_SIZE 4096
 #define HOT_TUB_STATUS_TASK_PRIORITY 2
 
@@ -367,6 +368,10 @@ void hot_tub_controller_main_task(void *arg)
     bool heat_lockout = false; // Lockout flag for manual overrides
     int pre_pump_timer = 0;
     int post_pump_timer = 0;
+    bool pump_state_request_pending = false;
+    pump_state_t requested_pump_state = PUMP_OFF;
+    bool pump_mode_deadtime_active = false;
+    TickType_t pump_mode_deadtime_start = 0;
 
     hot_tub_controller_set_heater_on(false);
     hot_tub_controller_set_pump_state(PUMP_OFF);
@@ -402,11 +407,38 @@ void hot_tub_controller_main_task(void *arg)
         if (pre_pump_timer > 0) pre_pump_timer--;
         if (post_pump_timer > 0) post_pump_timer--;
 
+        pump_state_t new_pump_state_request;
+        bool has_new_pump_state_request = false;
+        esp_err_t request_err = hot_tub_controller_take_pump_state_request(
+            &new_pump_state_request, &has_new_pump_state_request);
+        if (request_err != ESP_OK) {
+            ESP_LOGE(TAG, "Failed to read pump state request: %s", esp_err_to_name(request_err));
+        } else if (has_new_pump_state_request) {
+            requested_pump_state = new_pump_state_request;
+            pump_state_request_pending = true;
+        }
+
+        if (pump_state_request_pending && !pump_mode_deadtime_active &&
+            requested_pump_state == snapshot.pumpState) {
+            pump_state_request_pending = false;
+        }
+
+        if (pump_state_request_pending && requested_pump_state == PUMP_OFF) {
+            if (post_pump_timer == 0) {
+                snapshot.pumpState = PUMP_OFF;
+                pump_state_request_pending = false;
+                pump_mode_deadtime_active = false;
+            } else {
+                pump_mode_deadtime_active = false;
+            }
+        }
+
         // =================================================================
         // 1. MANUAL OVERRIDE & HARDWARE SAFETY INTERLOCK
         // =================================================================
         // If user manually turns pump OFF while heater was ON or during pre-purge:
-        if (snapshot.pumpState == PUMP_OFF && (snapshot.heaterOn || pre_pump_timer > 0)) 
+        if (!pump_mode_deadtime_active && snapshot.pumpState == PUMP_OFF &&
+            (snapshot.heaterOn || pre_pump_timer > 0))
         {
             snapshot.heaterOn = false;   // Kill heater immediately
             auto_started_pump = false;  // Release auto control
@@ -443,7 +475,8 @@ void hot_tub_controller_main_task(void *arg)
             // --- HEATING REQUEST ---
             // Only engage if post-purge is done AND manual lockout is NOT active
             if (!ds18b20_error && heat_time_allowed && needs_heat &&
-                post_pump_timer == 0 && !heat_lockout)
+                post_pump_timer == 0 && !heat_lockout &&
+                !pump_mode_deadtime_active && !pump_state_request_pending)
             {
                 if (!snapshot.heaterOn) 
                 {
@@ -510,17 +543,42 @@ void hot_tub_controller_main_task(void *arg)
             ESP_LOGI(TAG, "Post-purge complete. Auto-pump turned OFF.");
         }
 
+        if (pump_state_request_pending && requested_pump_state != PUMP_OFF) {
+            if (pre_pump_timer == 0 && post_pump_timer == 0 && !snapshot.heaterOn) {
+                if (!pump_mode_deadtime_active) {
+                    if (snapshot.pumpState == requested_pump_state) {
+                        pump_state_request_pending = false;
+                    } else {
+                        pump_mode_deadtime_active = true;
+                        pump_mode_deadtime_start = xTaskGetTickCount();
+                        snapshot.pumpState = PUMP_OFF;
+                        ESP_LOGI(TAG, "Pump state change requested; enforcing %d ms deadtime.",
+                                 PUMP_MODE_DEADTIME_MS);
+                    }
+                } else if ((xTaskGetTickCount() - pump_mode_deadtime_start) >=
+                           pdMS_TO_TICKS(PUMP_MODE_DEADTIME_MS)) {
+                    snapshot.pumpState = requested_pump_state;
+                    pump_state_request_pending = false;
+                    pump_mode_deadtime_active = false;
+                } else {
+                    snapshot.pumpState = PUMP_OFF;
+                }
+            } else if (pump_mode_deadtime_active) {
+                pump_mode_deadtime_active = false;
+            }
+        }
+
         // =================================================================
         // 4. PERSIST STATE TO SYSTEM & SETTERS
         // =================================================================
         hot_tub_controller_set_heater_on(snapshot.heaterOn);
         hot_tub_controller_set_pump_state(snapshot.pumpState);
 
-        // Update the hardware abstraction layer with the current heater and pump states
-        esp_err_t hal_err = hot_tub_hal_update(snapshot.heaterOn, snapshot.pumpState);
-        if (hal_err != ESP_OK) {
-            ESP_LOGE(TAG, "Failed to update hot tub hardware: %s", esp_err_to_name(hal_err));
-        }
+        // // Update the hardware abstraction layer with the current heater and pump states
+        // esp_err_t hal_err = hot_tub_hal_update(snapshot.heaterOn, snapshot.pumpState);
+        // if (hal_err != ESP_OK) {
+        //     ESP_LOGE(TAG, "Failed to update hot tub hardware: %s", esp_err_to_name(hal_err));
+        // }
         
         // Persist the updated snapshot to the system
         hot_tub_controller_snapshot_set(&snapshot);

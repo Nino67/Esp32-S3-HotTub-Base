@@ -734,8 +734,19 @@ void hottub_pump_state_set_callback(cJSON *root) {
         return;
     }
     cJSON *pump_state_item = param.key_value;
+    if (!cJSON_IsNumber(pump_state_item) ||
+        pump_state_item->valueint < PUMP_OFF ||
+        pump_state_item->valueint > PUMP_HIGH) {
+        ESP_LOGE(TAG, "Invalid pump state");
+        return;
+    }
+
     pump_state_t pump_state = (pump_state_t)pump_state_item->valueint;
-    hot_tub_controller_set_pump_state(pump_state);
+    esp_err_t err = hot_tub_controller_request_pump_state(pump_state);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to queue pump state request: %s", esp_err_to_name(err));
+        return;
+    }
 
     // Create a response JSON object
     cJSON *response = cJSON_CreateObject();

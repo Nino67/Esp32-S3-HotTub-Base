@@ -35,6 +35,8 @@ SemaphoreHandle_t s_mutex = NULL;
 HotTubController_t hottub_ctl = {0};
 bool g_ds18b20_error = true;
 bool g_ds18b20_auto_mode_lockout = false;
+static pump_state_t pump_state_request = PUMP_OFF;
+static bool pump_state_request_pending = false;
 
 #define HOT_TUB_STATE_LOCK_TIMEOUT_MS 100
 
@@ -629,6 +631,45 @@ void hot_tub_controller_set_pump_state(pump_state_t targetSpeed)
     if (hot_tub_struct_io_save_settings_to_nvs() != ESP_OK) {
         ESP_LOGE(TAG, "Failed to save settings to NVS");
     }
+}
+//-----------------------------------------------------------------------------
+
+esp_err_t hot_tub_controller_request_pump_state(pump_state_t target_state)
+{
+    if (target_state < PUMP_OFF || target_state > PUMP_HIGH) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    esp_err_t err = take_state_lock();
+    if (err != ESP_OK) {
+        return err;
+    }
+
+    pump_state_request = target_state;
+    pump_state_request_pending = true;
+    unlock_state();
+    return ESP_OK;
+}
+//-----------------------------------------------------------------------------
+
+esp_err_t hot_tub_controller_take_pump_state_request(pump_state_t *target_state, bool *has_request)
+{
+    if (!target_state || !has_request) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    esp_err_t err = take_state_lock();
+    if (err != ESP_OK) {
+        return err;
+    }
+
+    *has_request = pump_state_request_pending;
+    if (pump_state_request_pending) {
+        *target_state = pump_state_request;
+        pump_state_request_pending = false;
+    }
+    unlock_state();
+    return ESP_OK;
 }
 //-----------------------------------------------------------------------------
 
